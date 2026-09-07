@@ -1,296 +1,176 @@
-# Centralized Access Control & Biometric Management System
+# PKP SecureGate - Sistem Manajemen Akses Pintu
 
-Sistem Centralized Access Control & Biometric Management terpusat berbasis **Laravel 10 (PHP 8.1)** yang menghubungkan **1 Web Dashboard terpusat** dengan **4 terminal access control fisik Hikvision DS-K1T804AMF** (protokol **ISAPI RESTful Communication**) yang tersebar di 4 gedung berbeda.
+**PKP SecureGate** adalah sistem terpusat manajemen kontrol akses pintu (*Centralized Access Control & Biometric Management System*) berbasis **Laravel 10 (PHP 8.1+)** yang menghubungkan web dashboard manajemen dengan terminal fisik / emulator kontrol akses **Hikvision DS-K1T804AMF** menggunakan protokol komunikasi **Hikvision ISAPI (RESTful & Digest Authentication)**.
 
----
-
-## 🏢 Topologi Jaringan & Perangkat
-
-| Identitas | Lokasi Fisik | Alamat IP | Protokol / Port | Fungsi Utama |
-|---|---|---|---|---|
-| **Central Server** | Gedung B (Data Center) | `192.168.90.100` | HTTP/HTTPS (80/443) | Server Web Dashboard Laravel, Database, Queue Worker |
-| **Door A** | Gedung A (Kantor Utama) | `192.168.90.11` | ISAPI Digest (Port 80) | Akses Pegawai Kantor & Tamu |
-| **Door B** | Gedung B (IT & Infra) | `192.168.90.12` | ISAPI Digest (Port 80) | Akses Khusus Tim IT / Server Room (Restricted) |
-| **Door C** | Gedung C (Operasional) | `192.168.90.13` | ISAPI Digest (Port 80) | Akses Operasional Lapangan |
-| **Door D** | Gedung D (Produksi) | `192.168.90.14` | ISAPI Digest (Port 80) | Akses Tim Produksi & Pabrik |
+Sistem ini mendukung pengelolaan izin akses karyawan (kartu RFID & sidik jari), monitoring status konektivitas terminal secara real-time, sinkronisasi log riwayat akses (*audit trail*), webhook notifikasi tap akses otomatis, serta mode simulasi mock terintegrasi.
 
 ---
 
-## 🛠️ Tech Stack & Arsitektur
+## 💻 Kebutuhan Sistem (System Requirements)
 
-- **Framework**: Laravel 10 (PHP 8.1)
-- **Autentikasi Dashboard**: Laravel Sanctum (Bearer Token)
-- **Autentikasi Perangkat Fisik**: HTTP Digest Authentication per terminal ISAPI Hikvision
-- **Database**: SQLite (Default Zero-Config Local Dev & Testing) / MySQL Ready
-- **Background Jobs**: Laravel Queue Worker (`SyncDoorAccessJob`) untuk push biometrik & hak akses ke terminal
-- **Auto-Ping Scheduler**: Laravel Task Scheduler (`doors:ping`) mengecek status koneksi pintu setiap 1 menit
-- **Keamanan Webhook**: `VerifyDeviceWebhook` Middleware mengecek IP Whitelist & Header `X-Device-Secret`
-- **Timezone**: `Asia/Jakarta` (WIB)
+Pastikan server atau komputer lokal Anda telah memenuhi persyaratan berikut:
+
+- **PHP**: `^8.1` atau lebih baru (dengan ekstensi `php-sqlite3`, `php-curl`, `php-mbstring`, `php-xml`, `php-zip`, `php-pdo`)
+- **Composer**: `^2.0` (Dependency Manager for PHP)
+- **Node.js & NPM**: Node.js `^18.x` / `^20.x` & NPM `^9.x`
+- **Web Browser**: Google Chrome, Mozilla Firefox, Microsoft Edge, atau browser modern lainnya
+- **Database**: SQLite (default zero-config untuk dev/testing) atau MySQL 8.0+
 
 ---
 
-## 🚀 Panduan Instalasi & Memulai Proyek
+## 🚀 Panduan Instalasi Cepat (Quick Start)
 
-### 1. Kloning & Setup Environment
+Ikuti langkah-langkah berikut untuk menginstal dan menjalankan proyek di lingkungan lokal:
+
 ```bash
-# Salin konfigurasi environment
+# 1. Masuk ke direktori proyek
+cd access-door-management
+
+# 2. Instal dependensi PHP via Composer
+composer install
+
+# 3. Instal dependensi Node.js (opsional jika membuild asset)
+npm install
+
+# 4. Salin template konfigurasi environment
 cp .env.example .env
 
-# Generate Application Encryption Key
+# 5. Generate Application Encryption Key
 php artisan key:generate
+
+# 6. Jalankan database migration dan seeder data awal
+php artisan migrate --seed
+
+# 7. Jalankan server lokal Laravel
+php artisan serve
 ```
 
-### 2. Jalankan Migrasi & Database Seeder
-```bash
-# Membuat tabel dan mengisi data dummy realistis (4 doors, 12 employees, access logs)
-php artisan migrate:fresh --seed
-```
+Aplikasi web dashboard dapat diakses melalui browser di: **`http://localhost:8000`**
 
-### 3. Jalankan Server Development & Background Workers
-Buka 3 jendela terminal terpisah:
-
-- **Terminal 1 (Web Dashboard Server)**:
-  ```bash
-  php artisan serve
-  # Buka di browser: http://localhost:8000
-  ```
-
-- **Terminal 2 (Queue Worker Async ISAPI)**:
-  ```bash
-  php artisan queue:work
-  ```
-
-- **Terminal 3 (Auto-Ping Door Scheduler)**:
-  ```bash
-  php artisan schedule:work
-  ```
+> **Catatan Background Worker (Opsional untuk Asynchronous Sync & Auto-Ping)**:
+> - Jalankan Queue Worker: `php artisan queue:work`
+> - Jalankan Scheduler Auto-Ping: `php artisan schedule:work`
 
 ---
 
-## 🔑 Akun Demo Dashboard
+## ⚙️ Konfigurasi ISAPI & Mock Mode
 
-Buka `http://localhost:8000/login`:
+Integrasi terminal Hikvision dikendalikan melalui konfigurasi pada file `.env`:
 
-- **Super Admin**:
-  - Email: `admin@accesscontrol.local`
-  - Password: `password`
-  - *Hak Akses*: Akses penuh ke seluruh gedung, pintu, dan karyawan.
+### 1. Variabel Lingkungan Utama
+
+| Variabel `.env` | Nilai Default | Keterangan |
+|---|---|---|
+| `HIKVISION_ISAPI_USE_MOCK` | `true` | Set `true` untuk mode simulasi mock lokal, atau `false` untuk koneksi langsung ke terminal fisik. |
+| `HIKVISION_ISAPI_HOST` | `192.168.90.11` | IP default terminal kontrol akses fisik Hikvision (DS-K1T804AMF). |
+| `HIKVISION_ISAPI_PORT` | `80` | Port HTTP ISAPI terminal (default: 80). |
+| `HIKVISION_ISAPI_USERNAME` | `admin` | Username administratif terminal Hikvision. |
+| `HIKVISION_ISAPI_PASSWORD` | `Hikvision@DoorA` | Password administratif terminal Hikvision. |
+| `HIKVISION_ISAPI_MOCK_BASE_URL` | `http://localhost:8000/api/mock/isapi` | Base URL endpoint mock ISAPI lokal. |
+| `ISAPI_CONNECT_TIMEOUT` | `5` | Batas waktu koneksi socket cURL (detik). |
+| `ISAPI_REQUEST_TIMEOUT` | `10` | Batas waktu total request ISAPI (detik). |
+
+### 2. Mekanisme Mock Mode & Pencegahan Deadlock Single-Thread
+
+Pada server bawaan PHP (`php artisan serve`), proses berjalan secara *single-threaded*. Jika backend Laravel melakukan HTTP call via cURL ke `localhost:8000` miliknya sendiri saat melayani request browser, akan terjadi **deadlock / timeout (cURL error 28)** karena satu-satunya thread PHP terkunci menunggu dirinya sendiri.
+
+Untuk mengatasi kendala tersebut:
+- Saat **`HIKVISION_ISAPI_USE_MOCK=true`**, [`HikvisionIsapiService`](file:///d:/Magang/Project/access-door-management/app/Services/HikvisionIsapiService.php) **secara otomatis mengalihkan pemanggilan langsung ke internal controller** ([`App\Http\Controllers\Mock\HikvisionMockController`](file:///d:/Magang/Project/access-door-management/app/Http/Controllers/Mock/HikvisionMockController.php)) di dalam proses PHP yang sama tanpa memicu outgoing cURL HTTP network loop.
+- Saat **`HIKVISION_ISAPI_USE_MOCK=false`**, service akan menggunakan `Http::withDigestAuth(...)` untuk terhubung ke IP perangkat fisik nyata.
+
+---
+
+## 🏢 Topologi Pintu & Jaringan (Physical Hardware Setup)
+
+| Identitas | Lokasi Fisik | Alamat IP | Protokol / Autentikasi | Fungsi Utama |
+|---|---|---|---|---|
+| **Central Server** | Gedung B (Data Center) | `192.168.90.100` | HTTP/HTTPS (80/443) | Web Dashboard Laravel, REST API, Database |
+| **Door A** | Gedung A (Kantor Utama) | `192.168.90.11` | ISAPI Digest (Port 80) | Akses Pegawai Kantor & Tamu |
+| **Door B** | Gedung B (IT & Infra) | `192.168.90.12` | ISAPI Digest (Port 80) | Akses Khusus Ruang Server (Restricted) |
+| **Door C** | Gedung C (Operasional) | `192.168.90.13` | ISAPI Digest (Port 80) | Akses Staf Operasional Lapangan |
+| **Door D** | Gedung D (Produksi) | `192.168.90.14` | ISAPI Digest (Port 80) | Akses Pabrik & Tim Produksi |
+
+---
+
+## 🔑 Kredensial Akun Demo Dashboard
+
+Buka URL: `http://localhost:8000/login`
+
+- **Super Administrator**:
+  - **Email**: `admin@accesscontrol.local`
+  - **Password**: `password`
+  - *Hak Akses*: Akses penuh ke seluruh gedung, pintu, hak akses kartu, dan audit log.
 
 - **Building Admin (Gedung A)**:
-  - Email: `admin.gedunga@accesscontrol.local`
-  - Password: `password`
-  - *Hak Akses*: Dibatasi hanya untuk resource di Gedung A.
+  - **Email**: `admin.gedunga@accesscontrol.local`
+  - **Password**: `password`
+  - *Hak Akses*: Dibatasi hanya untuk resource dan pintu di Gedung A (RBAC Policy).
 
 ---
 
-## 🧪 Jalankan Automated Testing (PHPUnit)
+## 🧪 Menjalankan Automated Testing (PHPUnit)
 
-Jalankan seluruh pengujian unit dan fitur otomatis (13 Test Cases):
+Proyek ini dilengkapi dengan comprehensive test suite (Unit & Feature Tests) yang mencakup autentikasi, otorisasi RBAC, sinkronisasi pintu, integrasi ISAPI mock & real, webhook listener, dan API endpoint:
+
 ```bash
 php artisan test
 ```
 
+Contoh output:
+```text
+   PASS  Tests\Unit\ExampleTest
+   PASS  Tests\Feature\ApiListingAndAuditTest
+   PASS  Tests\Feature\AuthTest
+   PASS  Tests\Feature\DashboardIntegrationTest
+   PASS  Tests\Feature\DoorAccessSyncTest
+   PASS  Tests\Feature\EmployeeCrudTest
+   PASS  Tests\Feature\ExampleTest
+   PASS  Tests\Feature\HikvisionIsapiServiceTest
+   PASS  Tests\Feature\HikvisionMockTest
+   PASS  Tests\Feature\IsapiWebhookTest
+   PASS  Tests\Feature\RbacPolicyTest
+
+  Tests:    40 passed (255 assertions)
+  Duration: 1.80s
+```
+
 ---
 
-## 📡 API Endpoint Reference (`/api/v1/`)
+## 📡 Referensi Endpoint API Utama (`/api/`)
 
-Semua request API memerlukan Header:
+Semua request API terproteksi memerlukan Header:
 ```http
 Authorization: Bearer <sanctum_token>
 Accept: application/json
 ```
 
-### 1. User Management Listing
-`GET /api/v1/user-management/users` atau `GET /api/v1/user-management/employees`
+### 1. Manajemen Hak Akses Karyawan
+- `GET /api/v1/user-management/users` — Daftar karyawan beserta status kartu RFID & pintu yang di-assign.
+- `POST /api/v1/user-management/assign-doors` — Assign izin akses kartu ke pintu tertentu (memicu ISAPI sync).
+- `POST /api/v1/user-management/revoke-doors` — Cabut (*revoke*) izin akses kartu dari seluruh pintu.
 
-**cURL Request**:
-```bash
-curl -X GET "http://localhost:8000/api/v1/user-management/users?page=1" \
-  -H "Authorization: Bearer YOUR_SANCTUM_TOKEN" \
-  -H "Accept: application/json"
-```
+### 2. Monitoring & Cek Konektivitas Terminal
+- `GET /api/v1/admin/doors` — Ringkasan status seluruh pintu, lokasi, IP, dan jumlah user terdaftar.
+- `POST /api/v1/admin/doors/{door}/check-connection` — Cek status konektivitas ISAPI untuk pintu tertentu.
+- `POST /api/v1/admin/doors/check-all-connections` — Cek serentak status konektivitas seluruh terminal pintu.
 
-**Example Success Response**:
-```json
-{
-  "status": "success",
-  "pagination": {
-    "current_page": 1,
-    "per_page": 10,
-    "total_records": 12,
-    "total_pages": 2
-  },
-  "data": [
-    {
-      "id": 1,
-      "user_id": "USR-1001",
-      "employee_id": "USR-1001",
-      "nik": "NIK-882101",
-      "name": "Budi Santoso",
-      "department": "IT Support",
-      "role_jabatan": "Lead Infrastructure",
-      "biometric_status": {
-        "fingerprint_enrolled": true,
-        "card_enrolled": true
-      },
-      "door_assign": [
-        {
-          "door_id": "DOOR-A",
-          "door_name": "Door A - Akses Pegawai & Tamu",
-          "sync_status": "synced",
-          "sync_attempts": 1,
-          "last_synced_at": "2026-09-04T08:30:00+07:00"
-        },
-        {
-          "door_id": "DOOR-B",
-          "door_name": "Door B - Restricted Server Room",
-          "sync_status": "synced",
-          "sync_attempts": 1,
-          "last_synced_at": "2026-09-04T08:30:00+07:00"
-        }
-      ]
-    }
-  ]
-}
-```
+### 3. Log Riwayat Akses (*Audit Trail*)
+- `GET /api/v1/admin/access-logs` — Riwayat tap akses pintu dengan filter status (`Granted` / `Denied`), tanggal, dan lokasi.
+- `POST /api/v1/admin/access-logs/sync-hardware` — Menarik (*fetch events*) riwayat tap langsung dari terminal Hikvision ke database.
+
+### 4. Webhook Notifikasi Real-Time Terminal
+- `POST /api/v1/isapi/event-notification` — Endpoint penerima event push tap akses dari terminal fisik Hikvision (dilindungi header `X-Device-Secret`).
+
+### 5. Mock Endpoint ISAPI Simulasi (`/api/mock/isapi/`)
+- `GET /api/mock/isapi/System/status` — Simulasi status perangkat (`deviceStatus`).
+- `PUT /api/mock/isapi/AccessControl/CardInfo/Record` — Simulasi registrasi/sinkronisasi kartu RFID (`syncCard`).
+- `POST /api/mock/isapi/AccessControl/AcsEvent` — Simulasi penarikan log riwayat tap akses (`fetchAccessLogs`).
 
 ---
 
-### 2. Admin - View Doors Monitoring
-`GET /api/v1/admin/doors`
+## 🛑 Format Standar Respons Error API
 
-**cURL Request**:
-```bash
-curl -X GET "http://localhost:8000/api/v1/admin/doors" \
-  -H "Authorization: Bearer YOUR_SANCTUM_TOKEN" \
-  -H "Accept: application/json"
-```
-
-**Example Success Response**:
-```json
-{
-  "status": "success",
-  "total_doors": 4,
-  "data": [
-    {
-      "id": 1,
-      "door_id": "DOOR-A",
-      "door_name": "Door A - Akses Pegawai & Tamu",
-      "location": "Gedung A (Kantor Utama)",
-      "device_ip": "192.168.90.11",
-      "device_model": "DS-K1T804AMF",
-      "connection_status": "online",
-      "is_manual_override": false,
-      "last_checked_at": "2026-09-04T09:00:00+07:00",
-      "total_assigned_users": 9
-    },
-    {
-      "id": 2,
-      "door_id": "DOOR-B",
-      "door_name": "Door B - Restricted Server Room",
-      "location": "Gedung B (IT & Infra)",
-      "device_ip": "192.168.90.12",
-      "device_model": "DS-K1T804AMF",
-      "connection_status": "online",
-      "is_manual_override": false,
-      "last_checked_at": "2026-09-04T09:00:00+07:00",
-      "total_assigned_users": 4
-    }
-  ]
-}
-```
-
----
-
-### 3. Admin - Access Logs History
-`GET /api/v1/admin/access-logs`
-
-**Query Parameters**: `door_id`, `nik` / `user`, `start_date`, `end_date`, `limit`
-
-**cURL Request**:
-```bash
-curl -X GET "http://localhost:8000/api/v1/admin/access-logs?door_id=DOOR-D&limit=10" \
-  -H "Authorization: Bearer YOUR_SANCTUM_TOKEN" \
-  -H "Accept: application/json"
-```
-
-**Example Success Response**:
-```json
-{
-  "status": "success",
-  "total_records": 10,
-  "data": [
-    {
-      "log_id": "LOG-20260904-001",
-      "door_id": "DOOR-D",
-      "door_name": "Door D - Akses Pabrik & Produksi",
-      "device_ip": "192.168.90.14",
-      "user": {
-        "nik": "NIK-882104",
-        "name": "Dewi Lestari",
-        "department": "Produksi"
-      },
-      "verify_method": "Fingerprint",
-      "access_status": "Granted",
-      "timestamp": "2026-09-04T08:45:12+07:00"
-    }
-  ]
-}
-```
-
----
-
-### 4. ISAPI Physical Device Tap Event Webhook Listener
-`POST /api/v1/isapi/event-notification`
-
-**Headers Wajib**: `X-Device-Secret: <secret_door_key>`
-
-**cURL Request**:
-```bash
-curl -X POST "http://localhost:8000/api/v1/isapi/event-notification" \
-  -H "X-Device-Secret: secret_door_a_9981" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "door_id": "DOOR-A",
-    "user": "NIK-882101",
-    "verify_method": "Fingerprint",
-    "access_status": "Granted"
-  }'
-```
-
-**Example Success Response**:
-```json
-{
-  "status": "success",
-  "message": "Event notifikasi tap akses berhasil dicatat",
-  "data": {
-    "log_id": "LOG-20260904091522-AB12",
-    "door_id": "DOOR-A",
-    "door_name": "Door A - Akses Pegawai & Tamu",
-    "employee_name": "Budi Santoso",
-    "access_status": "Granted",
-    "timestamp": "2026-09-04T09:15:22+07:00"
-  }
-}
-```
-
----
-
-### 5. Manual Batch Retry Sync
-`POST /api/v1/admin/door-assignments/sync`
-
-**cURL Request**:
-```bash
-curl -X POST "http://localhost:8000/api/v1/admin/door-assignments/sync" \
-  -H "Authorization: Bearer YOUR_SANCTUM_TOKEN" \
-  -H "Accept: application/json"
-```
-
----
-
-## 🛑 Standard Error Response Format
-
-Semua error dikembalikan dalam format JSON standar konsisten:
+Semua kegagalan API dikembalikan dalam format JSON terstandarisasi:
 
 ```json
 {
@@ -303,8 +183,8 @@ Semua error dikembalikan dalam format JSON standar konsisten:
 }
 ```
 
-- **401**: Unauthenticated (Token Sanctum tidak valid/kadaluarsa).
-- **403**: Forbidden (RBAC / IP & Webhook secret ditolak).
-- **404**: Resource Not Found.
-- **422**: Validation Exception.
+- **401**: Unauthenticated (Token Sanctum tidak valid atau kadaluarsa).
+- **403**: Forbidden (Pelanggaran RBAC / IP & Webhook Secret ditolak).
+- **404**: Resource Not Found (Pintu atau karyawan tidak ditemukan).
+- **422**: Validation Exception (Payload parameter tidak sesuai aturan).
 - **503**: Device Offline / Service Unavailable.
