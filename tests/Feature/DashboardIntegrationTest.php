@@ -201,7 +201,7 @@ class DashboardIntegrationTest extends TestCase
         $response = $this->actingAs($this->admin)->get('/');
 
         $response->assertStatus(200)
-            ->assertSee('SecureGate')
+            ->assertSee('PKP Secure')
             ->assertSee('Cek Semua Koneksi Terminal')
             ->assertSee('Sinkronkan Log Pintu')
             ->assertSee('Cabut Semua Akses');

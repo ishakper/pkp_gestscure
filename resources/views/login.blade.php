@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PKP SecureGate - Centralized Multi-Building Access Control</title>
+    <title>PKP Secure - Centralized Multi-Building Access Control</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="apple-touch-icon" href="{{ asset('favicon.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -534,10 +534,10 @@
     <div class="brand-header">
         <div class="brand-icon-wrap">
             <div class="brand-icon" id="brandCoinIcon">
-                <img src="{{ asset('images/pkp-logo.png') }}" alt="PKP SecureGate" onerror="this.src='{{ asset('favicon.svg') }}'">
+                <img src="{{ asset('images/pkp-logo.png') }}" alt="PKP Secure" onerror="this.src='{{ asset('favicon.svg') }}'">
             </div>
         </div>
-        <h1 class="brand-title" id="decodeTitle" data-value="PKP SecureGate">PKP SecureGate</h1>
+        <h1 class="brand-title" id="decodeTitle" data-value="PKP Secure">PKP Secure</h1>
         <p class="brand-subtitle"><span class="cyber-accent">//</span> Central Access Control &amp; Biometrics</p>
     </div>
 
@@ -630,7 +630,7 @@
     function startDecodingAnimation() {
         const el = document.getElementById('decodeTitle');
         if (!el) return;
-        const targetText = el.getAttribute('data-value') || 'PKP SecureGate';
+        const targetText = el.getAttribute('data-value') || 'PKP Secure';
         const chars = '0123456789ABCDEF!#$&%?*+~ΔΩ';
         const decodeObj = { progress: 0 };
 

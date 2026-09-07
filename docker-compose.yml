@@ -9,7 +9,7 @@ services:
     ports:
       - "${APP_PORT:-8000}:80"
     environment:
-      - APP_NAME=PKP SecureGate
+      - APP_NAME=PKP Secure
       - APP_ENV=production
       - APP_DEBUG=false
       - APP_KEY=${APP_KEY:-base64:309l7r53f5qO2cZ7X8hYlqV1V6C5q8j+7p7+9n9=placeholder}

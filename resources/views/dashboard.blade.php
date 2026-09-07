@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PKP SecureGate - Centralized Multi-Building Access Control</title>
+    <title>PKP Secure - Centralized Multi-Building Access Control</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="apple-touch-icon" href="{{ asset('favicon.svg') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1252,10 +1252,10 @@
 <!-- Floating Logo Architecture (Extracted Fixed Standalone Trigger) -->
 <div id="floatingLogo" class="floating-logo cursor-pointer" role="button" tabindex="0" title="Klik Logo untuk Buka/Tutup Sidebar (Ctrl+B)" aria-label="Toggle Sidebar Navigation">
     <div class="brand-icon floating-logo-icon">
-        <img src="{{ asset('images/pkp-logo.png') }}" alt="PKP SecureGate" class="brand-logo-img floating-logo-img" onerror="this.src='{{ asset('favicon.svg') }}'">
+        <img src="{{ asset('images/pkp-logo.png') }}" alt="PKP Secure" class="brand-logo-img floating-logo-img" onerror="this.src='{{ asset('favicon.svg') }}'">
     </div>
     <div class="floating-logo-text">
-        <span class="floating-logo-title">PKP SecureGate</span>
+        <span class="floating-logo-title">PKP Secure</span>
         <span class="floating-logo-subtitle">Central Access Control</span>
     </div>
 </div>

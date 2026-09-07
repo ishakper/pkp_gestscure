@@ -1,32 +1,49 @@
-image: php:8.1-cli
+# ==============================================================================
+# GitLab CI/CD Pipeline - PKP Secure (Access Door Management)
+# Runner Tag: Sandbox
+# Stages:
+#   1. test   : Automated test suite execution (php artisan test)
+#   2. deploy : Docker Compose rebuild & container restart (branch main only)
+# ==============================================================================
 
 stages:
-  - build
   - test
+  - deploy
 
-before_script:
-  - apt-get update -yqq
-  - apt-get install -yqq git libzip-dev zip unzip libsqlite3-dev
-  - docker-php-ext-install zip pdo_sqlite
-  - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-
-install_dependencies:
-  stage: build
-  script:
-    - composer install --no-interaction --prefer-dist --optimize-autoloader
-  artifacts:
+# ------------------------------------------------------------------------------
+# Stage 1: Test (PHPUnit / Pest Test Suite)
+# ------------------------------------------------------------------------------
+test:
+  stage: test
+  image: php:8.2-cli
+  tags:
+    - Sandbox
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
     paths:
       - vendor/
-    expire_in: 1 hours
-
-run_phpunit_tests:
-  stage: test
-  dependencies:
-    - install_dependencies
+  before_script:
+    - apt-get update -yqq
+    - apt-get install -yqq git zip unzip libsqlite3-dev libzip-dev libpng-dev libonig-dev
+    - docker-php-ext-install zip pdo_sqlite mbstring bcmath
+    - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
   script:
     - cp .env.example .env
+    - composer install --no-interaction --prefer-dist --optimize-autoloader
     - php artisan key:generate
-    - touch database/database.sqlite
-    - sed -i -e "s/DB_CONNECTION=mysql/DB_CONNECTION=sqlite/" .env
-    - php artisan migrate:fresh --seed
     - php artisan test
+
+# ------------------------------------------------------------------------------
+# Stage 2: Deploy (Docker Compose Build & Container Restart)
+# ------------------------------------------------------------------------------
+deploy:
+  stage: deploy
+  image: docker:latest
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  script:
+    - docker compose down --remove-orphans || true
+    - docker compose up -d --build
+    - docker compose ps
