@@ -51,7 +51,7 @@ COPY . .
 
 # 6. Copy Configurations (Nginx, Supervisor, PHP, Entrypoint)
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
-RUN mkdir -p /etc/nginx/conf.d && cp /etc/nginx/http.d/default.conf /etc/nginx/conf.d/default.conf
+RUN rm -rf /etc/nginx/conf.d/*
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY docker/php.ini $PHP_INI_DIR/conf.d/custom.ini
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
