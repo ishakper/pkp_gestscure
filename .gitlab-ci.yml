@@ -23,6 +23,9 @@ deploy:
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_PIPELINE_SOURCE == "web"
   script:
+    - mkdir -p database storage bootstrap/cache
+    - touch database/database.sqlite
+    - chmod -R 777 database storage bootstrap/cache
     - docker compose down --remove-orphans || true
     - docker compose up -d --build
     - docker compose ps
