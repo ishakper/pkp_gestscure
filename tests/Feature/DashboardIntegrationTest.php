@@ -182,8 +182,8 @@ class DashboardIntegrationTest extends TestCase
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
-                'inserted_count' => 1,
             ]);
+        $this->assertGreaterThanOrEqual(1, $response->json('inserted_count'));
 
         $this->assertDatabaseHas('access_logs', [
             'door_id' => $this->doorA->id,

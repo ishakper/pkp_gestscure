@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Http\Controllers\Mock\HikvisionMockController;
 use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -108,9 +110,45 @@ class HikvisionIsapiService
 
     /**
      * Retrieve device status from /System/status endpoint.
+     * In mock mode, directly invokes HikvisionMockController to prevent single-thread cURL deadlocks on php artisan serve.
      */
     public function getDeviceStatus(?Door $door = null): array
     {
+        // 1. Mock Mode: Direct Internal Controller Invocation
+        if ($this->isMockMode()) {
+            // Simulated offline if IP ends with .99
+            if ($door && !empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "Simulated Device Offline ({$door->device_ip})",
+                ];
+            }
+
+            try {
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->deviceStatus();
+                $data = $jsonResponse->getData(true) ?? [];
+
+                return [
+                    'status' => true,
+                    'statusCode' => $data['statusCode'] ?? 1,
+                    'data' => $data,
+                    'error' => null,
+                ];
+            } catch (\Throwable $e) {
+                Log::error("ISAPI mock deviceStatus error: " . $e->getMessage());
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        // 2. Real Physical Device Mode: HTTP Request with Digest Auth
         $url = $this->buildUrl('/System/status', $door);
 
         try {
@@ -145,11 +183,10 @@ class HikvisionIsapiService
 
     /**
      * Push / Synchronize user RFID card info to terminal via /AccessControl/CardInfo/Record (PUT).
+     * In mock mode, directly invokes HikvisionMockController.
      */
     public function syncCardUser(string $employeeNo, string $cardNo, ?string $employeeName = null, ?Door $door = null): array
     {
-        $url = $this->buildUrl('/AccessControl/CardInfo/Record', $door);
-
         $payload = [
             'CardInfo' => [
                 'employeeNo' => $employeeNo,
@@ -162,6 +199,44 @@ class HikvisionIsapiService
             'cardNo' => $cardNo,
             'name' => $employeeName,
         ];
+
+        // 1. Mock Mode: Direct Internal Controller Invocation
+        if ($this->isMockMode()) {
+            try {
+                $request = Request::create('/api/mock/isapi/AccessControl/CardInfo/Record', 'PUT', $payload);
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->syncCard($request);
+                $data = $jsonResponse->getData(true) ?? [];
+                $httpStatus = $jsonResponse->getStatusCode();
+
+                if ($httpStatus >= 200 && $httpStatus < 300) {
+                    return [
+                        'status' => true,
+                        'statusCode' => $data['statusCode'] ?? 1,
+                        'data' => $data,
+                        'error' => null,
+                    ];
+                }
+
+                return [
+                    'status' => false,
+                    'statusCode' => $httpStatus,
+                    'data' => $data,
+                    'error' => $data['errorMsg'] ?? ($data['ResponseStatus']['errorMsg'] ?? 'Card synchronization failed.'),
+                ];
+            } catch (\Throwable $e) {
+                Log::error("ISAPI mock syncCardUser error: " . $e->getMessage());
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        // 2. Real Physical Device Mode
+        $url = $this->buildUrl('/AccessControl/CardInfo/Record', $door);
 
         try {
             $response = $this->buildHttpClient($door)->put($url, $payload);
@@ -198,11 +273,10 @@ class HikvisionIsapiService
 
     /**
      * Fetch access events / tap logs from /AccessControl/AcsEvent (POST).
+     * In mock mode, directly invokes HikvisionMockController.
      */
     public function fetchEvents(?int $limit = 20, ?Door $door = null): array
     {
-        $url = $this->buildUrl('/AccessControl/AcsEvent', $door);
-
         $payload = [
             'AcsEventCond' => [
                 'searchID' => (string) Str::uuid(),
@@ -212,6 +286,56 @@ class HikvisionIsapiService
                 'minor' => 0,
             ],
         ];
+
+        // 1. Mock Mode: Direct Internal Controller Invocation
+        if ($this->isMockMode()) {
+            try {
+                $request = Request::create('/api/mock/isapi/AccessControl/AcsEvent', 'POST', $payload);
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->fetchAccessLogs($request);
+                $data = $jsonResponse->getData(true) ?? [];
+
+                $rawList = $data['AcsEvent']['InfoList'] ?? ($data['events'] ?? ($data['InfoList'] ?? []));
+                $formattedEvents = [];
+
+                foreach ($rawList as $item) {
+                    $formattedEvents[] = [
+                        'major' => $item['major'] ?? null,
+                        'minor' => $item['minor'] ?? null,
+                        'time' => $item['time'] ?? now()->toIso8601String(),
+                        'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
+                        'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
+                        'name' => $item['name'] ?? null,
+                        'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
+                        'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
+                        'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
+                        'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
+                    ];
+                }
+
+                return [
+                    'status' => true,
+                    'statusCode' => 1,
+                    'total' => count($formattedEvents),
+                    'events' => $formattedEvents,
+                    'data' => $data,
+                    'error' => null,
+                ];
+            } catch (\Throwable $e) {
+                Log::error("ISAPI mock fetchEvents error: " . $e->getMessage());
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'total' => 0,
+                    'events' => [],
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        // 2. Real Physical Device Mode
+        $url = $this->buildUrl('/AccessControl/AcsEvent', $door);
 
         try {
             $response = $this->buildHttpClient($door)->post($url, $payload);

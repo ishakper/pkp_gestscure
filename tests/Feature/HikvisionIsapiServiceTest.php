@@ -55,10 +55,45 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test getDeviceStatus successfully receives device status.
+     * Test mock mode directly invokes HikvisionMockController internally (bypassing cURL deadlock).
+     */
+    public function test_mock_mode_invokes_controller_internally_without_http_calls(): void
+    {
+        Config::set('services.hikvision.use_mock', true);
+
+        // 1. getDeviceStatus
+        $status = $this->service->getDeviceStatus($this->door);
+        $this->assertTrue($status['status']);
+        $this->assertEquals(1, $status['statusCode']);
+        $this->assertEquals('closed', $status['data']['doorStatus']);
+
+        // 2. syncCardUser success
+        $sync = $this->service->syncCardUser('USR-1001', 'CARD-1001', 'Budi Santoso', $this->door);
+        $this->assertTrue($sync['status']);
+        $this->assertEquals(1, $sync['statusCode']);
+        $this->assertEquals('CARD-1001', $sync['data']['cardNo']);
+
+        // 3. syncCardUser validation error
+        $syncErr = $this->service->syncCardUser('', '', null, $this->door);
+        $this->assertFalse($syncErr['status']);
+        $this->assertEquals(400, $syncErr['statusCode']);
+        $this->assertStringContainsString('cardNo and employeeNo are required', $syncErr['error']);
+
+        // 4. fetchEvents
+        $events = $this->service->fetchEvents(10, $this->door);
+        $this->assertTrue($events['status']);
+        $this->assertEquals(1, $events['statusCode']);
+        $this->assertNotEmpty($events['events']);
+        $this->assertEquals('Card', $events['events'][0]['verify_method']);
+    }
+
+    /**
+     * Test getDeviceStatus successfully receives device status in real HTTP mode.
      */
     public function test_get_device_status_returns_success_response(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/System/status' => Http::response([
                 'statusCode' => 1,
@@ -88,6 +123,8 @@ class HikvisionIsapiServiceTest extends TestCase
      */
     public function test_get_device_status_handles_connection_exception(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/System/status' => function () {
                 throw new \Illuminate\Http\Client\ConnectionException('Connection timed out');
@@ -102,10 +139,12 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test syncCardUser successfully synchronizes card data.
+     * Test syncCardUser successfully synchronizes card data in real HTTP mode.
      */
     public function test_sync_card_user_success(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/AccessControl/CardInfo/Record' => Http::response([
                 'statusCode' => 1,
@@ -130,10 +169,12 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test syncCardUser handles bad request validation error (400).
+     * Test syncCardUser handles bad request validation error (400) in real HTTP mode.
      */
     public function test_sync_card_user_handles_validation_error(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/AccessControl/CardInfo/Record' => Http::response([
                 'statusCode' => 4,
@@ -158,10 +199,12 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test syncCardUser handles network timeout exception gracefully.
+     * Test syncCardUser handles network timeout exception gracefully in real HTTP mode.
      */
     public function test_sync_card_user_handles_exception_resiliently(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/AccessControl/CardInfo/Record' => function () {
                 throw new \Exception('Network unreachable');
@@ -176,10 +219,12 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test fetchEvents retrieves and standardizes access events.
+     * Test fetchEvents retrieves and standardizes access events in real HTTP mode.
      */
     public function test_fetch_events_returns_formatted_logs(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/AccessControl/AcsEvent' => Http::response([
                 'statusCode' => 1,
@@ -237,10 +282,12 @@ class HikvisionIsapiServiceTest extends TestCase
     }
 
     /**
-     * Test fetchEvents handles error response without throwing unhandled 500.
+     * Test fetchEvents handles error response without throwing unhandled 500 in real HTTP mode.
      */
     public function test_fetch_events_handles_error(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         Http::fake([
             '*/AccessControl/AcsEvent' => Http::response([
                 'statusCode' => 7,
@@ -263,6 +310,8 @@ class HikvisionIsapiServiceTest extends TestCase
      */
     public function test_backward_compatible_methods(): void
     {
+        Config::set('services.hikvision.use_mock', false);
+
         $employee = Employee::create([
             'employee_id' => 'USR-1001',
             'nik' => 'NIK-882101',

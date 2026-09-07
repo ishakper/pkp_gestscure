@@ -151,6 +151,9 @@ class AdminAccessLogController extends Controller
                     if (!$emp && !empty($evt['card_no'])) {
                         $emp = Employee::where('card_no', $evt['card_no'])->first();
                     }
+                    if (!$emp && !empty($evt['name'])) {
+                        $emp = Employee::where('name', $evt['name'])->first();
+                    }
 
                     // Check for existing log with same timestamp & door
                     $existing = AccessLog::where('door_id', $targetDoor->id)
