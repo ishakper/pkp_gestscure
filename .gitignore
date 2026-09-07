@@ -21,3 +21,7 @@ yarn-error.log
 composer.phar
 *.cache
 
+
+setup_lan_firewall.*
+access-door-management.md
+
