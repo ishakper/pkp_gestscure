@@ -1,0 +1,32 @@
+image: php:8.1-cli
+
+stages:
+  - build
+  - test
+
+before_script:
+  - apt-get update -yqq
+  - apt-get install -yqq git libzip-dev zip unzip libsqlite3-dev
+  - docker-php-ext-install zip pdo_sqlite
+  - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+install_dependencies:
+  stage: build
+  script:
+    - composer install --no-interaction --prefer-dist --optimize-autoloader
+  artifacts:
+    paths:
+      - vendor/
+    expire_in: 1 hours
+
+run_phpunit_tests:
+  stage: test
+  dependencies:
+    - install_dependencies
+  script:
+    - cp .env.example .env
+    - php artisan key:generate
+    - touch database/database.sqlite
+    - sed -i -e "s/DB_CONNECTION=mysql/DB_CONNECTION=sqlite/" .env
+    - php artisan migrate:fresh --seed
+    - php artisan test
