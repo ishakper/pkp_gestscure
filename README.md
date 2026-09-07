@@ -53,6 +53,43 @@ Aplikasi web dashboard dapat diakses melalui browser di: **`http://localhost:800
 
 ---
 
+## 🐳 Panduan Deployment Docker (Production-Ready)
+
+Proyek ini telah dilengkapi dengan konfigurasi container Docker ringan (*lightweight*) berbasis **PHP 8.2 FPM Alpine + Nginx + Supervisord** yang siap dideploy untuk kebutuhan tim Infra.
+
+### 1. Menjalankan Container via Docker Compose
+
+Pastikan Docker & Docker Compose telah terpasang di host server, lalu jalankan:
+
+```bash
+# 1. Build dan jalankan container di background
+docker compose up -d --build
+
+# 2. Pantau log inisialisasi & status service
+docker compose logs -f
+
+# 3. Buka dashboard di browser
+# http://localhost:8000
+```
+
+### 2. Fitur Otomatisasi Container
+- **Auto-Database & Migration**: Entrypoint container secara otomatis membuat database SQLite (`/var/www/html/database/database.sqlite`) jika belum tersedia, menjalankan `php artisan migrate --force`, serta melakukan seeding data awal jika database masih kosong.
+- **Production Performance Caching**: Otomatis mengeksekusi `config:cache`, `route:cache`, dan `view:cache` saat container boot.
+- **Persistent Data & Logs**: Database SQLite dan log tersimpan di host via bind volume (`./database/database.sqlite`, `./storage/logs`, `./storage/app`) sehingga data log tap akses tidak hilang saat container restart.
+- **Supervisord Multi-Process**: Supervisord mengelola PHP-FPM, Nginx, dan background Queue Worker dalam satu container efisien.
+
+### 3. Perintah Manajemen Docker
+
+| Kebutuhan | Perintah |
+|---|---|
+| Cek Status Container & Healthcheck | `docker compose ps` |
+| Melihat Log Real-time | `docker compose logs -f app` |
+| Masuk ke Terminal Container | `docker compose exec app sh` |
+| Menjalankan Artisan di Container | `docker compose exec app php artisan migrate:status` |
+| Menghentikan Container | `docker compose down` |
+
+---
+
 ## ⚙️ Konfigurasi ISAPI & Mock Mode
 
 Integrasi terminal Hikvision dikendalikan melalui konfigurasi pada file `.env`:
