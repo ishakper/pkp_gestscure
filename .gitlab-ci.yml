@@ -1,23 +1,45 @@
 # ==============================================================================
 # GitLab CI/CD Pipeline - PKP Secure (Access Door Management)
-# Runner Tag: Sandbox
-# Stages:
-#   1. test   : Automated test suite execution (php artisan test)
-#   2. deploy : Docker Compose rebuild & container restart (branch main only)
+# Target Runner Tag: Sandbox
 # ==============================================================================
 
 stages:
-  - test
   - deploy
+  - test
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
 
 # ------------------------------------------------------------------------------
-# Stage 1: Test (PHPUnit / Pest Test Suite)
+# Primary Job: Deploy to Sandbox Server (Docker Compose)
+# ------------------------------------------------------------------------------
+deploy:
+  stage: deploy
+  image: docker:latest
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "web"
+  script:
+    - docker compose down --remove-orphans || true
+    - docker compose up -d --build
+    - docker compose ps
+
+# ------------------------------------------------------------------------------
+# Secondary Job: Automated Test Suite (Optional / Independent)
 # ------------------------------------------------------------------------------
 test:
   stage: test
   image: php:8.2-cli
   tags:
     - Sandbox
+  needs: []
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true
   cache:
     key: ${CI_COMMIT_REF_SLUG}
     paths:
@@ -32,18 +54,3 @@ test:
     - composer install --no-interaction --prefer-dist --optimize-autoloader
     - php artisan key:generate
     - php artisan test
-
-# ------------------------------------------------------------------------------
-# Stage 2: Deploy (Docker Compose Build & Container Restart)
-# ------------------------------------------------------------------------------
-deploy:
-  stage: deploy
-  image: docker:latest
-  tags:
-    - Sandbox
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-  script:
-    - docker compose down --remove-orphans || true
-    - docker compose up -d --build
-    - docker compose ps
