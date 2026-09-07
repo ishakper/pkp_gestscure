@@ -23,8 +23,9 @@ class IsapiWebhookController extends Controller
             'user' => 'nullable|string|max:100|regex:/^[^<>]*$/',
             'nik' => 'nullable|string|max:50|regex:/^[^<>]*$/',
             'employee_id' => 'nullable|string|max:50|regex:/^[^<>]*$/',
-            'verify_method' => 'nullable|string|in:Fingerprint,Card,Face,PIN,fingerprint,card,face,pin',
-            'access_status' => 'nullable|string|in:Granted,Denied,granted,denied',
+            'event_type' => 'nullable|string|max:50|regex:/^[^<>]*$/',
+            'verify_method' => 'nullable|string|max:50|regex:/^[^<>]*$/',
+            'access_status' => 'nullable|string|max:50|regex:/^[^<>]*$/',
             'timestamp' => 'nullable|date',
             'reason' => 'nullable|string|max:255|regex:/^[^<>]*$/',
         ], [
@@ -35,6 +36,7 @@ class IsapiWebhookController extends Controller
             'user.regex' => 'Parameter user mengandung karakter terlarang (< atau >).',
             'nik.regex' => 'Parameter nik mengandung karakter terlarang (< atau >).',
             'employee_id.regex' => 'Parameter employee_id mengandung karakter terlarang (< atau >).',
+            'event_type.regex' => 'Parameter event_type mengandung karakter terlarang (< atau >).',
             'reason.regex' => 'Parameter reason mengandung karakter terlarang (< atau >).',
         ]);
 
@@ -42,10 +44,7 @@ class IsapiWebhookController extends Controller
         $deviceIp = $validated['device_ip'] ?? $request->ip();
         $cardNo = $validated['card_number'] ?? ($validated['card_no'] ?? ($validated['card'] ?? null));
         $nikOrEmployeeId = $validated['user'] ?? ($validated['nik'] ?? ($validated['employee_id'] ?? $cardNo));
-        $rawVerify = $validated['verify_method'] ?? ($cardNo ? 'Card' : 'Fingerprint');
-        $verifyMethod = in_array(ucfirst(strtolower($rawVerify)), ['Card', 'Fingerprint'])
-            ? ucfirst(strtolower($rawVerify))
-            : ($cardNo ? 'Card' : 'Fingerprint');
+        $eventType = strtoupper($validated['event_type'] ?? 'STANDARD_TAP');
         $eventTimestamp = $validated['timestamp'] ?? now()->toIso8601String();
 
         // 2. Resolve Door Device (Strict: No fallback to Door::first())
@@ -66,23 +65,57 @@ class IsapiWebhookController extends Controller
             ], 404);
         }
 
-        // 3. Resolve Employee by NIK, employee_id, or card_no
+        // 3. Process Specific Event Types (Alarms, Duress, or Standard Tap)
         $employee = null;
-        if ($nikOrEmployeeId) {
-            $employee = Employee::where('nik', $nikOrEmployeeId)
-                ->orWhere('employee_id', $nikOrEmployeeId)
-                ->orWhere('card_no', $nikOrEmployeeId)
-                ->first();
-        }
-        if (!$employee && $cardNo) {
-            $employee = Employee::where('card_no', $cardNo)->first();
-        }
+        $reason = $validated['reason'] ?? null;
 
-        // Determine access status
-        if (isset($validated['access_status'])) {
-            $accessStatus = ucfirst(strtolower($validated['access_status']));
+        if ($eventType === 'DOOR_FORCED_OPEN') {
+            $verifyMethod = $validated['verify_method'] ?? 'Sensor';
+            $accessStatus = 'Alarm';
+            $displayNik = $nikOrEmployeeId ? substr(strip_tags($nikOrEmployeeId), 0, 50) : 'SENSOR-FORCED-OPEN';
+            $reason = $reason ?: '[CRITICAL ALARM] Pintu Dibuka Paksa (Door Forced Open) - Potensi Pembobolan / Intrusi Ilegal!';
+        } elseif ($eventType === 'TAMPER_ALARM') {
+            $verifyMethod = $validated['verify_method'] ?? 'Sensor';
+            $accessStatus = 'Alarm';
+            $displayNik = $nikOrEmployeeId ? substr(strip_tags($nikOrEmployeeId), 0, 50) : 'SENSOR-TAMPER';
+            $reason = $reason ?: '[CRITICAL ALARM] Sensor Sabotase Aktif (Tamper Alarm) - Perangkat Terminal Dilepas / Dibongkar!';
+        } elseif ($eventType === 'DURESS_FINGERPRINT') {
+            if ($nikOrEmployeeId) {
+                $employee = Employee::where('nik', $nikOrEmployeeId)
+                    ->orWhere('employee_id', $nikOrEmployeeId)
+                    ->orWhere('card_no', $nikOrEmployeeId)
+                    ->first();
+            }
+            $verifyMethod = $validated['verify_method'] ?? 'Duress_Fingerprint';
+            $accessStatus = 'Duress';
+            $displayNik = $employee ? $employee->nik : ($nikOrEmployeeId ? substr(strip_tags($nikOrEmployeeId), 0, 50) : 'DURESS-USER');
+            $reason = $reason ?: '[EMERGENCY DURESS] Akses Pintu Dibuka di Bawah Ancaman (Duress Alarm Triggered)!';
         } else {
-            $accessStatus = $employee ? 'Granted' : 'Denied';
+            // Standard Tap Scenario
+            $eventType = 'STANDARD_TAP';
+            if ($nikOrEmployeeId) {
+                $employee = Employee::where('nik', $nikOrEmployeeId)
+                    ->orWhere('employee_id', $nikOrEmployeeId)
+                    ->orWhere('card_no', $nikOrEmployeeId)
+                    ->first();
+            }
+            if (!$employee && $cardNo) {
+                $employee = Employee::where('card_no', $cardNo)->first();
+            }
+
+            $rawVerify = $validated['verify_method'] ?? ($cardNo ? 'Card' : 'Fingerprint');
+            $verifyMethod = in_array(ucfirst(strtolower($rawVerify)), ['Card', 'Fingerprint', 'Face', 'Pin'])
+                ? ucfirst(strtolower($rawVerify))
+                : ($cardNo ? 'Card' : 'Fingerprint');
+
+            if (isset($validated['access_status'])) {
+                $accessStatus = ucfirst(strtolower($validated['access_status']));
+            } else {
+                $accessStatus = $employee ? 'Granted' : 'Denied';
+            }
+
+            $displayNik = $employee ? $employee->nik : ($nikOrEmployeeId ? substr(strip_tags($nikOrEmployeeId), 0, 50) : null);
+            $reason = $reason ?: ($accessStatus === 'Denied' && !$employee ? 'Unknown Card / Unregistered User' : null);
         }
 
         // 4. Generate Unique Log ID
@@ -93,23 +126,26 @@ class IsapiWebhookController extends Controller
             'log_id' => strtoupper($logId),
             'door_id' => $door->id,
             'employee_id' => $employee ? $employee->id : null,
-            'nik' => $employee ? $employee->nik : ($nikOrEmployeeId ? substr(strip_tags($nikOrEmployeeId), 0, 50) : null),
+            'nik' => $displayNik,
+            'event_type' => $eventType,
             'device_ip' => $deviceIp,
             'verify_method' => $verifyMethod,
-            'access_status' => in_array($accessStatus, ['Granted', 'Denied']) ? $accessStatus : 'Granted',
-            'reason' => $validated['reason'] ?? ($accessStatus === 'Denied' && !$employee ? 'Unknown Card / Unregistered User' : null),
+            'access_status' => $accessStatus,
+            'reason' => $reason,
             'timestamp' => $eventTimestamp ? date('Y-m-d H:i:s', strtotime($eventTimestamp)) : now(),
         ]);
 
         return response()->json([
             'status' => 'success',
-            'message' => 'Event notifikasi tap akses berhasil dicatat',
+            'message' => 'Event notifikasi tap / alarm akses berhasil dicatat',
             'data' => [
                 'log_id' => $accessLog->log_id,
+                'event_type' => $eventType,
                 'door_id' => $door->door_id,
                 'door_name' => $door->door_name,
-                'employee_name' => $employee ? $employee->name : 'Unknown / Unregistered Card',
+                'employee_name' => $employee ? $employee->name : ($eventType === 'STANDARD_TAP' ? 'Unknown / Unregistered Card' : 'Security Alarm Event'),
                 'access_status' => $accessLog->access_status,
+                'reason' => $accessLog->reason,
                 'timestamp' => $accessLog->timestamp instanceof \DateTimeInterface ? $accessLog->timestamp->toIso8601String() : \Carbon\Carbon::parse($accessLog->timestamp)->toIso8601String(),
             ],
         ], 200);

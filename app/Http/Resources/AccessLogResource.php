@@ -25,6 +25,7 @@ class AccessLogResource extends JsonResource
                 'card_no' => null,
                 'department' => null,
             ] : null),
+            'event_type' => $this->event_type ?? 'STANDARD_TAP',
             'verify_method' => $this->verify_method ?? $this->auth_method,
             'access_status' => $this->access_status ?? $this->status,
             'reason' => $this->reason,

@@ -35,19 +35,27 @@ class AdminAccessLogController extends Controller
             });
         }
 
-        // Filter by status ('Granted' / 'Denied')
+        // Filter by status ('Granted' / 'Denied' / 'Alarm' / 'Duress')
         if ($request->filled('status')) {
             $status = $request->status;
             $query->where(function ($q) use ($status) {
                 $q->where('access_status', $status)
-                  ->orWhere('status', $status);
+                  ->orWhere('status', $status)
+                  ->orWhere('event_type', $status);
             });
         } elseif ($request->filled('access_status')) {
             $status = $request->access_status;
             $query->where(function ($q) use ($status) {
                 $q->where('access_status', $status)
-                  ->orWhere('status', $status);
+                  ->orWhere('status', $status)
+                  ->orWhere('event_type', $status);
             });
+        }
+
+        // Filter by event_type
+        if ($request->filled('event_type')) {
+            $eventType = $request->event_type;
+            $query->where('event_type', $eventType);
         }
 
         // Filter by NIK or User

@@ -158,8 +158,13 @@ Accept: application/json
 - `GET /api/v1/admin/access-logs` — Riwayat tap akses pintu dengan filter status (`Granted` / `Denied`), tanggal, dan lokasi.
 - `POST /api/v1/admin/access-logs/sync-hardware` — Menarik (*fetch events*) riwayat tap langsung dari terminal Hikvision ke database.
 
-### 4. Webhook Notifikasi Real-Time Terminal
-- `POST /api/v1/isapi/event-notification` — Endpoint penerima event push tap akses dari terminal fisik Hikvision (dilindungi header `X-Device-Secret`).
+### 4. Webhook Notifikasi Real-Time Terminal & Simulasi Event
+- `POST /api/v1/isapi/event-notification` — Endpoint penerima event push tap akses & alarm dari terminal fisik / simulator Hikvision (dilindungi header `X-Device-Secret`).
+  - Mendukung `event_type`:
+    - `STANDARD_TAP`: Tap akses normal kartu/sidik jari (`Granted` / `Denied`).
+    - `DOOR_FORCED_OPEN`: Pembobolan pintu tanpa autentikasi (memicu status `Alarm`).
+    - `TAMPER_ALARM`: Sensor fisik anti-tamper pembongkaran casing terminal (memicu status `Alarm`).
+    - `DURESS_FINGERPRINT`: Sidik jari darurat saat karyawan di bawah ancaman (memicu status `Duress`).
 
 ### 5. Mock Endpoint ISAPI Simulasi (`/api/mock/isapi/`)
 - `GET /api/mock/isapi/System/status` — Simulasi status perangkat (`deviceStatus`).

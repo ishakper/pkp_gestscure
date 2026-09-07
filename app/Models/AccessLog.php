@@ -14,6 +14,7 @@ class AccessLog extends Model
         'door_id',
         'employee_id',
         'nik',
+        'event_type',
         'device_ip',
         'auth_method',
         'verify_method',

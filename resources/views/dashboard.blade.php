@@ -945,6 +945,8 @@
 
         .badge-granted { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; }
         .badge-denied { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); font-weight: 700; }
+        .badge-alarm { background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #ef4444; font-weight: 700; box-shadow: 0 0 8px rgba(239, 68, 68, 0.35); }
+        .badge-duress { background: rgba(245, 158, 11, 0.25); color: #fbbf24; border: 1px solid #f59e0b; font-weight: 700; box-shadow: 0 0 8px rgba(245, 158, 11, 0.35); }
 
         .door-pills-wrap {
             display: flex;
@@ -1469,9 +1471,11 @@
                     <div class="search-box">
                         ⚡
                         <select id="logStatusFilter" onchange="loadAccessLogs()">
-                            <option value="">Semua Status Akses</option>
+                            <option value="">Semua Status & Alarm</option>
                             <option value="Granted">Granted (Akses Diterima)</option>
                             <option value="Denied">Denied (Akses Ditolak)</option>
+                            <option value="Alarm">🚨 Alarm / Intrusion / Sabotase</option>
+                            <option value="Duress">⚠️ Duress Emergency</option>
                         </select>
                     </div>
                     <div class="search-box">
@@ -1592,8 +1596,8 @@
         <div class="simulator-box">
             <h3 style="margin-bottom: 0.5rem; font-size: 1.25rem;">🧪 Hikvision ISAPI Hardware Webhook Simulator</h3>
             <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">
-                Simulasikan tap kartu RFID fisik atau sidik jari dari salah satu dari 4 terminal pintu.
-                Payload dikirimkan secara terenkripsi ke webhook <code>POST /api/v1/isapi/event-notification</code> dengan <code>X-Device-Secret</code>.
+                Simulasikan sinyal event perangkat keras terminal kontrol akses pintu Hikvision DS-K1T804AMF (termasuk skenario normal tap dan skenario darurat/alarm).
+                Payload dikirimkan secara aman ke webhook <code>POST /api/v1/isapi/event-notification</code> dengan <code>X-Device-Secret</code>.
             </p>
 
             <form id="simulatorForm" onsubmit="runEventSimulation(event)">
@@ -1609,29 +1613,47 @@
                     </div>
 
                     <div class="form-row">
-                        <label>NIK / User ID / Nomor Kartu</label>
-                        <input type="text" id="simUserNik" value="NIK-882101" placeholder="Misal: NIK-882101 atau CARD-1001" required>
+                        <label>Tipe Skenario Event (Event Type)</label>
+                        <select id="simEventType" onchange="handleSimEventTypeChange(this.value)">
+                            <option value="STANDARD_TAP">🟢 Standard Tap Access (Normal)</option>
+                            <option value="DOOR_FORCED_OPEN">🚨 DOOR_FORCED_OPEN (Pembobolan Pintu / Alarm)</option>
+                            <option value="TAMPER_ALARM">🔧 TAMPER_ALARM (Sensor Sabotase Terminal)</option>
+                            <option value="DURESS_FINGERPRINT">⚠️ DURESS_FINGERPRINT (Sidik Jari Darurat / Ancaman)</option>
+                        </select>
                     </div>
 
-                    <div class="form-row">
+                    <div class="form-row" id="simUserGroup">
+                        <label id="simUserLabel">NIK / User ID / Nomor Kartu</label>
+                        <input type="text" id="simUserNik" value="NIK-882101" placeholder="Misal: NIK-882101 atau CARD-1001">
+                    </div>
+
+                    <div class="form-row" id="simMethodGroup">
                         <label>Metode Verifikasi</label>
                         <select id="simMethod">
                             <option value="Fingerprint">Fingerprint (Sidik Jari)</option>
                             <option value="Card">Card (Kartu RFID)</option>
+                            <option value="Sensor">Sensor (Physical Trigger)</option>
+                            <option value="Duress_Fingerprint">Duress_Fingerprint (Sidik Jari Darurat)</option>
                         </select>
                     </div>
 
-                    <div class="form-row">
+                    <div class="form-row" id="simStatusGroup">
                         <label>Status Akses Terminal</label>
                         <select id="simStatus">
                             <option value="Granted">Granted (Akses Diterima)</option>
                             <option value="Denied">Denied (Akses Ditolak)</option>
+                            <option value="Alarm">Alarm (🚨 Alarm / Intrusion)</option>
+                            <option value="Duress">Duress (⚠️ Silent Duress Alert)</option>
                         </select>
                     </div>
                 </div>
 
+                <div id="simScenarioInfo" style="margin-bottom: 1.25rem; padding: 0.85rem 1rem; background: rgba(56, 189, 248, 0.08); border-left: 4px solid var(--accent); border-radius: 4px; font-size: 0.85rem; color: var(--text-main);">
+                    <strong>💡 Skenario Terpilih:</strong> <span>Simulasi tap kartu / sidik jari reguler pegawai. Akses diberikan jika NIK terdaftar dan memiliki izin ke pintu tersebut.</span>
+                </div>
+
                 <button type="submit" class="btn-primary" id="btnSendSimulation">
-                    ⚡ Kirim Signal Tap Event Simulasi
+                    ⚡ Kirim Sinyal Event Hardware
                 </button>
             </form>
 

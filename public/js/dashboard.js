@@ -764,19 +764,48 @@ function renderAccessLogsTable(logs) {
     }
 
     const html = logs.map(log => {
-        const isGranted = (log.access_status === 'Granted' || log.status === 'Granted');
-        const statusBadge = isGranted
-            ? `<span class="badge badge-granted">✓ GRANTED</span>`
-            : `<span class="badge badge-denied">✕ DENIED</span>`;
+        const rawStatus = log.access_status || log.status || 'Granted';
+        const eventType = log.event_type || 'STANDARD_TAP';
+
+        let statusBadge = '';
+        if (rawStatus === 'Alarm' || eventType === 'DOOR_FORCED_OPEN' || eventType === 'TAMPER_ALARM') {
+            statusBadge = `<span class="badge badge-alarm">🚨 ALARM / INTRUSION</span>`;
+        } else if (rawStatus === 'Duress' || eventType === 'DURESS_FINGERPRINT') {
+            statusBadge = `<span class="badge badge-duress">⚠️ DURESS ALERT</span>`;
+        } else if (rawStatus === 'Granted') {
+            statusBadge = `<span class="badge badge-granted">✓ GRANTED</span>`;
+        } else {
+            statusBadge = `<span class="badge badge-denied">✕ DENIED</span>`;
+        }
 
         const cardNo = log.user?.card_no || log.card_no;
-        const userHtml = log.user && (log.user.name || log.user.nik)
-            ? `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${cardNo ? `• 💳 ${escapeHtml(cardNo)}` : ''} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`
-            : `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Intrusion')}</span>`;
+        let userHtml = '';
 
-        const methodBadge = (log.verify_method === 'Card' || log.auth_method === 'Card')
-            ? `<span class="method-chip method-card">💳 Card</span>`
-            : `<span class="method-chip method-fp">👆 Fingerprint</span>`;
+        if (eventType === 'DOOR_FORCED_OPEN') {
+            userHtml = `<strong style="color: #f87171;">🚨 Pintu Dibobol Paksa</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor intrusi terbuka tanpa autentikasi')}</small>`;
+        } else if (eventType === 'TAMPER_ALARM') {
+            userHtml = `<strong style="color: #f87171;">🔧 Sabotase Terminal</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor anti-tamper casing terpicu')}</small>`;
+        } else if (eventType === 'DURESS_FINGERPRINT') {
+            const empName = log.user?.name || log.nik || 'Karyawan';
+            userHtml = `<strong>${escapeHtml(empName)}</strong> <span class="badge badge-duress" style="font-size: 0.65rem; padding: 1px 5px;">DURESS</span><br><small class="text-muted">${escapeHtml(log.user?.nik || log.nik || '')} • <em>${escapeHtml(log.reason || 'Akses dibuka di bawah ancaman')}</em></small>`;
+        } else if (log.user && (log.user.name || log.user.nik)) {
+            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${cardNo ? `• 💳 ${escapeHtml(cardNo)}` : ''} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
+        } else {
+            userHtml = `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Unregistered User')}</span>`;
+        }
+
+        let methodBadge = '';
+        if (eventType === 'DOOR_FORCED_OPEN') {
+            methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">⚡ Forced Entry</span>`;
+        } else if (eventType === 'TAMPER_ALARM') {
+            methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">🔧 Tamper Sensor</span>`;
+        } else if (eventType === 'DURESS_FINGERPRINT' || log.verify_method === 'Duress_Fingerprint') {
+            methodBadge = `<span class="method-chip" style="background: rgba(245,158,11,0.18); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35);">⚠️ Duress FP</span>`;
+        } else if (log.verify_method === 'Card' || log.auth_method === 'Card') {
+            methodBadge = `<span class="method-chip method-card">💳 Card</span>`;
+        } else {
+            methodBadge = `<span class="method-chip method-fp">👆 Fingerprint</span>`;
+        }
 
         const timestampStr = log.timestamp 
             ? new Date(log.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' })
@@ -819,15 +848,74 @@ function resetLogFilters() {
 // ==========================================
 // Section 4: ISAPI Hardware Simulator
 // ==========================================
+function handleSimEventTypeChange(eventType) {
+    const userLabel = document.getElementById('simUserLabel');
+    const userNik = document.getElementById('simUserNik');
+    const methodSelect = document.getElementById('simMethod');
+    const statusSelect = document.getElementById('simStatus');
+    const infoBox = document.getElementById('simScenarioInfo');
+
+    if (!userNik || !methodSelect || !statusSelect) return;
+
+    if (eventType === 'DOOR_FORCED_OPEN') {
+        userNik.value = 'SENSOR-FORCED-OPEN';
+        userNik.placeholder = 'Sensor pembobolan fisik';
+        if (userLabel) userLabel.textContent = 'Identitas Sensor / Pemicu';
+        methodSelect.value = 'Sensor';
+        statusSelect.value = 'Alarm';
+        if (infoBox) {
+            infoBox.style.borderLeftColor = '#ef4444';
+            infoBox.style.background = 'rgba(239, 68, 68, 0.1)';
+            infoBox.innerHTML = `<strong>🚨 Skenario Pembobolan Pintu (DOOR_FORCED_OPEN):</strong> <span>Event pembobolan pintu fisik tanpa autentikasi kartu/biometrik. Sistem memicu status ALARM (High Severity) dan mencatat insiden keamanan ke audit log.</span>`;
+        }
+    } else if (eventType === 'TAMPER_ALARM') {
+        userNik.value = 'SENSOR-TAMPER';
+        userNik.placeholder = 'Sensor tamper hardware';
+        if (userLabel) userLabel.textContent = 'Identitas Sensor / Pemicu';
+        methodSelect.value = 'Sensor';
+        statusSelect.value = 'Alarm';
+        if (infoBox) {
+            infoBox.style.borderLeftColor = '#ef4444';
+            infoBox.style.background = 'rgba(239, 68, 68, 0.1)';
+            infoBox.innerHTML = `<strong>🔧 Skenario Sabotase Terminal (TAMPER_ALARM):</strong> <span>Event sensor fisik anti-tamper terpicu akibat pembongkaran casing perangkat terminal oleh pihak tidak bertanggung jawab. Memicu status ALARM.</span>`;
+        }
+    } else if (eventType === 'DURESS_FINGERPRINT') {
+        userNik.value = 'NIK-882101';
+        userNik.placeholder = 'Misal: NIK-882101';
+        if (userLabel) userLabel.textContent = 'NIK Karyawan (Korban Tekanan)';
+        methodSelect.value = 'Duress_Fingerprint';
+        statusSelect.value = 'Duress';
+        if (infoBox) {
+            infoBox.style.borderLeftColor = '#f59e0b';
+            infoBox.style.background = 'rgba(245, 158, 11, 0.1)';
+            infoBox.innerHTML = `<strong>⚠️ Skenario Sidik Jari Darurat (DURESS_FINGERPRINT):</strong> <span>Event sidik jari khusus saat karyawan ditekan/diancam. Pintu fisik tetap terbuka agar keselamatan karyawan terjaga, namun sistem secara senyap (silent alert) memicu status DURESS di dashboard keamanan.</span>`;
+        }
+    } else {
+        // STANDARD_TAP
+        userNik.value = 'NIK-882101';
+        userNik.placeholder = 'Misal: NIK-882101 atau CARD-1001';
+        if (userLabel) userLabel.textContent = 'NIK / User ID / Nomor Kartu';
+        methodSelect.value = 'Fingerprint';
+        statusSelect.value = 'Granted';
+        if (infoBox) {
+            infoBox.style.borderLeftColor = '#38bdf8';
+            infoBox.style.background = 'rgba(56, 189, 248, 0.08)';
+            infoBox.innerHTML = `<strong>💡 Skenario Terpilih:</strong> <span>Simulasi tap kartu / sidik jari reguler pegawai. Akses diberikan jika NIK terdaftar dan memiliki izin ke pintu tersebut.</span>`;
+        }
+    }
+}
+
 async function runEventSimulation(e) {
     e.preventDefault();
-    const doorId = document.getElementById('simDoorId').value;
-    const user = document.getElementById('simUserNik').value.trim();
-    const method = document.getElementById('simMethod').value;
-    const status = document.getElementById('simStatus').value;
+    const doorId = document.getElementById('simDoorId')?.value || 'DOOR-A';
+    const eventType = document.getElementById('simEventType')?.value || 'STANDARD_TAP';
+    const user = document.getElementById('simUserNik')?.value.trim() || '';
+    const method = document.getElementById('simMethod')?.value || 'Fingerprint';
+    const status = document.getElementById('simStatus')?.value || 'Granted';
 
     const payload = {
         door_id: doorId,
+        event_type: eventType,
         user: user,
         verify_method: method,
         access_status: status,
@@ -835,8 +923,10 @@ async function runEventSimulation(e) {
     };
 
     const simBtn = document.getElementById('btnSendSimulation');
-    simBtn.disabled = true;
-    simBtn.innerHTML = `Mengirimkan sinyal...`;
+    if (simBtn) {
+        simBtn.disabled = true;
+        simBtn.innerHTML = `Mengirimkan sinyal ${eventType}...`;
+    }
 
     try {
         const res = await fetch('/api/v1/isapi/event-notification', {
@@ -851,40 +941,63 @@ async function runEventSimulation(e) {
 
         const data = await res.json();
         const resBox = document.getElementById('simResult');
-        resBox.style.display = 'block';
+        if (resBox) resBox.style.display = 'block';
 
         if (res.ok) {
             const simDoor = escapeHtml(data.data?.door_id || doorId);
-            const simEmp = escapeHtml(data.data?.employee_name || 'Unknown');
+            const simEmp = escapeHtml(data.data?.employee_name || 'N/A');
             const simStatus = escapeHtml(data.data?.access_status || status);
             const simLogId = escapeHtml(data.data?.log_id || '-');
+            const simReason = escapeHtml(data.data?.reason || '');
 
-            resBox.innerHTML = `
-                <div class="alert alert-success">
-                    <strong>✓ Sinyal Tap Hardware Berhasil Diproses!</strong><br>
-                    <span>Door: <code>${simDoor}</code> | User: <code>${simEmp}</code> | Status: <strong>${simStatus}</strong></span><br>
-                    <small>Log ID: <code>${simLogId}</code></small>
-                </div>
-            `;
-            showToast(`Simulasi tap pintu ${simDoor} berhasil dicatat!`, 'success');
+            let alertClass = 'alert-success';
+            let statusTitle = '✓ Sinyal Tap Hardware Berhasil Diproses!';
+
+            if (simStatus === 'Alarm' || eventType === 'DOOR_FORCED_OPEN' || eventType === 'TAMPER_ALARM') {
+                alertClass = 'alert-danger';
+                statusTitle = '🚨 PERINGATAN: Sinyal ALARM Hardware Terdeteksi!';
+            } else if (simStatus === 'Duress' || eventType === 'DURESS_FINGERPRINT') {
+                alertClass = 'alert-warning';
+                statusTitle = '⚠️ PERINGATAN DARURAT: Silent DURESS Alarm Terpicu!';
+            } else if (simStatus === 'Denied') {
+                alertClass = 'alert-warning';
+                statusTitle = '✕ Sinyal Tap Ditolak (Akses Tidak Diizinkan)';
+            }
+
+            if (resBox) {
+                resBox.innerHTML = `
+                    <div class="alert ${alertClass}">
+                        <strong>${statusTitle}</strong><br>
+                        <span>Door: <code>${simDoor}</code> | Event: <strong>${escapeHtml(eventType)}</strong> | Target: <strong>${simEmp}</strong> | Status: <strong>${simStatus}</strong></span><br>
+                        ${simReason ? `<small>Keterangan: <em>${simReason}</em></small><br>` : ''}
+                        <small>Log Audit ID: <code>${simLogId}</code></small>
+                    </div>
+                `;
+            }
+
+            showToast(`Event ${eventType} pada pintu ${simDoor} berhasil dicatat!`, simStatus === 'Alarm' ? 'error' : (simStatus === 'Duress' ? 'warning' : 'success'));
             await loadAccessLogs();
             await loadDoors();
         } else {
             const errMsg = escapeHtml(data.message || 'Error');
             const errStatus = Number(res.status) || 400;
 
-            resBox.innerHTML = `
-                <div class="alert alert-danger">
-                    <strong>✕ Simulasi Gagal (${errStatus}):</strong> ${errMsg}
-                </div>
-            `;
+            if (resBox) {
+                resBox.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>✕ Simulasi Gagal (${errStatus}):</strong> ${errMsg}
+                    </div>
+                `;
+            }
             showToast(`Simulasi gagal: ${errMsg}`, 'error');
         }
     } catch (err) {
         showToast(`Simulasi error: ${err.message}`, 'error');
     } finally {
-        simBtn.disabled = false;
-        simBtn.innerHTML = `⚡ Kirim Signal Tap Event Simulasi`;
+        if (simBtn) {
+            simBtn.disabled = false;
+            simBtn.innerHTML = `⚡ Kirim Sinyal Event Hardware`;
+        }
     }
 }
 
@@ -1047,6 +1160,8 @@ window.revokeAllEmployeeDoors = revokeAllEmployeeDoors;
 window.revokeSingleDoor = revokeSingleDoor;
 window.openDoorAssignmentModal = openDoorAssignmentModal;
 window.submitDoorAssignment = submitDoorAssignment;
+window.handleSimEventTypeChange = handleSimEventTypeChange;
+window.runEventSimulation = runEventSimulation;
 
 // ==========================================
 // Initial Boot

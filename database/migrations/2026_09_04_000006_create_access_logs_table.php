@@ -14,11 +14,12 @@ return new class extends Migration
             $table->foreignId('door_id')->constrained('doors')->onDelete('cascade');
             $table->foreignId('employee_id')->nullable()->constrained('employees')->onDelete('set null');
             $table->string('nik')->nullable();
+            $table->string('event_type')->nullable()->default('STANDARD_TAP');
             $table->string('device_ip')->nullable();
             $table->string('auth_method')->nullable();
-            $table->enum('verify_method', ['Fingerprint', 'Card'])->nullable();
-            $table->enum('status', ['Granted', 'Denied'])->default('Granted');
-            $table->enum('access_status', ['Granted', 'Denied'])->default('Granted');
+            $table->string('verify_method')->nullable();
+            $table->string('status')->default('Granted');
+            $table->string('access_status')->default('Granted');
             $table->string('reason')->nullable();
             $table->timestamp('scanned_at')->nullable();
             $table->timestamp('timestamp')->nullable();
