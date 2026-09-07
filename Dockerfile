@@ -71,8 +71,9 @@ RUN mkdir -p \
     /var/www/html/database \
     /var/log/supervisor \
     /run/nginx \
+    && touch /var/www/html/database/database.sqlite \
     && chown -R www-data:www-data /var/www/html /run/nginx \
-    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database
+    && chmod -R 777 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database
 
 # Expose Web Port
 EXPOSE 80
