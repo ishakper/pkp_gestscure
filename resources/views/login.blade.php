@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PKP SecureGate - Centralized Multi-Building Access Control</title>
+    <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
+    <link rel="apple-touch-icon" href="{{ asset('favicon.svg') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Anime.js CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
+    <!-- Offline Fallback for Local LAN Server -->
+    <script>window.anime || document.write('<script src="{{ asset('js/anime.min.js') }}"><\/script>')</script>
+
+    <style>
+        :root {
+            --bg-void: #060911;
+            --bg-dark: #0a0f1d;
+            --card-bg: rgba(11, 18, 34, 0.82);
+            --border-neon: rgba(56, 189, 248, 0.38);
+            --primary-cyan: #38bdf8;
+            --electric-cyan: #00e5ff;
+            --accent-indigo: #6366f1;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --text-dim: #64748b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-void);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            position: relative;
+            overflow-x: hidden;
+            background-image: 
+                linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+                radial-gradient(ellipse at 50% 30%, rgba(56, 189, 248, 0.12) 0%, transparent 65%);
+            background-size: 36px 36px, 36px 36px, 100% 100%;
+        }
+
+        /* Subtle Cyber Scanline Overlay */
+        .cyber-scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.3) 50%),
+                        linear-gradient(90deg, rgba(56, 189, 248, 0.015), rgba(0, 229, 255, 0.01), rgba(99, 102, 241, 0.015));
+            background-size: 100% 4px, 6px 100%;
+            pointer-events: none;
+            z-index: 1;
+            opacity: 0.65;
+        }
+
+        /* Ambient Background HUD Reticles */
+        .ambient-hud-layer {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .ambient-hud-node {
+            position: absolute;
+            color: var(--primary-cyan);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            letter-spacing: 0.08em;
+            opacity: 0.35;
+            user-select: none;
+        }
+
+        .ambient-node-1 { top: 8%; left: 8%; }
+        .ambient-node-2 { top: 12%; right: 10%; }
+        .ambient-node-3 { bottom: 10%; left: 10%; }
+        .ambient-node-4 { bottom: 12%; right: 8%; }
+
+        .radar-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 680px;
+            height: 680px;
+            margin-top: -340px;
+            margin-left: -340px;
+            border-radius: 50%;
+            border: 1px dashed rgba(56, 189, 248, 0.12);
+            box-shadow: inset 0 0 40px rgba(56, 189, 248, 0.03);
+            pointer-events: none;
+        }
+
+        .radar-ring-inner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 440px;
+            height: 440px;
+            margin-top: -220px;
+            margin-left: -220px;
+            border-radius: 50%;
+            border: 1px solid rgba(56, 189, 248, 0.08);
+            pointer-events: none;
+        }
+
+        /* Cyberpunk Glassmorphic Card Container */
+        .cyber-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--border-neon);
+            border-radius: 1.25rem;
+            padding: 2.5rem 2.25rem;
+            width: 100%;
+            max-width: 440px;
+            position: relative;
+            z-index: 10;
+            box-shadow: 
+                0 0 35px rgba(56, 189, 248, 0.14),
+                0 25px 60px -12px rgba(0, 0, 0, 0.85),
+                inset 0 0 25px rgba(56, 189, 248, 0.04);
+            opacity: 0; /* Prepared for Anime.js entrance */
+        }
+
+        /* Decorative Cyber Corner Brackets */
+        .cyber-corner {
+            position: absolute;
+            width: 12px;
+            height: 12px;
+            border-color: var(--primary-cyan);
+            pointer-events: none;
+        }
+        .cyber-corner.top-left {
+            top: -1px; left: -1px;
+            border-top: 2px solid var(--primary-cyan);
+            border-left: 2px solid var(--primary-cyan);
+            border-top-left-radius: 1.25rem;
+        }
+        .cyber-corner.top-right {
+            top: -1px; right: -1px;
+            border-top: 2px solid var(--primary-cyan);
+            border-right: 2px solid var(--primary-cyan);
+            border-top-right-radius: 1.25rem;
+        }
+        .cyber-corner.bottom-left {
+            bottom: -1px; left: -1px;
+            border-bottom: 2px solid var(--primary-cyan);
+            border-left: 2px solid var(--primary-cyan);
+            border-bottom-left-radius: 1.25rem;
+        }
+        .cyber-corner.bottom-right {
+            bottom: -1px; right: -1px;
+            border-bottom: 2px solid var(--primary-cyan);
+            border-right: 2px solid var(--primary-cyan);
+            border-bottom-right-radius: 1.25rem;
+        }
+
+        /* Card Top System Status Header */
+        .cyber-status-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.68rem;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            padding-bottom: 1.2rem;
+            margin-bottom: 1.25rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            color: #38bdf8;
+            font-weight: 600;
+        }
+
+        .status-pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #00e5ff;
+            box-shadow: 0 0 10px #00e5ff;
+            display: inline-block;
+        }
+
+        /* Brand Header & Coin Icon */
+        .brand-header {
+            text-align: center;
+            margin-bottom: 2rem;
+            position: relative;
+        }
+
+        .brand-icon-wrap {
+            display: inline-flex;
+            position: relative;
+            margin-bottom: 1rem;
+        }
+
+        .brand-icon {
+            width: 76px;
+            height: 76px;
+            background: radial-gradient(circle at 35% 30%, rgba(56, 189, 248, 0.28), rgba(10, 15, 29, 0.96));
+            border: 1.5px solid rgba(56, 189, 248, 0.65);
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px;
+            box-shadow: 0 0 28px rgba(56, 189, 248, 0.42), inset 0 0 16px rgba(56, 189, 248, 0.25);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            z-index: 2;
+        }
+
+        .brand-icon:hover {
+            transform: scale(1.06);
+            border-color: var(--electric-cyan);
+            box-shadow: 0 0 36px rgba(0, 229, 255, 0.6), inset 0 0 20px rgba(0, 229, 255, 0.3);
+        }
+
+        .brand-icon img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 6px rgba(56, 189, 248, 0.5));
+        }
+
+        /* Decoding Title */
+        .brand-title {
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #ffffff, #a5f3fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            min-height: 2.2rem;
+            font-family: 'JetBrains Mono', 'Plus Jakarta Sans', monospace;
+        }
+
+        .brand-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.35rem;
+            font-family: 'JetBrains Mono', monospace;
+            letter-spacing: 0.03em;
+        }
+
+        .cyber-accent {
+            color: var(--primary-cyan);
+            font-weight: bold;
+        }
+
+        /* Error Box */
+        .error-box {
+            background: rgba(239, 68, 68, 0.12);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            color: #fca5a5;
+            padding: 0.75rem 1rem;
+            border-radius: 0.65rem;
+            font-size: 0.825rem;
+            margin-bottom: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        /* Input Fields: Minimalist Underline Style with Cyan Glow Focus */
+        .cyber-input-wrap {
+            position: relative;
+            margin-bottom: 1.65rem;
+        }
+
+        .cyber-label {
+            display: block;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--primary-cyan);
+            letter-spacing: 0.06em;
+            margin-bottom: 0.45rem;
+            text-transform: uppercase;
+        }
+
+        .input-inner-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 0.5rem;
+            color: var(--text-dim);
+            pointer-events: none;
+            transition: color 0.3s ease;
+        }
+
+        .cyber-input {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.4);
+            border: none;
+            border-bottom: 2px solid rgba(56, 189, 248, 0.24);
+            padding: 0.8rem 1rem 0.75rem 2.4rem;
+            color: #f8fafc;
+            font-size: 0.95rem;
+            font-family: 'Plus Jakarta Sans', monospace;
+            letter-spacing: 0.02em;
+            border-radius: 0.4rem 0.4rem 0 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .cyber-input::placeholder {
+            color: rgba(148, 163, 184, 0.45);
+            font-size: 0.85rem;
+        }
+
+        .cyber-input:focus {
+            outline: none;
+            background: rgba(56, 189, 248, 0.08);
+            border-bottom-color: var(--primary-cyan);
+        }
+
+        .cyber-input:focus ~ .input-icon {
+            color: var(--primary-cyan);
+        }
+
+        /* Animated Active Underline Glow Bar */
+        .cyber-underline-glow {
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            width: 0%;
+            height: 2px;
+            background: var(--electric-cyan);
+            box-shadow: 0 0 12px var(--electric-cyan);
+            transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1), left 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+        }
+
+        .cyber-input:focus ~ .cyber-underline-glow {
+            width: 100%;
+            left: 0;
+        }
+
+        /* Submit Button: Sci-Fi Angled Corners & Glowing Cyan */
+        .btn-cyber-submit {
+            width: 100%;
+            background: linear-gradient(135deg, #38bdf8 0%, #00e5ff 100%);
+            color: #060b14;
+            font-family: 'JetBrains Mono', 'Plus Jakarta Sans', monospace;
+            font-weight: 800;
+            font-size: 0.92rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            padding: 0.95rem 1.25rem;
+            border: none;
+            cursor: pointer;
+            position: relative;
+            margin-top: 0.85rem;
+            clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+        }
+
+        .btn-cyber-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 30px rgba(0, 229, 255, 0.7), 0 0 12px rgba(56, 189, 248, 0.5);
+            filter: brightness(1.08);
+        }
+
+        .btn-cyber-submit:active {
+            transform: translateY(0) scale(0.98);
+        }
+
+        .btn-cyber-submit svg {
+            transition: transform 0.2s ease;
+        }
+
+        .btn-cyber-submit:hover svg {
+            transform: translateX(3px);
+        }
+
+        /* Demo Accounts (Quick Login) Section */
+        .demo-accounts {
+            margin-top: 2rem;
+            padding-top: 1.35rem;
+            border-top: 1px dashed rgba(255, 255, 255, 0.1);
+        }
+
+        .demo-title {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-dim);
+            margin-bottom: 0.85rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .demo-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .btn-demo {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(56, 189, 248, 0.18);
+            border-radius: 0.65rem;
+            padding: 0.65rem 0.85rem;
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-demo:hover {
+            background: rgba(56, 189, 248, 0.1);
+            border-color: var(--primary-cyan);
+            color: #ffffff;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25);
+        }
+
+        .btn-demo strong {
+            display: block;
+            color: #ffffff;
+            font-size: 0.8rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .btn-demo span {
+            font-size: 0.7rem;
+            color: var(--primary-cyan);
+            display: block;
+        }
+
+        @media (max-width: 480px) {
+            .cyber-card {
+                padding: 2rem 1.5rem;
+            }
+            .brand-title {
+                font-size: 1.45rem;
+            }
+            .demo-buttons {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<!-- Ambient Subtle Scanline Effect -->
+<div class="cyber-scanlines" aria-hidden="true"></div>
+
+<!-- Ambient Background HUD Nodes & Reticles -->
+<div class="ambient-hud-layer" aria-hidden="true">
+    <div class="radar-ring"></div>
+    <div class="radar-ring-inner"></div>
+
+    <div class="ambient-hud-node ambient-node-1">
+        <div>[ NODE // SECTOR_01 ]</div>
+        <div>SYS_FREQ : 2.45 GHz</div>
+    </div>
+    <div class="ambient-hud-node ambient-node-2">
+        <div>[ GATEWAY // ACTIVE ]</div>
+        <div>IP : 192.168.90.81:8000</div>
+    </div>
+    <div class="ambient-hud-node ambient-node-3">
+        <div>[ ENCRYPTION // AES-256 ]</div>
+        <div>SESSION_TOKEN : SEC_OK</div>
+    </div>
+    <div class="ambient-hud-node ambient-node-4">
+        <div>[ STATUS // STANDBY ]</div>
+        <div>TERMINALS : 4 ONLINE</div>
+    </div>
+</div>
+
+<!-- Centered Cyberpunk Form Container -->
+<div class="cyber-card" id="loginCard">
+    <!-- Corner HUD Brackets -->
+    <div class="cyber-corner top-left"></div>
+    <div class="cyber-corner top-right"></div>
+    <div class="cyber-corner bottom-left"></div>
+    <div class="cyber-corner bottom-right"></div>
+
+    <!-- System Status Bar -->
+    <div class="cyber-status-bar">
+        <span>[ PKP_SECURITY // SECURE_PORTAL ]</span>
+        <span class="status-indicator">
+            <span class="status-pulse-dot" id="statusPulseDot"></span>
+            SYS_ONLINE
+        </span>
+    </div>
+
+    <!-- Brand Header -->
+    <div class="brand-header">
+        <div class="brand-icon-wrap">
+            <div class="brand-icon" id="brandCoinIcon">
+                <img src="{{ asset('images/pkp-logo.png') }}" alt="PKP SecureGate" onerror="this.src='{{ asset('favicon.svg') }}'">
+            </div>
+        </div>
+        <h1 class="brand-title" id="decodeTitle" data-value="PKP SecureGate">PKP SecureGate</h1>
+        <p class="brand-subtitle"><span class="cyber-accent">//</span> Central Access Control &amp; Biometrics</p>
+    </div>
+
+    @if ($errors->any())
+        <div class="error-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="12" y1="8" x2="12" y2="12"></line>
+                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+            <span>[ ACCESS_DENIED ] {{ $errors->first() }}</span>
+        </div>
+    @endif
+
+    <form method="POST" action="/login" id="loginForm">
+        @csrf
+        <!-- Email Input -->
+        <div class="cyber-input-wrap">
+            <label class="cyber-label">// AUTH_IDENTIFIER : EMAIL</label>
+            <div class="input-inner-wrap">
+                <svg class="input-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                    <circle cx="12" cy="7" r="4"></circle>
+                </svg>
+                <input type="email" name="email" id="emailInput" class="cyber-input" placeholder="admin@accesscontrol.local" required value="admin@accesscontrol.local" autocomplete="email">
+                <div class="cyber-underline-glow"></div>
+            </div>
+        </div>
+
+        <!-- Password Input -->
+        <div class="cyber-input-wrap">
+            <label class="cyber-label">// SECURITY_KEY : PASSWORD</label>
+            <div class="input-inner-wrap">
+                <svg class="input-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <input type="password" name="password" id="passwordInput" class="cyber-input" placeholder="••••••••" required value="password" autocomplete="current-password">
+                <div class="cyber-underline-glow"></div>
+            </div>
+        </div>
+
+        <!-- Submit Button (Angled Corners) -->
+        <button type="submit" class="btn-cyber-submit" id="submitBtn">
+            <span>AUTHENTICATE &amp; ENTER</span>
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </button>
+    </form>
+
+    <!-- Demo Quick Login Accounts -->
+    <div class="demo-accounts">
+        <div class="demo-title">
+            <span>// QUICK_ACCESS_CREDENTIALS</span>
+            <span style="color: var(--primary-cyan); font-size: 0.65rem;">DEMO_KEYS</span>
+        </div>
+        <div class="demo-buttons">
+            <button type="button" class="btn-demo" onclick="fillCreds('admin@accesscontrol.local', 'password')">
+                <strong>SUPER ADMIN</strong>
+                <span>Clearance: Level 0 (Global)</span>
+            </button>
+            <button type="button" class="btn-demo" onclick="fillCreds('admin.gedunga@accesscontrol.local', 'password')">
+                <strong>BUILDING ADMIN</strong>
+                <span>Clearance: Gedung A Only</span>
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Quick Credential Fill with cyber flash feedback
+    function fillCreds(email, pass) {
+        const emailInput = document.getElementById('emailInput');
+        const passInput = document.getElementById('passwordInput');
+        emailInput.value = email;
+        passInput.value = pass;
+
+        if (window.anime) {
+            anime({
+                targets: [emailInput, passInput],
+                backgroundColor: ['rgba(56, 189, 248, 0.25)', 'rgba(15, 23, 42, 0.4)'],
+                duration: 600,
+                easing: 'easeOutQuad'
+            });
+        }
+    }
+
+    // Decoding Text Animation (Cyberpunk Security System Entry)
+    function startDecodingAnimation() {
+        const el = document.getElementById('decodeTitle');
+        if (!el) return;
+        const targetText = el.getAttribute('data-value') || 'PKP SecureGate';
+        const chars = '0123456789ABCDEF!#$&%?*+~ΔΩ';
+        const decodeObj = { progress: 0 };
+
+        if (window.anime) {
+            anime({
+                targets: decodeObj,
+                progress: 100,
+                duration: 1400,
+                easing: 'easeOutExpo',
+                update: function() {
+                    const pct = decodeObj.progress / 100;
+                    const resolvedCount = Math.floor(pct * targetText.length);
+                    let result = '';
+                    for (let i = 0; i < targetText.length; i++) {
+                        if (i < resolvedCount) {
+                            result += targetText[i];
+                        } else if (targetText[i] === ' ') {
+                            result += ' ';
+                        } else {
+                            result += chars[Math.floor(Math.random() * chars.length)];
+                        }
+                    }
+                    el.textContent = result;
+                },
+                complete: function() {
+                    el.textContent = targetText;
+                }
+            });
+        } else {
+            el.textContent = targetText;
+        }
+    }
+
+    // Anime.js Staggered Entrance & Ambient Background Loops
+    document.addEventListener('DOMContentLoaded', () => {
+        if (typeof anime === 'function') {
+            // 1. Staggered Form Entrance (1500ms, easeOutExpo, translateY [50, 0], opacity [0, 1])
+            anime({
+                targets: '.cyber-card',
+                opacity: [0, 1],
+                translateY: [50, 0],
+                duration: 1500,
+                easing: 'easeOutExpo'
+            });
+
+            anime({
+                targets: [
+                    '#brandCoinIcon',
+                    '#decodeTitle',
+                    '.brand-subtitle',
+                    '.cyber-status-bar',
+                    '.cyber-input-wrap',
+                    '.btn-cyber-submit',
+                    '.demo-accounts'
+                ],
+                opacity: [0, 1],
+                translateY: [35, 0],
+                duration: 1500,
+                easing: 'easeOutExpo',
+                delay: anime.stagger(90, { start: 200 })
+            });
+
+            // 2. Trigger Decoding Title Effect
+            setTimeout(startDecodingAnimation, 250);
+
+            // 3. Background Ambient Loops (Slow, Infinite Pulsing Glow)
+            anime({
+                targets: '.ambient-hud-node',
+                opacity: [0.15, 0.6],
+                scale: [0.96, 1.04],
+                easing: 'easeInOutSine',
+                duration: 3800,
+                direction: 'alternate',
+                loop: true,
+                delay: anime.stagger(400)
+            });
+
+            // Radar Ring Subtle Rotation
+            anime({
+                targets: '.radar-ring',
+                rotate: '1turn',
+                duration: 35000,
+                easing: 'linear',
+                loop: true
+            });
+
+            // Brand Coin Subtle Ambient Pulse
+            anime({
+                targets: '#brandCoinIcon',
+                boxShadow: [
+                    '0 0 24px rgba(56, 189, 248, 0.35), inset 0 0 12px rgba(56, 189, 248, 0.2)',
+                    '0 0 38px rgba(0, 229, 255, 0.55), inset 0 0 20px rgba(0, 229, 255, 0.3)'
+                ],
+                easing: 'easeInOutSine',
+                duration: 2500,
+                direction: 'alternate',
+                loop: true
+            });
+
+            // Status Dot Pulsing
+            anime({
+                targets: '#statusPulseDot',
+                opacity: [0.4, 1],
+                scale: [0.85, 1.2],
+                easing: 'easeInOutSine',
+                duration: 1200,
+                direction: 'alternate',
+                loop: true
+            });
+        } else {
+            // Instant Fallback if script blocked
+            const card = document.querySelector('.cyber-card');
+            if (card) card.style.opacity = '1';
+            startDecodingAnimation();
+        }
+    });
+</script>
+
+</body>
+</html>
