@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\DoorResource;
 use App\Models\ActivityLog;
 use App\Models\Door;
+use App\Services\HikvisionIsapiService;
 use Illuminate\Http\Request;
 
 class AdminDoorController extends Controller
@@ -82,6 +83,88 @@ class AdminDoorController extends Controller
             'status' => 'success',
             'message' => "Status pintu {$door->door_id} berhasil diperbarui",
             'data' => new DoorResource($door),
+        ]);
+    }
+
+    /**
+     * Audit single physical terminal connectivity via ISAPI getDeviceStatus
+     */
+    public function checkConnection(Request $request, $door_id, HikvisionIsapiService $isapiService)
+    {
+        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+
+        $statusResult = $isapiService->getDeviceStatus($door);
+        $isOnline = (bool) ($statusResult['status'] ?? false);
+        $connStatus = $isOnline ? 'online' : 'offline';
+
+        $door->update([
+            'status' => $connStatus,
+            'connection_status' => $connStatus,
+            'is_manual_override' => false,
+            'last_checked_at' => now(),
+        ]);
+
+        ActivityLog::create([
+            'admin_id' => $request->user()->id ?? null,
+            'action' => 'isapi_connection_checked',
+            'subject_type' => 'Door',
+            'subject_id' => $door->id,
+            'description' => "Audited ISAPI connection for {$door->door_id}: status={$connStatus}",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => $isOnline ? 'success' : 'error',
+            'message' => $isOnline 
+                ? "Terminal pintu {$door->door_id} ({$door->device_ip}) terhubung secara aktif." 
+                : "Terminal pintu {$door->door_id} offline: " . ($statusResult['error'] ?? 'Device unreachable'),
+            'is_online' => $isOnline,
+            'data' => new DoorResource($door->fresh()),
+            'isapi_details' => $statusResult['data'] ?? null,
+        ]);
+    }
+
+    /**
+     * Audit all physical terminals connectivity via ISAPI
+     */
+    public function checkAllConnections(Request $request, HikvisionIsapiService $isapiService)
+    {
+        $admin = $request->user();
+        $query = Door::query();
+
+        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
+            $query->where('location', $admin->assigned_building);
+        }
+
+        $doors = $query->get();
+        $results = [];
+
+        foreach ($doors as $door) {
+            $statusResult = $isapiService->getDeviceStatus($door);
+            $isOnline = (bool) ($statusResult['status'] ?? false);
+            $connStatus = $isOnline ? 'online' : 'offline';
+
+            $door->update([
+                'status' => $connStatus,
+                'connection_status' => $connStatus,
+                'is_manual_override' => false,
+                'last_checked_at' => now(),
+            ]);
+
+            $results[] = [
+                'door_id' => $door->door_id,
+                'is_online' => $isOnline,
+                'status' => $connStatus,
+                'last_checked_at' => $door->last_checked_at->toIso8601String(),
+            ];
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Audit konektivitas selesai untuk {$doors->count()} terminal pintu.",
+            'total_audited' => $doors->count(),
+            'online_count' => collect($results)->where('is_online', true)->count(),
+            'data' => $results,
         ]);
     }
 }

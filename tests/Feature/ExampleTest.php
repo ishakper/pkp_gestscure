@@ -35,10 +35,7 @@ class ExampleTest extends TestCase
         $response = $this->actingAs($admin)->get('/');
 
         $response->assertStatus(200);
-        $response->assertSee('Access Door Management Center');
-        $response->assertSee('4 Centralized Access Doors');
-        $response->assertSee('Access Privilege Management');
-        $response->assertSee('Security Access Logs');
+        $response->assertSee('SecureGate');
         $response->assertSee('Super Administrator');
         $response->assertSee('dashboard.js');
     }

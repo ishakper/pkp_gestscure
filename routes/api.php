@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DoorSyncController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\IsapiWebhookController;
+use App\Http\Controllers\Mock\HikvisionMockController;
 use App\Http\Middleware\VerifyDeviceWebhook;
 use Illuminate\Support\Facades\Route;
 
@@ -45,6 +46,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('/users/{id}', [EmployeeController::class, 'destroy']);
             Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
             Route::post('/assign-doors', [DoorSyncController::class, 'assignDoors']);
+            Route::post('/revoke-doors', [DoorSyncController::class, 'revokeDoors']);
             Route::post('/employees/{id}/door-access', [EmployeeController::class, 'assignDoorAccess']);
             Route::delete('/employees/{id}/door-access/{door_id}', [EmployeeController::class, 'revokeDoorAccess']);
         });
@@ -52,8 +54,11 @@ Route::prefix('v1')->group(function () {
         // Admin Pillar
         Route::prefix('admin')->group(function () {
             Route::get('/doors', [AdminDoorController::class, 'index']);
+            Route::post('/doors/check-all', [AdminDoorController::class, 'checkAllConnections']);
+            Route::post('/doors/{door_id}/check-connection', [AdminDoorController::class, 'checkConnection']);
             Route::patch('/doors/{door_id}/status', [AdminDoorController::class, 'overrideStatus']);
             Route::get('/access-logs', [AdminAccessLogController::class, 'index']);
+            Route::post('/access-logs/sync-hardware', [AdminAccessLogController::class, 'syncHardware']);
             Route::get('/activity-logs', [ActivityLogController::class, 'index']);
             Route::post('/door-assignments/sync', [DoorSyncController::class, 'sync']);
         });
@@ -63,3 +68,15 @@ Route::prefix('v1')->group(function () {
     Route::post('/isapi/event-notification', [IsapiWebhookController::class, 'handleEventNotification'])
         ->middleware([VerifyDeviceWebhook::class, 'throttle:isapi-webhook']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Mock ISAPI Routes (Hikvision DS-K1T804AMF Simulation & Integration)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('mock/isapi')->group(function () {
+    Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
+    Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
+    Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
+});
+

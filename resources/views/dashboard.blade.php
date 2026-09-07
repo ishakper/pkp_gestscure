@@ -1392,6 +1392,9 @@
                 <h2 class="section-title">🌐 4 Centralized Access Doors</h2>
                 <p class="section-desc">Status real-time 4 terminal fisik Hikvision DS-K1T804AMF (Gedung A, B, C, D)</p>
             </div>
+            <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">
+                📡 Cek Semua Koneksi Terminal
+            </button>
         </div>
         <div class="doors-grid" id="overviewDoorsGrid">
             <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
@@ -1481,7 +1484,10 @@
                         📅 <input type="date" id="logEndDate" onchange="loadAccessLogs()" title="Sampai Tanggal">
                     </div>
                 </div>
-                <div class="toolbar-right">
+                <div class="toolbar-right" style="display: flex; gap: 0.5rem; align-items: center;">
+                    <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
+                        🔄 Sinkronkan Log Pintu
+                    </button>
                     <button class="btn-secondary" onclick="resetLogFilters()">Reset Filter</button>
                 </div>
             </div>
@@ -1511,6 +1517,9 @@
                 <h2 class="section-title">🌐 Centralized Door Terminal Monitoring</h2>
                 <p class="section-desc">Audit hardware konektivitas IP & kontrol manual status online/offline</p>
             </div>
+            <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">
+                📡 Cek Semua Koneksi Terminal
+            </button>
         </div>
         <div class="doors-grid" id="doorsGrid">
             <!-- Populated via JS -->
@@ -1554,6 +1563,9 @@
                 <h2 class="section-title">📋 Riwayat Lengkap Access Logs</h2>
                 <p class="section-desc">Audit trail keamanan akses pintu fisik seluruh gedung</p>
             </div>
+            <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
+                🔄 Sinkronkan Log Pintu
+            </button>
         </div>
         <div class="table-container">
             <table>
@@ -1686,11 +1698,16 @@
                 <div class="spinner"></div> Memuat daftar pintu...
             </div>
 
-            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
-                <button type="button" class="btn-secondary" onclick="closeModal('doorAssignModal')">Batal</button>
-                <button type="submit" class="btn-primary" id="btnSaveDoorAssignment">
-                    Simpan Hak Akses Pintu
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 1.5rem;">
+                <button type="button" class="btn-secondary" style="color: var(--danger); border-color: rgba(239, 68, 68, 0.4);" onclick="revokeAllEmployeeDoors()">
+                    🚫 Cabut Semua Akses
                 </button>
+                <div style="display: flex; gap: 0.75rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('doorAssignModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSaveDoorAssignment">
+                        Simpan Hak Akses Pintu
+                    </button>
+                </div>
             </div>
         </form>
     </div>

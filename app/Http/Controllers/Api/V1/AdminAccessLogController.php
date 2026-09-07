@@ -5,7 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AccessLogResource;
 use App\Models\AccessLog;
+use App\Models\ActivityLog;
+use App\Models\Door;
+use App\Models\Employee;
+use App\Services\HikvisionIsapiService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class AdminAccessLogController extends Controller
 {
@@ -92,6 +97,99 @@ class AdminAccessLogController extends Controller
                 'total_pages' => $paginatedLogs->lastPage(),
             ],
             'data' => AccessLogResource::collection($paginatedLogs),
+        ]);
+    }
+
+    /**
+     * Pull / Synchronize access tap logs from ISAPI AcsEvent hardware / mock endpoint
+     */
+    public function syncHardware(Request $request, HikvisionIsapiService $isapiService)
+    {
+        $doorId = $request->input('door_id');
+        $limit = (int) $request->input('limit', 30);
+
+        $doors = $doorId 
+            ? Door::where('door_id', $doorId)->orWhere('id', $doorId)->get()
+            : Door::all();
+
+        if ($doors->isEmpty()) {
+            $doors = collect([null]);
+        }
+
+        $totalInserted = 0;
+        $totalFetched = 0;
+
+        foreach ($doors as $door) {
+            $res = $isapiService->fetchEvents($limit, $door);
+
+            if (!empty($res['status']) && !empty($res['events'])) {
+                $totalFetched += count($res['events']);
+
+                foreach ($res['events'] as $evt) {
+                    $eventTime = !empty($evt['time']) ? date('Y-m-d H:i:s', strtotime($evt['time'])) : now()->toDateTimeString();
+
+                    // Find Door target
+                    $targetDoor = $door;
+                    if (!$targetDoor && !empty($evt['door_name'])) {
+                        $targetDoor = Door::where('door_name', 'like', "%{$evt['door_name']}%")
+                            ->orWhere('door_id', 'like', "%{$evt['door_name']}%")
+                            ->first();
+                    }
+                    if (!$targetDoor) {
+                        $targetDoor = Door::first();
+                    }
+
+                    if (!$targetDoor) continue;
+
+                    // Resolve Employee
+                    $emp = null;
+                    if (!empty($evt['employee_no'])) {
+                        $emp = Employee::where('employee_id', $evt['employee_no'])
+                            ->orWhere('nik', $evt['employee_no'])
+                            ->first();
+                    }
+                    if (!$emp && !empty($evt['card_no'])) {
+                        $emp = Employee::where('card_no', $evt['card_no'])->first();
+                    }
+
+                    // Check for existing log with same timestamp & door
+                    $existing = AccessLog::where('door_id', $targetDoor->id)
+                        ->where('timestamp', $eventTime)
+                        ->first();
+
+                    if (!$existing) {
+                        $logId = 'LOG-' . date('YmdHis', strtotime($eventTime)) . '-' . strtoupper(Str::random(4));
+                        
+                        AccessLog::create([
+                            'log_id' => $logId,
+                            'door_id' => $targetDoor->id,
+                            'employee_id' => $emp ? $emp->id : null,
+                            'nik' => $emp ? $emp->nik : ($evt['employee_no'] ?? null),
+                            'device_ip' => $targetDoor->device_ip,
+                            'verify_method' => in_array($evt['verify_method'] ?? '', ['Card', 'Fingerprint', 'Face', 'PIN']) ? $evt['verify_method'] : 'Card',
+                            'access_status' => in_array($evt['access_status'] ?? '', ['Granted', 'Denied']) ? $evt['access_status'] : 'Granted',
+                            'reason' => ($evt['access_status'] === 'Denied' && !$emp) ? 'Unknown Card / Intrusion' : null,
+                            'timestamp' => $eventTime,
+                        ]);
+
+                        $totalInserted++;
+                    }
+                }
+            }
+        }
+
+        ActivityLog::create([
+            'admin_id' => $request->user()->id ?? null,
+            'action' => 'sync_hardware_access_logs',
+            'description' => "Pulled ISAPI events: {$totalFetched} fetched, {$totalInserted} new records inserted into database.",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Sinkronisasi log ISAPI selesai: {$totalInserted} event baru berhasil disimpan dari {$totalFetched} data riwayat.",
+            'inserted_count' => $totalInserted,
+            'total_fetched' => $totalFetched,
         ]);
     }
 }

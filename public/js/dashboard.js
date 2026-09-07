@@ -173,7 +173,7 @@ function renderDoorCards(doors) {
         const isOnline = (door.connection_status === 'online' || door.status === 'online');
         const badgeClass = isOnline ? 'status-online' : 'status-offline';
         const statusLabel = isOnline ? 'ONLINE' : 'OFFLINE';
-        const overrideText = isOnline ? 'Set Maintenance (OFFLINE)' : 'Restore Active (ONLINE)';
+        const overrideText = isOnline ? 'Set Offline' : 'Restore Online';
         const targetOverride = isOnline ? 'offline' : 'online';
 
         const safeDoorId = escapeHtml(door.door_id);
@@ -182,6 +182,9 @@ function renderDoorCards(doors) {
         const safeDeviceIp = escapeHtml(door.device_ip || '-');
         const safeModel = escapeHtml(door.device_model || 'DS-K1T804AMF');
         const safeTotalUsers = Number(door.total_assigned_users) || 0;
+        const lastCheckedStr = door.last_checked_at 
+            ? new Date(door.last_checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : 'Belum dicek';
 
         return `
             <div class="card door-card" id="door-card-${safeDoorId}">
@@ -208,13 +211,21 @@ function renderDoorCards(doors) {
                         <span class="spec-label">Assigned Users:</span>
                         <span class="spec-val highlight">${safeTotalUsers} Pegawai</span>
                     </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Status Pintu:</span>
+                        <span class="spec-val">${isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline'}</span>
+                    </div>
+                    <div class="spec-item">
+                        <span class="spec-label">Last Checked:</span>
+                        <span class="spec-val" style="font-size: 0.775rem; color: var(--text-dim);">${lastCheckedStr}</span>
+                    </div>
                 </div>
                 <div class="door-actions">
                     <button class="btn-sm btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
                         ⚡ ${overrideText}
                     </button>
-                    <button class="btn-sm btn-ping" onclick="pingSingleDoor('${safeDoorId}')" title="Tes Socket & ISAPI Handshake">
-                        📡 Ping
+                    <button class="btn-sm btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
+                        📡 Cek Koneksi
                     </button>
                 </div>
             </div>
@@ -243,13 +254,58 @@ async function toggleDoorStatus(doorId, newStatus) {
     }
 }
 
-async function pingSingleDoor(doorId) {
-    showToast(`Memeriksa koneksi ISAPI ke terminal ${doorId}...`, 'info', 2000);
+async function pingSingleDoor(doorId, btn) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `⏳ Cek...`;
+    }
+
     try {
+        const res = await apiFetch(`/admin/doors/${doorId}/check-connection`, {
+            method: 'POST',
+        });
+
+        if (res.status === 'success' || res.is_online) {
+            showToast(`✓ Terminal ${doorId} online & responsif via ISAPI!`, 'success');
+        } else {
+            showToast(`⚠ Terminal ${doorId} offline: ${res.message}`, 'warning');
+        }
+
         await loadDoors();
-        showToast(`Terminal ${doorId} berhasil di-audit dan status disinkronkan.`, 'success');
     } catch (err) {
-        showToast(`Gagal ping terminal: ${err.message}`, 'error');
+        showToast(`Gagal memeriksa terminal ${doorId}: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+
+async function checkAllDoors(btn) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner-sm"></div> Mengaudit ISAPI...`;
+    }
+
+    try {
+        const res = await apiFetch('/admin/doors/check-all', {
+            method: 'POST',
+        });
+
+        if (res.status === 'success') {
+            showToast(`Audit ISAPI Selesai: ${res.online_count}/${res.total_audited} terminal online.`, 'success');
+            await loadDoors();
+        }
+    } catch (err) {
+        showToast(`Gagal mengaudit koneksi: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
 }
 
@@ -486,7 +542,7 @@ async function submitDoorAssignment(e) {
         });
 
         if (res.status === 'success') {
-            showToast(`Akses pintu berhasil diperbarui untuk ${state.selectedEmployeeForAssign.name}. Job sinkronisasi telah di-queue.`, 'success');
+            showToast(`Akses pintu berhasil diperbarui untuk ${state.selectedEmployeeForAssign.name}.`, 'success');
             closeModal('doorAssignModal');
             await loadEmployees();
             await loadDoors();
@@ -496,6 +552,56 @@ async function submitDoorAssignment(e) {
     } finally {
         saveBtn.disabled = false;
         saveBtn.innerHTML = originalText;
+    }
+}
+
+async function revokeAllEmployeeDoors() {
+    if (!state.selectedEmployeeForAssign) return;
+
+    if (!confirm(`Cabut seluruh hak akses pintu untuk ${state.selectedEmployeeForAssign.name}?`)) {
+        return;
+    }
+
+    try {
+        const res = await apiFetch('/user-management/revoke-doors', {
+            method: 'POST',
+            body: JSON.stringify({
+                employee_id: state.selectedEmployeeForAssign.id,
+            })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Seluruh izin pintu untuk ${state.selectedEmployeeForAssign.name} berhasil dicabut.`, 'success');
+            closeModal('doorAssignModal');
+            await loadEmployees();
+            await loadDoors();
+        }
+    } catch (err) {
+        showToast(`Gagal mencabut hak akses: ${err.message}`, 'error');
+    }
+}
+
+async function revokeSingleDoor(empId, doorId) {
+    if (!confirm(`Cabut izin akses pintu ${doorId} untuk karyawan ini?`)) {
+        return;
+    }
+
+    try {
+        const res = await apiFetch('/user-management/revoke-doors', {
+            method: 'POST',
+            body: JSON.stringify({
+                employee_id: empId,
+                door_id: doorId,
+            })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Izin akses pintu ${doorId} berhasil dicabut.`, 'success');
+            await loadEmployees();
+            await loadDoors();
+        }
+    } catch (err) {
+        showToast(`Gagal mencabut akses ${doorId}: ${err.message}`, 'error');
     }
 }
 
@@ -612,6 +718,36 @@ async function loadAccessLogs() {
     }
 }
 
+async function syncHardwareLogs(btn) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<div class="spinner-sm"></div> Menarik Log ISAPI...`;
+    }
+
+    try {
+        const res = await apiFetch('/admin/access-logs/sync-hardware', {
+            method: 'POST',
+            body: JSON.stringify({ limit: 50 }),
+        });
+
+        if (res.status === 'success') {
+            showToast(res.message || `Sinkronisasi log berhasil (${res.inserted_count} log baru).`, 'success');
+            await loadAccessLogs();
+            await loadDoors();
+        } else {
+            showToast(`Gagal sinkronisasi log: ${res.message}`, 'warning');
+        }
+    } catch (err) {
+        showToast(`Gagal menarik log dari ISAPI: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+
 function renderAccessLogsTable(logs) {
     const renderTargets = [
         document.getElementById('logsTableBody'),
@@ -633,8 +769,9 @@ function renderAccessLogsTable(logs) {
             ? `<span class="badge badge-granted">✓ GRANTED</span>`
             : `<span class="badge badge-denied">✕ DENIED</span>`;
 
-        const userHtml = log.user && log.user.name
-            ? `<strong>${escapeHtml(log.user.name)}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`
+        const cardNo = log.user?.card_no || log.card_no;
+        const userHtml = log.user && (log.user.name || log.user.nik)
+            ? `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${cardNo ? `• 💳 ${escapeHtml(cardNo)}` : ''} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`
             : `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Intrusion')}</span>`;
 
         const methodBadge = (log.verify_method === 'Card' || log.auth_method === 'Card')
@@ -903,6 +1040,13 @@ function toggleSidebar(forceState) {
 
 // Expose globally
 window.toggleSidebar = toggleSidebar;
+window.pingSingleDoor = pingSingleDoor;
+window.checkAllDoors = checkAllDoors;
+window.syncHardwareLogs = syncHardwareLogs;
+window.revokeAllEmployeeDoors = revokeAllEmployeeDoors;
+window.revokeSingleDoor = revokeSingleDoor;
+window.openDoorAssignmentModal = openDoorAssignmentModal;
+window.submitDoorAssignment = submitDoorAssignment;
 
 // ==========================================
 // Initial Boot

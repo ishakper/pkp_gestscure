@@ -17,10 +17,12 @@ class AccessLogResource extends JsonResource
             'user' => $this->employee ? [
                 'nik' => $this->employee->nik,
                 'name' => $this->employee->name,
+                'card_no' => $this->employee->card_no,
                 'department' => $this->employee->department,
             ] : ($this->nik ? [
                 'nik' => $this->nik,
                 'name' => null,
+                'card_no' => null,
                 'department' => null,
             ] : null),
             'verify_method' => $this->verify_method ?? $this->auth_method,

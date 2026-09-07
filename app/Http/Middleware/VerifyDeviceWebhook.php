@@ -77,9 +77,9 @@ class VerifyDeviceWebhook
         if (!$isSecretValid && !$isTokenValid) {
             return response()->json([
                 'status' => 'error',
-                'code' => 401,
+                'code' => 403,
                 'message' => 'Akses ditolak: Kredensial otentikasi terminal hardware (X-Device-Secret atau Bearer Token) tidak valid atau hilang.',
-            ], 401);
+            ], 403);
         }
 
         return $next($request);

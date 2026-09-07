@@ -141,4 +141,50 @@ class DoorSyncController extends Controller
             'data' => $doors,
         ]);
     }
+
+    public function revokeDoors(Request $request)
+    {
+        $empIdentifier = $request->input('employee_id') ?? $request->input('user_id') ?? $request->input('id');
+        if (!$empIdentifier) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Parameter identifier (employee_id, user_id, atau id) wajib diisi',
+            ], 422);
+        }
+
+        $employee = \App\Models\Employee::where('id', $empIdentifier)
+            ->orWhere('employee_id', $empIdentifier)
+            ->orWhere('employee_id', 'USR-' . $empIdentifier)
+            ->firstOrFail();
+
+        $doorInput = $request->input('door_id') ?? $request->input('door_ids');
+
+        $query = DoorAssignment::where('employee_id', $employee->id);
+
+        if ($doorInput) {
+            $doorArray = is_array($doorInput) ? $doorInput : [$doorInput];
+            $doorDbIds = \App\Models\Door::whereIn('door_id', $doorArray)
+                ->orWhereIn('id', $doorArray)
+                ->pluck('id');
+            $query->whereIn('door_id', $doorDbIds);
+        }
+
+        $deletedCount = $query->delete();
+
+        ActivityLog::create([
+            'admin_id' => $request->user()->id ?? null,
+            'action' => 'revoke_door_access',
+            'subject_type' => 'Employee',
+            'subject_id' => $employee->id,
+            'description' => "Revoked door access for employee {$employee->name} ({$employee->employee_id})",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Hak akses pintu untuk {$employee->name} berhasil dicabut ({$deletedCount} izin pintu).",
+            'revoked_count' => $deletedCount,
+        ]);
+    }
 }

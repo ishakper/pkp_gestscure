@@ -4,112 +4,298 @@ namespace App\Services;
 
 use App\Models\Door;
 use App\Models\Employee;
+use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class HikvisionIsapiService
 {
-    /**
-     * Get device credentials from env based on door_id (DOOR-A..DOOR-D).
-     */
-    protected function getDeviceCredentials(Door $door): array
-    {
-        $code = strtoupper(str_replace('-', '_', $door->door_id)); // e.g. DOOR_A
-        $userKey = "{$code}_USER";
-        $passKey = "{$code}_PASS";
-
-        return [
-            'username' => env($userKey, 'admin'),
-            'password' => env($passKey, 'secret123'),
-        ];
-    }
-
     /**
      * Check if system is running in mock mode.
      */
     public function isMockMode(): bool
     {
-        return config('app.env') === 'testing' || env('HIKVISION_MOCK_MODE', true);
+        return (bool) config('services.hikvision.use_mock', env('HIKVISION_ISAPI_USE_MOCK', env('HIKVISION_MOCK_MODE', true)));
     }
 
     /**
-     * Ping physical terminal device status via ISAPI.
+     * Get mock base URL for local ISAPI simulation.
      */
-    public function pingDevice(Door $door): bool
+    public function getMockBaseUrl(): string
     {
-        if ($this->isMockMode()) {
-            // In mock mode, pretend all doors are online except if IP ends with .99 for testing
-            return !str_ends_with($door->device_ip, '.99');
+        $mockUrl = config('services.hikvision.mock_base_url');
+        if (!empty($mockUrl)) {
+            return rtrim($mockUrl, '/');
         }
 
-        $creds = $this->getDeviceCredentials($door);
-        $url = "http://{$door->device_ip}/ISAPI/System/status";
-        $connectTimeout = (int) env('ISAPI_CONNECT_TIMEOUT', 3);
-        $requestTimeout = (int) env('ISAPI_REQUEST_TIMEOUT', 5);
+        $appUrl = rtrim(config('app.url', 'http://localhost:8000'), '/');
+        return "{$appUrl}/api/mock/isapi";
+    }
+
+    /**
+     * Get device credentials based on Door model or default config.
+     */
+    public function getDeviceCredentials(?Door $door = null): array
+    {
+        if ($door && !empty($door->door_id)) {
+            $code = strtoupper(str_replace('-', '_', $door->door_id)); // e.g. DOOR_A
+            $userKey = "{$code}_USER";
+            $passKey = "{$code}_PASS";
+
+            return [
+                'username' => env($userKey, config('services.hikvision.username', 'admin')),
+                'password' => env($passKey, config('services.hikvision.password', 'Hikvision@DoorA')),
+            ];
+        }
+
+        return [
+            'username' => config('services.hikvision.username', env('HIKVISION_ISAPI_USERNAME', 'admin')),
+            'password' => config('services.hikvision.password', env('HIKVISION_ISAPI_PASSWORD', 'Hikvision@DoorA')),
+        ];
+    }
+
+    /**
+     * Get device host and port.
+     */
+    public function getDeviceHostAndPort(?Door $door = null): array
+    {
+        $host = $door && !empty($door->device_ip) 
+            ? $door->device_ip 
+            : config('services.hikvision.host', env('HIKVISION_ISAPI_HOST', '192.168.90.11'));
+        
+        $port = (int) config('services.hikvision.port', env('HIKVISION_ISAPI_PORT', 80));
+
+        return ['host' => $host, 'port' => $port];
+    }
+
+    /**
+     * Build full URL for ISAPI endpoint.
+     */
+    public function buildUrl(string $endpoint, ?Door $door = null): string
+    {
+        $endpoint = '/' . ltrim($endpoint, '/');
+
+        if ($this->isMockMode()) {
+            return $this->getMockBaseUrl() . $endpoint;
+        }
+
+        ['host' => $host, 'port' => $port] = $this->getDeviceHostAndPort($door);
+        $portSuffix = ($port && $port !== 80) ? ":{$port}" : '';
+
+        return "http://{$host}{$portSuffix}/ISAPI{$endpoint}";
+    }
+
+    /**
+     * Create configured HTTP client instance with timeouts and authentication.
+     */
+    protected function buildHttpClient(?Door $door = null): PendingRequest
+    {
+        $connectTimeout = (int) config('services.hikvision.connect_timeout', env('ISAPI_CONNECT_TIMEOUT', 5));
+        $requestTimeout = (int) config('services.hikvision.request_timeout', env('ISAPI_REQUEST_TIMEOUT', 10));
+
+        $client = Http::connectTimeout($connectTimeout)
+            ->timeout($requestTimeout)
+            ->acceptJson();
+
+        if (!$this->isMockMode()) {
+            $creds = $this->getDeviceCredentials($door);
+            $client = $client->withDigestAuth($creds['username'], $creds['password']);
+        }
+
+        return $client;
+    }
+
+    /**
+     * Retrieve device status from /System/status endpoint.
+     */
+    public function getDeviceStatus(?Door $door = null): array
+    {
+        $url = $this->buildUrl('/System/status', $door);
 
         try {
-            $response = Http::connectTimeout($connectTimeout)
-                ->timeout($requestTimeout)
-                ->withDigestAuth($creds['username'], $creds['password'])
-                ->get($url);
+            $response = $this->buildHttpClient($door)->get($url);
 
-            return $response->successful();
+            if ($response->successful()) {
+                $json = $response->json() ?? [];
+                return [
+                    'status' => true,
+                    'statusCode' => $json['statusCode'] ?? 1,
+                    'data' => $json,
+                    'error' => null,
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'data' => $response->json(),
+                'error' => "HTTP {$response->status()}: " . $response->body(),
+            ];
         } catch (\Throwable $e) {
-            Log::warning("ISAPI Ping failed for Door {$door->door_id} ({$door->device_ip}): " . $e->getMessage());
-            return false;
+            Log::error("ISAPI getDeviceStatus failed ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'data' => null,
+                'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
         }
     }
 
     /**
-     * Push employee user record to Hikvision terminal via ISAPI.
+     * Push / Synchronize user RFID card info to terminal via /AccessControl/CardInfo/Record (PUT).
      */
-    public function setUser(Door $door, Employee $employee): array
+    public function syncCardUser(string $employeeNo, string $cardNo, ?string $employeeName = null, ?Door $door = null): array
     {
-        if ($this->isMockMode()) {
-            Log::info("[ISAPI MOCK] Setting user {$employee->employee_id} ({$employee->name}) on Door {$door->door_id}");
-            return ['status' => true, 'statusCode' => 1, 'statusString' => 'OK'];
-        }
-
-        $creds = $this->getDeviceCredentials($door);
-        $url = "http://{$door->device_ip}/ISAPI/AccessControl/UserInfo/SetUp?format=json";
-        $connectTimeout = (int) env('ISAPI_CONNECT_TIMEOUT', 3);
-        $requestTimeout = (int) env('ISAPI_REQUEST_TIMEOUT', 5);
+        $url = $this->buildUrl('/AccessControl/CardInfo/Record', $door);
 
         $payload = [
-            'UserInfo' => [
-                'employeeNo' => $employee->employee_id,
-                'name' => $employee->name,
-                'userType' => 'normal',
-                'closeDelayEnabled' => false,
-                'Valid' => [
-                    'enable' => true,
-                    'beginTime' => '2020-01-01T00:00:00',
-                    'endTime' => '2035-12-31T23:59:59',
-                    'timeType' => 'local',
-                ],
-                'belongGroup' => 1,
+            'CardInfo' => [
+                'employeeNo' => $employeeNo,
+                'cardNo' => $cardNo,
+                'cardType' => 'normalCard',
+                'leaderCard' => 'false',
+                'name' => $employeeName,
+            ],
+            'employeeNo' => $employeeNo,
+            'cardNo' => $cardNo,
+            'name' => $employeeName,
+        ];
+
+        try {
+            $response = $this->buildHttpClient($door)->put($url, $payload);
+            $json = $response->json() ?? [];
+
+            if ($response->successful()) {
+                $statusCode = $json['statusCode'] ?? ($json['ResponseStatus']['statusCode'] ?? 1);
+                $isOk = ($statusCode == 1) || (isset($json['statusString']) && strtoupper($json['statusString']) === 'OK');
+
+                return [
+                    'status' => $isOk,
+                    'statusCode' => $statusCode,
+                    'data' => $json,
+                    'error' => $isOk ? null : ($json['errorMsg'] ?? ($json['ResponseStatus']['errorMsg'] ?? 'Card synchronization failed.')),
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'data' => $json,
+                'error' => $json['errorMsg'] ?? ($json['ResponseStatus']['errorMsg'] ?? ($json['statusString'] ?? "HTTP {$response->status()}: " . $response->body())),
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI syncCardUser failed for Employee {$employeeNo} ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'data' => null,
+                'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Fetch access events / tap logs from /AccessControl/AcsEvent (POST).
+     */
+    public function fetchEvents(?int $limit = 20, ?Door $door = null): array
+    {
+        $url = $this->buildUrl('/AccessControl/AcsEvent', $door);
+
+        $payload = [
+            'AcsEventCond' => [
+                'searchID' => (string) Str::uuid(),
+                'searchResultPosition' => 0,
+                'maxResults' => $limit ?: 20,
+                'major' => 5, // Access Control Event
+                'minor' => 0,
             ],
         ];
 
         try {
-            $response = Http::connectTimeout($connectTimeout)
-                ->timeout($requestTimeout)
-                ->withDigestAuth($creds['username'], $creds['password'])
-                ->put($url, $payload);
+            $response = $this->buildHttpClient($door)->post($url, $payload);
+            $json = $response->json() ?? [];
 
             if ($response->successful()) {
-                return ['status' => true, 'data' => $response->json()];
+                $rawList = $json['AcsEvent']['InfoList'] ?? ($json['events'] ?? ($json['InfoList'] ?? []));
+                $formattedEvents = [];
+
+                foreach ($rawList as $item) {
+                    $formattedEvents[] = [
+                        'major' => $item['major'] ?? null,
+                        'minor' => $item['minor'] ?? null,
+                        'time' => $item['time'] ?? now()->toIso8601String(),
+                        'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
+                        'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
+                        'name' => $item['name'] ?? null,
+                        'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
+                        'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
+                        'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
+                        'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
+                    ];
+                }
+
+                return [
+                    'status' => true,
+                    'statusCode' => 1,
+                    'total' => count($formattedEvents),
+                    'events' => $formattedEvents,
+                    'data' => $json,
+                    'error' => null,
+                ];
             }
 
-            return ['status' => false, 'error' => $response->body()];
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'total' => 0,
+                'events' => [],
+                'data' => $json,
+                'error' => "HTTP {$response->status()}: " . ($json['errorMsg'] ?? $response->body()),
+            ];
         } catch (\Throwable $e) {
-            Log::error("ISAPI setUser failed for Door {$door->door_id}: " . $e->getMessage());
-            return ['status' => false, 'error' => "ISAPI Connection Error ({$door->device_ip}): " . $e->getMessage()];
+            Log::error("ISAPI fetchEvents failed ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'total' => 0,
+                'events' => [],
+                'data' => null,
+                'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
         }
     }
 
     /**
-     * Push door access rights / privilege plan for employee via ISAPI.
+     * Backward-compatible helper: Ping physical terminal device status.
+     */
+    public function pingDevice(Door $door): bool
+    {
+        // Special testing case: simulate offline if IP ends with .99
+        if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
+            return false;
+        }
+
+        $result = $this->getDeviceStatus($door);
+        return (bool) ($result['status'] ?? false);
+    }
+
+    /**
+     * Backward-compatible helper: Push employee user record to Hikvision terminal.
+     */
+    public function setUser(Door $door, Employee $employee): array
+    {
+        return $this->syncCardUser(
+            $employee->employee_id ?? $employee->nik,
+            $employee->card_no ?? '',
+            $employee->name,
+            $door
+        );
+    }
+
+    /**
+     * Backward-compatible helper: Push door access rights plan for employee.
      */
     public function setUserAccessRight(Door $door, Employee $employee): array
     {
@@ -118,14 +304,10 @@ class HikvisionIsapiService
             return ['status' => true, 'statusCode' => 1, 'statusString' => 'OK'];
         }
 
-        $creds = $this->getDeviceCredentials($door);
-        $url = "http://{$door->device_ip}/ISAPI/AccessControl/UserRightPlan/SetUp?format=json";
-        $connectTimeout = (int) env('ISAPI_CONNECT_TIMEOUT', 3);
-        $requestTimeout = (int) env('ISAPI_REQUEST_TIMEOUT', 5);
-
+        $url = $this->buildUrl('/AccessControl/UserRightPlan/SetUp?format=json', $door);
         $payload = [
             'UserRightPlan' => [
-                'employeeNo' => $employee->employee_id,
+                'employeeNo' => $employee->employee_id ?? $employee->nik,
                 'enable' => true,
                 'planNo' => 1,
                 'userRightType' => 'normal',
@@ -133,11 +315,7 @@ class HikvisionIsapiService
         ];
 
         try {
-            $response = Http::connectTimeout($connectTimeout)
-                ->timeout($requestTimeout)
-                ->withDigestAuth($creds['username'], $creds['password'])
-                ->put($url, $payload);
-
+            $response = $this->buildHttpClient($door)->put($url, $payload);
             if ($response->successful()) {
                 return ['status' => true, 'data' => $response->json()];
             }
