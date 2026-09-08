@@ -56,7 +56,7 @@ class TestDoorConnectivityCommand extends Command
             } else {
                 // Real physical probe with strict 2-second timeout
                 try {
-                    $url = "http://{$door->device_ip}/ISAPI/System/status";
+                    $url = "http://{$door->device_ip}/ISAPI/System/deviceInfo";
                     $response = Http::connectTimeout(2)
                         ->timeout(2)
                         ->get($url);

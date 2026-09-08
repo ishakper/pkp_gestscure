@@ -140,4 +140,143 @@ class IsapiWebhookTest extends TestCase
                 'code' => 403,
             ]);
     }
+
+    /**
+     * Test parsing real XML payload for normal tap access.
+     */
+    public function test_xml_event_notification_standard_tap_granted(): void
+    {
+        $xml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<EventNotificationAlert version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+    <ipAddress>192.168.90.11</ipAddress>
+    <dateTime>2026-09-08T15:10:00+07:00</dateTime>
+    <AccessControllerEvent>
+        <majorEventType>1</majorEventType>
+        <subEventType>1</subEventType>
+        <cardNo>CARD-1001</cardNo>
+        <employeeNoString>USR-1001</employeeNoString>
+    </AccessControllerEvent>
+</EventNotificationAlert>
+XML;
+
+        $response = $this->call(
+            'POST',
+            '/api/v1/isapi/event-notification',
+            [],
+            [],
+            [],
+            [
+                'REMOTE_ADDR' => '192.168.90.11',
+                'HTTP_X_DEVICE_SECRET' => 'secret_door_a_9981',
+                'CONTENT_TYPE' => 'application/xml',
+            ],
+            $xml
+        );
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'data' => [
+                    'access_status' => 'Granted',
+                    'door_id' => 'DOOR-A',
+                    'employee_name' => 'Budi Santoso',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('access_logs', [
+            'door_id' => $this->door->id,
+            'employee_id' => $this->employee->id,
+            'verify_method' => 'Card',
+            'access_status' => 'Granted',
+        ]);
+    }
+
+    /**
+     * Test parsing real XML payload for major 5 DOOR_FORCED_OPEN alarm.
+     */
+    public function test_xml_event_notification_door_forced_open_alarm(): void
+    {
+        $xml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<EventNotificationAlert version="2.0">
+    <dateTime>2026-09-08T15:11:00+07:00</dateTime>
+    <majorEventType>5</majorEventType>
+    <subEventType>21</subEventType>
+</EventNotificationAlert>
+XML;
+
+        $response = $this->call(
+            'POST',
+            '/api/v1/isapi/event-notification',
+            [],
+            [],
+            [],
+            [
+                'REMOTE_ADDR' => '192.168.90.11',
+                'HTTP_X_DEVICE_SECRET' => 'secret_door_a_9981',
+                'CONTENT_TYPE' => 'application/xml',
+            ],
+            $xml
+        );
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'data' => [
+                    'event_type' => 'DOOR_FORCED_OPEN',
+                    'access_status' => 'Alarm',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('access_logs', [
+            'door_id' => $this->door->id,
+            'event_type' => 'DOOR_FORCED_OPEN',
+            'access_status' => 'Alarm',
+        ]);
+    }
+
+    /**
+     * Test parsing real XML payload for major 5 TAMPER_ALARM.
+     */
+    public function test_xml_event_notification_tamper_alarm(): void
+    {
+        $xml = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<EventNotificationAlert version="2.0">
+    <dateTime>2026-09-08T15:12:00+07:00</dateTime>
+    <majorEventType>5</majorEventType>
+    <subEventType>38</subEventType>
+</EventNotificationAlert>
+XML;
+
+        $response = $this->call(
+            'POST',
+            '/api/v1/isapi/event-notification',
+            [],
+            [],
+            [],
+            [
+                'REMOTE_ADDR' => '192.168.90.11',
+                'HTTP_X_DEVICE_SECRET' => 'secret_door_a_9981',
+                'CONTENT_TYPE' => 'application/xml',
+            ],
+            $xml
+        );
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+                'data' => [
+                    'event_type' => 'TAMPER_ALARM',
+                    'access_status' => 'Alarm',
+                ],
+            ]);
+
+        $this->assertDatabaseHas('access_logs', [
+            'door_id' => $this->door->id,
+            'event_type' => 'TAMPER_ALARM',
+            'access_status' => 'Alarm',
+        ]);
+    }
 }

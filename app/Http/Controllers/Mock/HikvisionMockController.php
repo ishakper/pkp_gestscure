@@ -9,8 +9,8 @@ use Illuminate\Http\Request;
 class HikvisionMockController extends Controller
 {
     /**
-     * Simulate ISAPI GET /ISAPI/System/status
-     * Returns terminal device status.
+     * Simulate ISAPI GET /ISAPI/System/deviceInfo and /ISAPI/System/status
+     * Returns terminal device status and hardware info.
      */
     public function deviceStatus(): JsonResponse
     {
@@ -19,16 +19,26 @@ class HikvisionMockController extends Controller
         return response()->json([
             'statusCode' => 1,
             'statusString' => 'OK',
+            'model' => 'DS-K1T804AMF',
+            'serialNumber' => 'DS-K1T804AMF20260901',
+            'firmware' => 'V1.2.3 build 260901',
+            'doorStatus' => 'closed',
             'DeviceStatus' => [
                 'status' => 'OK',
                 'online' => true,
                 'currentDeviceTime' => $currentTime,
                 'doorStatus' => 'closed',
             ],
+            'DeviceInfo' => [
+                'deviceName' => 'Access Controller',
+                'model' => 'DS-K1T804AMF',
+                'serialNumber' => 'DS-K1T804AMF20260901',
+                'firmwareVersion' => 'V1.2.3 build 260901',
+                'doorStatus' => 'closed',
+            ],
             'status' => 'OK',
             'online' => true,
             'currentDeviceTime' => $currentTime,
-            'doorStatus' => 'closed',
         ], 200);
     }
 

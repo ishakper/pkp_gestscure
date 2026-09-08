@@ -95,13 +95,13 @@ class HikvisionIsapiServiceTest extends TestCase
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
-            '*/System/status' => Http::response([
+            '*/System/deviceInfo*' => Http::response([
                 'statusCode' => 1,
                 'statusString' => 'OK',
-                'DeviceStatus' => [
-                    'status' => 'OK',
-                    'online' => true,
-                    'currentDeviceTime' => '2026-09-07T13:00:00+07:00',
+                'DeviceInfo' => [
+                    'model' => 'DS-K1T804AMF',
+                    'serialNumber' => 'DS-K1T804AMF20260901',
+                    'firmwareVersion' => 'V1.2.3',
                     'doorStatus' => 'closed',
                 ],
                 'status' => 'OK',
@@ -116,6 +116,46 @@ class HikvisionIsapiServiceTest extends TestCase
         $this->assertEquals(1, $result['statusCode']);
         $this->assertArrayHasKey('data', $result);
         $this->assertEquals('closed', $result['data']['doorStatus']);
+        $this->assertEquals('DS-K1T804AMF', $result['data']['model']);
+        $this->assertEquals('DS-K1T804AMF20260901', $result['data']['serialNumber']);
+        $this->assertEquals('V1.2.3', $result['data']['firmware']);
+    }
+
+    /**
+     * Test getDeviceStatus successfully parses raw XML response from physical Hikvision terminal.
+     */
+    public function test_get_device_status_parses_xml_response_successfully(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+
+        $xmlPayload = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<DeviceInfo version="2.0" xmlns="http://www.hikvision.com/ver20/XMLSchema">
+    <deviceName>Access Controller</deviceName>
+    <deviceID>123456</deviceID>
+    <model>DS-K1T804AMF</model>
+    <serialNumber>DS-K1T804AMF20260901V010203EN123</serialNumber>
+    <macAddress>44:19:b6:aa:bb:cc</macAddress>
+    <firmwareVersion>V1.2.3 build 260901</firmwareVersion>
+    <firmwareReleasedDate>2026-09-01</firmwareReleasedDate>
+    <deviceType>AccessControl</deviceType>
+    <doorStatus>closed</doorStatus>
+</DeviceInfo>
+XML;
+
+        Http::fake([
+            '*/System/deviceInfo*' => Http::response($xmlPayload, 200, ['Content-Type' => 'application/xml']),
+        ]);
+
+        $result = $this->service->getDeviceStatus($this->door);
+
+        $this->assertTrue($result['status']);
+        $this->assertEquals(1, $result['statusCode']);
+        $this->assertEquals('DS-K1T804AMF', $result['data']['model']);
+        $this->assertEquals('DS-K1T804AMF20260901V010203EN123', $result['data']['serialNumber']);
+        $this->assertEquals('V1.2.3 build 260901', $result['data']['firmware']);
+        $this->assertEquals('closed', $result['data']['doorStatus']);
+        $this->assertTrue($result['data']['online']);
     }
 
     /**
@@ -126,7 +166,7 @@ class HikvisionIsapiServiceTest extends TestCase
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
-            '*/System/status' => function () {
+            '*/System/deviceInfo*' => function () {
                 throw new \Illuminate\Http\Client\ConnectionException('Connection timed out');
             },
         ]);
@@ -321,7 +361,7 @@ class HikvisionIsapiServiceTest extends TestCase
         ]);
 
         Http::fake([
-            '*/System/status' => Http::response(['statusCode' => 1, 'status' => 'OK'], 200),
+            '*/System/deviceInfo*' => Http::response(['statusCode' => 1, 'status' => 'OK'], 200),
             '*/AccessControl/CardInfo/Record' => Http::response(['statusCode' => 1, 'statusString' => 'OK'], 200),
         ]);
 

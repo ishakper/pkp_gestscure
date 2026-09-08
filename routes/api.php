@@ -76,6 +76,7 @@ Route::prefix('v1')->group(function () {
 */
 Route::prefix('mock/isapi')->group(function () {
     Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
+    Route::get('/System/deviceInfo', [HikvisionMockController::class, 'deviceStatus']);
     Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
     Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
 });

@@ -109,7 +109,7 @@ class HikvisionIsapiService
     }
 
     /**
-     * Retrieve device status from /System/status endpoint.
+     * Retrieve device status and info from /System/deviceInfo endpoint.
      * In mock mode, directly invokes HikvisionMockController to prevent single-thread cURL deadlocks on php artisan serve.
      */
     public function getDeviceStatus(?Door $door = null): array
@@ -131,6 +131,13 @@ class HikvisionIsapiService
                 $jsonResponse = $mockController->deviceStatus();
                 $data = $jsonResponse->getData(true) ?? [];
 
+                // Normalize model, serialNumber, firmware, and doorStatus
+                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'DS-K1T804AMF20260901');
+                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.2.3');
+                $data['doorStatus'] = $data['doorStatus'] ?? ($data['DeviceStatus']['doorStatus'] ?? 'closed');
+                $data['online'] = true;
+
                 return [
                     'status' => true,
                     'statusCode' => $data['statusCode'] ?? 1,
@@ -148,27 +155,75 @@ class HikvisionIsapiService
             }
         }
 
-        // 2. Real Physical Device Mode: HTTP Request with Digest Auth
-        $url = $this->buildUrl('/System/status', $door);
+        // 2. Real Physical Device Mode: HTTP Request to /System/deviceInfo with Digest Auth
+        $url = $this->buildUrl('/System/deviceInfo', $door);
 
         try {
             $response = $this->buildHttpClient($door)->get($url);
 
             if ($response->successful()) {
-                $json = $response->json() ?? [];
+                $body = trim($response->body());
+                $data = [];
+
+                // Parse XML response if content contains XML tags
+                if (str_contains($body, '<?xml') || str_contains($body, '<DeviceInfo') || str_starts_with($body, '<')) {
+                    try {
+                        $xml = simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA);
+                        if ($xml !== false) {
+                            $data = json_decode(json_encode($xml), true) ?? [];
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning("ISAPI XML parse warning ({$url}): " . $e->getMessage());
+                    }
+                }
+
+                // Fallback to json if XML parsing was empty or not XML
+                if (empty($data)) {
+                    $data = $response->json() ?? [];
+                }
+
+                // Map model, serialNumber, firmware, and doorStatus cleanly
+                $model = $data['model'] ?? ($data['deviceModel'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'));
+                $serialNumber = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? null);
+                $firmware = $data['firmwareVersion'] ?? ($data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? null));
+                $doorStatus = $data['doorStatus'] ?? ($data['DeviceStatus']['doorStatus'] ?? 'closed');
+
+                $data['model'] = $model;
+                $data['serialNumber'] = $serialNumber;
+                $data['firmware'] = $firmware;
+                $data['doorStatus'] = $doorStatus;
+                $data['online'] = true;
+
                 return [
                     'status' => true,
-                    'statusCode' => $json['statusCode'] ?? 1,
-                    'data' => $json,
+                    'statusCode' => $data['statusCode'] ?? 1,
+                    'data' => $data,
                     'error' => null,
                 ];
+            }
+
+            // In case of non-200 HTTP response, attempt to parse error XML/JSON
+            $body = trim($response->body());
+            $errorData = [];
+            if (str_contains($body, '<?xml') || str_starts_with($body, '<')) {
+                try {
+                    $xml = simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA);
+                    if ($xml !== false) {
+                        $errorData = json_decode(json_encode($xml), true) ?? [];
+                    }
+                } catch (\Throwable $e) {
+                    // Ignore error parse failure
+                }
+            }
+            if (empty($errorData)) {
+                $errorData = $response->json();
             }
 
             return [
                 'status' => false,
                 'statusCode' => $response->status(),
-                'data' => $response->json(),
-                'error' => "HTTP {$response->status()}: " . $response->body(),
+                'data' => $errorData,
+                'error' => "HTTP {$response->status()}: " . ($errorData['statusString'] ?? $response->body()),
             ];
         } catch (\Throwable $e) {
             Log::error("ISAPI getDeviceStatus failed ({$url}): " . $e->getMessage());
