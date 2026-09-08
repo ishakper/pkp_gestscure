@@ -17,6 +17,8 @@ class RegisterHikvisionWebhookCommand extends Command
                             {--ip=10.10.8.124 : Alamat IP host server penerima webhook}
                             {--port=8000 : Port server penerima webhook}
                             {--path=/api/v1/isapi/event-notification : URL endpoint webhook}
+                            {--user=admin : Username Digest Auth}
+                            {--password=PKP12345678 : Password Digest Auth}
                             {--real : Paksa request HTTP nyata ke terminal melewati mode mock}';
 
     /**
@@ -46,6 +48,8 @@ class RegisterHikvisionWebhookCommand extends Command
         $forceReal = $this->option('real');
 
         $creds = $isapiService->getDeviceCredentials($door);
+        $username = $this->option('user') ?: ($creds['username'] ?? 'admin');
+        $password = $this->option('password') ?: ($creds['password'] ?? 'PKP12345678');
 
         $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts";
 
@@ -62,6 +66,15 @@ class RegisterHikvisionWebhookCommand extends Command
     <portNo>{$listenerPort}</portNo>
     <httpAuthenticationMethod>none</httpAuthenticationMethod>
   </HttpHostNotification>
+  <HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+    <id>2</id>
+    <url></url>
+    <protocolType>HTTP</protocolType>
+    <parameterFormatType>xml</parameterFormatType>
+    <addressingFormatType>ipaddress</addressingFormatType>
+    <portNo>0</portNo>
+    <httpAuthenticationMethod>none</httpAuthenticationMethod>
+  </HttpHostNotification>
 </HttpHostNotificationList>
 XML;
 
@@ -69,7 +82,7 @@ XML;
         $this->comment("Device IP            : {$deviceIp}");
         $this->comment("ISAPI Endpoint       : {$endpointUrl}");
         $this->comment("Destination Listener : http://{$listenerIp}:{$listenerPort}{$listenerPath}");
-        $this->comment("Auth Method          : Digest (User: {$creds['username']})");
+        $this->comment("Auth Method          : Digest (User: {$username})");
         $this->line('');
 
         // 1. Mock Mode Simulation
@@ -87,7 +100,7 @@ XML;
             $this->info("Mengirimkan HTTP PUT ke terminal fisik {$deviceIp}...");
             $response = Http::connectTimeout(5)
                 ->timeout(10)
-                ->withDigestAuth($creds['username'], $creds['password'])
+                ->withDigestAuth($username, $password)
                 ->withHeaders([
                     'Content-Type' => 'application/xml',
                     'Accept' => 'application/xml, text/xml, */*',

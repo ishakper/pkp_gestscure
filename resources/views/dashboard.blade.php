@@ -1469,12 +1469,10 @@
                             </div>
                         </div>
                         <div class="door-actions">
-                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id ?? $door->id }}', this)" title="Buka Pintu Jarak Jauh">
-                                🔓 Buka Pintu
-                            </button>
                             <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
                                 ⚡ {{ $overrideText }}
                             </button>
+                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
                             <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
                                 📡 Cek Koneksi
                             </button>
@@ -1650,12 +1648,10 @@
                             </div>
                         </div>
                         <div class="door-actions">
-                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id ?? $door->id }}', this)" title="Buka Pintu Jarak Jauh">
-                                🔓 Buka Pintu
-                            </button>
                             <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
                                 ⚡ {{ $overrideText }}
                             </button>
+                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
                             <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
                                 📡 Cek Koneksi
                             </button>

@@ -54,5 +54,12 @@ class RegisterHikvisionWebhookCommandTest extends TestCase
             ->expectsOutputToContain('statusString         : OK')
             ->expectsOutputToContain('[SUCCESS]')
             ->assertExitCode(0);
+
+        Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
+            $body = $request->body();
+            return str_contains($body, '<id>1</id>')
+                && str_contains($body, '<id>2</id>')
+                && str_contains($body, '<ipAddress>10.10.8.124</ipAddress>');
+        });
     }
 }
