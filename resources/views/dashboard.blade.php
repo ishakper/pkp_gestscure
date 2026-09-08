@@ -2,6 +2,7 @@
 <html lang="id">
 <head>
     <meta charset="UTF-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PKP Secure - Centralized Multi-Building Access Control</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
@@ -1472,7 +1473,7 @@
                             <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
                                 ⚡ {{ $overrideText }}
                             </button>
-                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
+                            <button type="button" class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
                             <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
                                 📡 Cek Koneksi
                             </button>
@@ -1651,7 +1652,7 @@
                             <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
                                 ⚡ {{ $overrideText }}
                             </button>
-                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
+                            <button type="button" class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
                             <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
                                 📡 Cek Koneksi
                             </button>
@@ -1944,5 +1945,72 @@
 </script>
 <script src="/js/dashboard.js"></script>
 
+<script>
+/**
+ * Remote Unlock Door Function
+ * Sends POST request to /api/v1/doors/${doorId}/unlock with CSRF-Token
+ */
+async function remoteUnlockDoor(doorId, btn) {
+    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin membuka relay pintu ${doorId} secara remote?`)) {
+        return;
+    }
+
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '⏳ Membuka...';
+    }
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 
+        || '{{ csrf_token() }}';
+    const appToken = window.APP_CONFIG?.apiToken 
+        || sessionStorage.getItem('api_token') 
+        || localStorage.getItem('api_token') 
+        || '';
+
+    const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest'
+    };
+
+    if (appToken) {
+        headers['Authorization'] = `Bearer ${appToken}`;
+    }
+
+    try {
+        const response = await fetch(`/api/v1/doors/${doorId}/unlock`, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({ command: 'open' })
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.status === 'success') {
+            alert(`✓ Berhasil: ${data.message || 'Relay pintu berhasil dibuka!'}`);
+            if (typeof loadDoors === 'function') {
+                loadDoors();
+            }
+            if (typeof loadActivityLogs === 'function') {
+                loadActivityLogs();
+            }
+        } else {
+            alert(`✕ Gagal: ${data.message || 'Relay pintu gagal dibuka oleh hardware.'}`);
+        }
+    } catch (error) {
+        alert(`✕ Terjadi kesalahan koneksi: ${error.message}`);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+window.remoteUnlockDoor = remoteUnlockDoor;
+</script>
+
 </body>
 </html>
+

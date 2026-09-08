@@ -224,9 +224,7 @@ function renderDoorCards(doors) {
                     <button class="btn-action btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
                         ⚡ ${overrideText}
                     </button>
-                    <button class="btn-action btn-unlock" onclick="remoteUnlockDoor('${safeDoorId}', this)" title="Buka Pintu Jarak Jauh">
-                        🔓 Buka Pintu
-                    </button>
+                    <button class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('${safeDoorId}', this)">🔓 Buka Pintu</button>
                     <button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
                         📡 Cek Koneksi
                     </button>
@@ -258,28 +256,49 @@ async function toggleDoorStatus(doorId, newStatus) {
 }
 
 async function remoteUnlockDoor(doorId, btn) {
+    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin membuka relay pintu ${doorId} secara remote?`)) {
+        return;
+    }
+
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span style="display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle;margin-right:4px;"></span> Membuka...`;
+        btn.innerHTML = '⏳ Membuka...';
+    }
+
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const token = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+
+    const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-CSRF-TOKEN': csrfToken,
+        'X-Requested-With': 'XMLHttpRequest'
+    };
+    if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
     }
 
     try {
-        const res = await apiFetch(`/admin/doors/${doorId}/open`, {
+        const response = await fetch(`/api/v1/doors/${doorId}/unlock`, {
             method: 'POST',
+            headers: headers,
+            body: JSON.stringify({ command: 'open' })
         });
 
-        if (res.status === 'success') {
-            showToast(res.message || `✓ Pintu ${doorId} berhasil dibuka secara fisik!`, 'success');
+        const data = await response.json().catch(() => ({}));
+
+        if (response.ok && data.status === 'success') {
+            alert(`✓ Berhasil: ${data.message || 'Relay pintu berhasil dibuka!'}`);
             await loadDoors();
             if (typeof loadActivityLogs === 'function') {
                 await loadActivityLogs();
             }
         } else {
-            showToast(`Gagal membuka pintu: ${res.message || 'Error hardware'}`, 'error');
+            alert(`✕ Gagal: ${data.message || 'Relay pintu gagal dibuka oleh hardware.'}`);
         }
     } catch (err) {
-        showToast(`Gagal membuka pintu: ${err.message}`, 'error');
+        alert(`✕ Terjadi kesalahan koneksi: ${err.message}`);
     } finally {
         if (btn) {
             btn.disabled = false;

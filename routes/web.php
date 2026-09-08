@@ -65,4 +65,7 @@ Route::middleware(['auth'])->group(function () {
             'doors' => $doors,
         ]);
     });
+
+    Route::post('/api/v1/doors/{door_id}/unlock', [\App\Http\Controllers\Api\V1\AdminDoorController::class, 'openDoor'])->name('doors.unlock');
 });
+

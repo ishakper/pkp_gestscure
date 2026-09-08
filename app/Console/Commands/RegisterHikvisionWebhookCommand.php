@@ -16,7 +16,7 @@ class RegisterHikvisionWebhookCommand extends Command
                             {door_id=DOOR-B : Kode identitas terminal pintu}
                             {--ip=10.10.8.124 : Alamat IP host server penerima webhook}
                             {--port=8000 : Port server penerima webhook}
-                            {--path=/api/v1/isapi/event-notification : URL endpoint webhook}
+                            {--path=api/v1/isapi/event-notification : URL endpoint webhook tanpa leading slash}
                             {--user=admin : Username Digest Auth}
                             {--password=PKP12345678 : Password Digest Auth}
                             {--real : Paksa request HTTP nyata ke terminal melewati mode mock}';
@@ -44,44 +44,34 @@ class RegisterHikvisionWebhookCommand extends Command
 
         $listenerIp = $this->option('ip') ?: '10.10.8.124';
         $listenerPort = (int) ($this->option('port') ?: 8000);
-        $listenerPath = $this->option('path') ?: '/api/v1/isapi/event-notification';
+        $rawPath = $this->option('path') ?: 'api/v1/isapi/event-notification';
+        $listenerPath = ltrim($rawPath, '/');
         $forceReal = $this->option('real');
 
         $creds = $isapiService->getDeviceCredentials($door);
         $username = $this->option('user') ?: ($creds['username'] ?? 'admin');
         $password = $this->option('password') ?: ($creds['password'] ?? 'PKP12345678');
 
-        $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts";
+        $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts/1";
 
         $xmlPayload = <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
-<HttpHostNotificationList version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
-  <HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
-    <id>1</id>
-    <url>{$listenerPath}</url>
-    <protocolType>HTTP</protocolType>
-    <parameterFormatType>xml</parameterFormatType>
-    <addressingFormatType>ipaddress</addressingFormatType>
-    <ipAddress>{$listenerIp}</ipAddress>
-    <portNo>{$listenerPort}</portNo>
-    <httpAuthenticationMethod>none</httpAuthenticationMethod>
-  </HttpHostNotification>
-  <HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
-    <id>2</id>
-    <url></url>
-    <protocolType>HTTP</protocolType>
-    <parameterFormatType>xml</parameterFormatType>
-    <addressingFormatType>ipaddress</addressingFormatType>
-    <portNo>0</portNo>
-    <httpAuthenticationMethod>none</httpAuthenticationMethod>
-  </HttpHostNotification>
-</HttpHostNotificationList>
+<HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+  <id>1</id>
+  <url>{$listenerPath}</url>
+  <protocolType>HTTP</protocolType>
+  <parameterFormatType>XML</parameterFormatType>
+  <addressingFormatType>ipaddress</addressingFormatType>
+  <ipAddress>{$listenerIp}</ipAddress>
+  <portNo>{$listenerPort}</portNo>
+  <httpAuthenticationMethod>none</httpAuthenticationMethod>
+</HttpHostNotification>
 XML;
 
         $this->comment("Target Door          : {$doorId} (" . ($door->name ?? 'Access Door') . ")");
         $this->comment("Device IP            : {$deviceIp}");
         $this->comment("ISAPI Endpoint       : {$endpointUrl}");
-        $this->comment("Destination Listener : http://{$listenerIp}:{$listenerPort}{$listenerPath}");
+        $this->comment("Destination Listener : http://{$listenerIp}:{$listenerPort}/{$listenerPath}");
         $this->comment("Auth Method          : Digest (User: {$username})");
         $this->line('');
 
@@ -90,7 +80,7 @@ XML;
             $this->warn('[MOCK MODE ACTIVE] Simulasi pendaftaran HTTP Host Webhook tanpa koneksi fisik.');
             $this->info("HTTP Response Status : 200");
             $this->info("statusString         : OK");
-            $this->line("Response Body        :\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ResponseStatus version=\"2.0\" xmlns=\"http://www.isapi.org/ver20/XMLSchema\">\n  <requestURL>/ISAPI/Event/notification/httpHosts</requestURL>\n  <statusCode>1</statusCode>\n  <statusString>OK</statusString>\n  <subStatusCode>ok</subStatusCode>\n</ResponseStatus>");
+            $this->line("Response Body        :\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ResponseStatus version=\"2.0\" xmlns=\"http://www.isapi.org/ver20/XMLSchema\">\n  <requestURL>/ISAPI/Event/notification/httpHosts/1</requestURL>\n  <statusCode>1</statusCode>\n  <statusString>OK</statusString>\n  <subStatusCode>ok</subStatusCode>\n</ResponseStatus>");
             $this->info("\n[SUCCESS] Listener HTTP Host Webhook berhasil didaftarkan (Simulated) ke {$doorId} ({$deviceIp})!");
             return Command::SUCCESS;
         }

@@ -42,8 +42,8 @@ class RegisterHikvisionWebhookCommandTest extends TestCase
     public function test_register_webhook_command_real_mode_success(): void
     {
         Http::fake([
-            'http://192.168.90.15/ISAPI/Event/notification/httpHosts' => Http::response(
-                '<?xml version="1.0" encoding="UTF-8"?><ResponseStatus version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema"><requestURL>/ISAPI/Event/notification/httpHosts</requestURL><statusCode>1</statusCode><statusString>OK</statusString><subStatusCode>ok</subStatusCode></ResponseStatus>',
+            'http://192.168.90.15/ISAPI/Event/notification/httpHosts/1' => Http::response(
+                '<?xml version="1.0" encoding="UTF-8"?><ResponseStatus version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema"><requestURL>/ISAPI/Event/notification/httpHosts/1</requestURL><statusCode>1</statusCode><statusString>OK</statusString><subStatusCode>ok</subStatusCode></ResponseStatus>',
                 200,
                 ['Content-Type' => 'application/xml']
             ),
@@ -58,7 +58,8 @@ class RegisterHikvisionWebhookCommandTest extends TestCase
         Http::assertSent(function (\Illuminate\Http\Client\Request $request) {
             $body = $request->body();
             return str_contains($body, '<id>1</id>')
-                && str_contains($body, '<id>2</id>')
+                && str_contains($body, '<parameterFormatType>XML</parameterFormatType>')
+                && str_contains($body, '<url>api/v1/isapi/event-notification</url>')
                 && str_contains($body, '<ipAddress>10.10.8.124</ipAddress>');
         });
     }

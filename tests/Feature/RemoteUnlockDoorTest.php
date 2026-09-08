@@ -183,4 +183,20 @@ XML;
 
         $response->assertStatus(403);
     }
+
+    /**
+     * Test direct unlock endpoint POST /api/v1/doors/{door_id}/unlock.
+     */
+    public function test_can_unlock_door_via_direct_unlock_endpoint(): void
+    {
+        Config::set('services.hikvision.use_mock', true);
+
+        $response = $this->actingAs($this->superAdmin)
+            ->postJson("/api/v1/doors/DOOR-B/unlock");
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'success',
+            ]);
+    }
 }
