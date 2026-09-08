@@ -237,6 +237,72 @@ class HikvisionIsapiService
     }
 
     /**
+     * Trigger remote control command on physical terminal (e.g. 'open' to unlock door).
+     * Uses ISAPI PUT /AccessControl/RemoteControl/door/1 with Digest Auth and XML payload.
+     */
+    public function remoteControlDoor(Door $door, string $command = 'open'): array
+    {
+        // 1. Mock Mode: Return simulated success or offline error
+        if ($this->isMockMode()) {
+            if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Simulated Device Offline ({$door->device_ip})",
+                ];
+            }
+
+            return [
+                'status' => true,
+                'statusCode' => 1,
+                'message' => 'Simulated door unlock successful',
+                'error' => null,
+            ];
+        }
+
+        // 2. Real Physical Device Mode: PUT /ISAPI/AccessControl/RemoteControl/door/1
+        $url = $this->buildUrl('/AccessControl/RemoteControl/door/1', $door);
+        $xmlBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><RemoteControlDoor><cmd>{$command}</cmd></RemoteControlDoor>";
+
+        try {
+            $response = $this->buildHttpClient($door)
+                ->withHeaders([
+                    'Content-Type' => 'application/xml',
+                    'Accept' => 'application/xml, text/xml, */*',
+                ])
+                ->withBody($xmlBody, 'application/xml')
+                ->put($url);
+
+            $body = $response->body();
+            $isSuccessStatus = in_array($response->status(), [200, 204], true);
+            $hasSuccessXml = stripos($body, '<statusString>OK</statusString>') !== false 
+                || stripos($body, '<subStatusCode>ok</subStatusCode>') !== false;
+
+            if ($isSuccessStatus || $hasSuccessXml) {
+                return [
+                    'status' => true,
+                    'statusCode' => 200,
+                    'message' => 'Door command executed successfully',
+                    'error' => null,
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'error' => !empty($body) ? $body : "HTTP {$response->status()}: Remote control failed",
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI remoteControlDoor failed ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Push / Synchronize user RFID card info to terminal via /AccessControl/CardInfo/Record (PUT).
      * In mock mode, directly invokes HikvisionMockController.
      */

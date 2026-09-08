@@ -221,6 +221,9 @@ function renderDoorCards(doors) {
                     </div>
                 </div>
                 <div class="door-actions">
+                    <button class="btn-sm btn-unlock" onclick="remoteUnlockDoor('${safeDoorId}', this)" title="Buka Kunci Pintu Jarak Jauh (Remote Unlock via ISAPI)">
+                        🔓 Buka Pintu
+                    </button>
                     <button class="btn-sm btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
                         ⚡ ${overrideText}
                     </button>
@@ -251,6 +254,37 @@ async function toggleDoorStatus(doorId, newStatus) {
         }
     } catch (err) {
         showToast(`Gagal override status ${doorId}: ${err.message}`, 'error');
+    }
+}
+
+async function remoteUnlockDoor(doorId, btn) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span style="display:inline-block;width:11px;height:11px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin 0.6s linear infinite;vertical-align:middle;margin-right:4px;"></span> Membuka...`;
+    }
+
+    try {
+        const res = await apiFetch(`/admin/doors/${doorId}/open`, {
+            method: 'POST',
+        });
+
+        if (res.status === 'success') {
+            showToast(res.message || `✓ Pintu ${doorId} berhasil dibuka secara fisik!`, 'success');
+            await loadDoors();
+            if (typeof loadActivityLogs === 'function') {
+                await loadActivityLogs();
+            }
+        } else {
+            showToast(`Gagal membuka pintu: ${res.message || 'Error hardware'}`, 'error');
+        }
+    } catch (err) {
+        showToast(`Gagal membuka pintu: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
 }
 
@@ -1154,6 +1188,7 @@ function toggleSidebar(forceState) {
 // Expose globally
 window.toggleSidebar = toggleSidebar;
 window.pingSingleDoor = pingSingleDoor;
+window.remoteUnlockDoor = remoteUnlockDoor;
 window.checkAllDoors = checkAllDoors;
 window.syncHardwareLogs = syncHardwareLogs;
 window.revokeAllEmployeeDoors = revokeAllEmployeeDoors;

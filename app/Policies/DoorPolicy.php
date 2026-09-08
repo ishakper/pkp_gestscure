@@ -29,4 +29,13 @@ class DoorPolicy
 
         return $admin->assigned_building === $door->location;
     }
+
+    public function open(Admin $admin, Door $door): bool
+    {
+        if ($admin->isSuperAdmin()) {
+            return true;
+        }
+
+        return $admin->assigned_building === null || $admin->assigned_building === $door->location;
+    }
 }

@@ -56,6 +56,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/doors', [AdminDoorController::class, 'index']);
             Route::post('/doors/check-all', [AdminDoorController::class, 'checkAllConnections']);
             Route::post('/doors/{door_id}/check-connection', [AdminDoorController::class, 'checkConnection']);
+            Route::post('/doors/{door_id}/open', [AdminDoorController::class, 'openDoor'])->name('admin.doors.open');
             Route::patch('/doors/{door_id}/status', [AdminDoorController::class, 'overrideStatus']);
             Route::get('/access-logs', [AdminAccessLogController::class, 'index']);
             Route::post('/access-logs/sync-hardware', [AdminAccessLogController::class, 'syncHardware']);
@@ -78,6 +79,7 @@ Route::prefix('mock/isapi')->group(function () {
     Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
     Route::get('/System/deviceInfo', [HikvisionMockController::class, 'deviceStatus']);
     Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
+    Route::put('/AccessControl/RemoteControl/door/{doorNo}', [HikvisionMockController::class, 'remoteControl']);
     Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
 });
 

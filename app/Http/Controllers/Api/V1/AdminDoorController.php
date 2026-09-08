@@ -87,6 +87,45 @@ class AdminDoorController extends Controller
     }
 
     /**
+     * Remote unlock door via physical Hikvision ISAPI command
+     */
+    public function openDoor(Request $request, $door_id, HikvisionIsapiService $isapiService)
+    {
+        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+
+        if ($request->user() && method_exists($this, 'authorize')) {
+            $this->authorize('open', $door);
+        }
+
+        $result = $isapiService->remoteControlDoor($door, 'open');
+
+        if (!($result['status'] ?? false)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => $result['statusCode'] ?? 500,
+                'message' => "Gagal membuka pintu: " . ($result['error'] ?? 'Device unreachable / hardware execution failed'),
+            ], 500);
+        }
+
+        $doorName = $door->door_name ?? $door->name;
+
+        ActivityLog::create([
+            'admin_id' => $request->user()->id ?? null,
+            'action' => 'remote_door_opened',
+            'subject_type' => 'Door',
+            'subject_id' => $door->id,
+            'description' => "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard.",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Pintu {$doorName} ({$door->door_id}) berhasil dibuka via remote.",
+            'data' => new DoorResource($door->fresh()),
+        ], 200);
+    }
+
+    /**
      * Audit single physical terminal connectivity via ISAPI getDeviceStatus
      */
     public function checkConnection(Request $request, $door_id, HikvisionIsapiService $isapiService)

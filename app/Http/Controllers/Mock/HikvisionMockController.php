@@ -43,6 +43,20 @@ class HikvisionMockController extends Controller
     }
 
     /**
+     * Simulate ISAPI PUT /ISAPI/AccessControl/RemoteControl/door/{doorNo}
+     */
+    public function remoteControl(Request $request, $doorNo = 1): JsonResponse
+    {
+        return response()->json([
+            'statusCode' => 1,
+            'statusString' => 'OK',
+            'subStatusCode' => 'ok',
+            'errorCode' => 0,
+            'errorMsg' => 'OK',
+        ], 200);
+    }
+
+    /**
      * Simulate ISAPI PUT /ISAPI/AccessControl/CardInfo/Record
      * Simulates sending/syncing card & user information to the device.
      */

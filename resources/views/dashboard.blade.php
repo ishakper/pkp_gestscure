@@ -796,6 +796,17 @@
             transition: all 0.15s ease;
         }
 
+        .btn-unlock {
+            background: rgba(16, 185, 129, 0.18);
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            font-weight: 700;
+        }
+        .btn-unlock:hover { 
+            background: rgba(16, 185, 129, 0.3); 
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+        }
+
         .btn-override {
             background: rgba(245, 158, 11, 0.15);
             color: #fcd34d;
