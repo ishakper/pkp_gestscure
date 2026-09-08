@@ -796,15 +796,34 @@
             transition: all 0.15s ease;
         }
 
+        .btn-action {
+            padding: 0.45rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s ease;
+        }
+
         .btn-unlock {
-            background: rgba(16, 185, 129, 0.18);
-            color: #34d399;
-            border: 1px solid rgba(16, 185, 129, 0.4);
-            font-weight: 700;
+            background: #10b981;
+            color: #ffffff !important;
+            border: 1px solid #059669;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s ease;
         }
         .btn-unlock:hover { 
-            background: rgba(16, 185, 129, 0.3); 
-            box-shadow: 0 0 12px rgba(16, 185, 129, 0.35);
+            background: #059669; 
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
         }
 
         .btn-override {
@@ -1410,7 +1429,61 @@
             </button>
         </div>
         <div class="doors-grid" id="overviewDoorsGrid">
-            <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
+            @if(isset($doors) && $doors->isNotEmpty())
+                @foreach($doors as $door)
+                    @php
+                        $isOnline = ($door->connection_status === 'online' || $door->status === 'online');
+                        $targetOverride = $isOnline ? 'offline' : 'online';
+                        $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
+                        $badgeClass = $isOnline ? 'badge-online' : 'badge-offline';
+                        $badgeText = $isOnline ? 'ONLINE' : 'OFFLINE';
+                    @endphp
+                    <div class="door-card">
+                        <div class="door-card-header">
+                            <div>
+                                <div class="door-code">{{ $door->door_id }}</div>
+                                <div class="door-name">{{ $door->door_name ?? $door->name }}</div>
+                            </div>
+                            <span class="badge {{ $badgeClass }}">{{ $badgeText }}</span>
+                        </div>
+                        <div class="door-specs">
+                            <div class="spec-item">
+                                <span class="spec-label">Lokasi Gedung:</span>
+                                <span class="spec-val">{{ $door->location }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">IP Terminal:</span>
+                                <span class="spec-val ip-tag">{{ $door->device_ip ?? $door->ip_address }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Model Hardware:</span>
+                                <span class="spec-val">{{ $door->device_model ?? $door->model ?? 'DS-K1T804AMF' }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Assigned Users:</span>
+                                <span class="spec-val highlight">{{ $door->employees_count ?? $door->door_assignments_count ?? 0 }} Pegawai</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Status Pintu:</span>
+                                <span class="spec-val">{{ $isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline' }}</span>
+                            </div>
+                        </div>
+                        <div class="door-actions">
+                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id ?? $door->id }}', this)" title="Buka Pintu Jarak Jauh">
+                                🔓 Buka Pintu
+                            </button>
+                            <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
+                                ⚡ {{ $overrideText }}
+                            </button>
+                            <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
+                                📡 Cek Koneksi
+                            </button>
+                        </div>
+                    </div>
+                @endforeach
+            @else
+                <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
+            @endif
         </div>
 
         <!-- SECTION 2: USER & ACCESS PRIVILEGE MANAGEMENT -->
@@ -1537,7 +1610,61 @@
             </button>
         </div>
         <div class="doors-grid" id="doorsGrid">
-            <!-- Populated via JS -->
+            @if(isset($doors) && $doors->isNotEmpty())
+                @foreach($doors as $door)
+                    @php
+                        $isOnline = ($door->connection_status === 'online' || $door->status === 'online');
+                        $targetOverride = $isOnline ? 'offline' : 'online';
+                        $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
+                        $badgeClass = $isOnline ? 'badge-online' : 'badge-offline';
+                        $badgeText = $isOnline ? 'ONLINE' : 'OFFLINE';
+                    @endphp
+                    <div class="door-card">
+                        <div class="door-card-header">
+                            <div>
+                                <div class="door-code">{{ $door->door_id }}</div>
+                                <div class="door-name">{{ $door->door_name ?? $door->name }}</div>
+                            </div>
+                            <span class="badge {{ $badgeClass }}">{{ $badgeText }}</span>
+                        </div>
+                        <div class="door-specs">
+                            <div class="spec-item">
+                                <span class="spec-label">Lokasi Gedung:</span>
+                                <span class="spec-val">{{ $door->location }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">IP Terminal:</span>
+                                <span class="spec-val ip-tag">{{ $door->device_ip ?? $door->ip_address }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Model Hardware:</span>
+                                <span class="spec-val">{{ $door->device_model ?? $door->model ?? 'DS-K1T804AMF' }}</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Assigned Users:</span>
+                                <span class="spec-val highlight">{{ $door->employees_count ?? $door->door_assignments_count ?? 0 }} Pegawai</span>
+                            </div>
+                            <div class="spec-item">
+                                <span class="spec-label">Status Pintu:</span>
+                                <span class="spec-val">{{ $isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline' }}</span>
+                            </div>
+                        </div>
+                        <div class="door-actions">
+                            <button type="button" class="btn-action btn-unlock" onclick="remoteUnlockDoor('{{ $door->door_id ?? $door->id }}', this)" title="Buka Pintu Jarak Jauh">
+                                🔓 Buka Pintu
+                            </button>
+                            <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
+                                ⚡ {{ $overrideText }}
+                            </button>
+                            <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
+                                📡 Cek Koneksi
+                            </button>
+                        </div>
+                    </div>
+                @endforeach
+            @else
+                <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
+            @endif
         </div>
     </section>
 

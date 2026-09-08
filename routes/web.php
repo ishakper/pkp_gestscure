@@ -52,9 +52,17 @@ Route::middleware(['auth'])->group(function () {
             $apiToken = Auth::user()->createToken('web-session-token')->plainTextToken;
             session(['api_token' => $apiToken]);
         }
+        $admin = Auth::user();
+        $doorsQuery = \App\Models\Door::withCount(['employees', 'doorAssignments']);
+        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
+            $doorsQuery->where('location', $admin->assigned_building);
+        }
+        $doors = $doorsQuery->get();
+
         return view('dashboard', [
-            'admin' => Auth::user(),
+            'admin' => $admin,
             'apiToken' => $apiToken,
+            'doors' => $doors,
         ]);
     });
 });

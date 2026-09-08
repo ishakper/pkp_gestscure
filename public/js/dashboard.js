@@ -221,13 +221,13 @@ function renderDoorCards(doors) {
                     </div>
                 </div>
                 <div class="door-actions">
-                    <button class="btn-sm btn-unlock" onclick="remoteUnlockDoor('${safeDoorId}', this)" title="Buka Kunci Pintu Jarak Jauh (Remote Unlock via ISAPI)">
+                    <button class="btn-action btn-unlock" onclick="remoteUnlockDoor('${safeDoorId}', this)" title="Buka Pintu Jarak Jauh">
                         🔓 Buka Pintu
                     </button>
-                    <button class="btn-sm btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
+                    <button class="btn-action btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
                         ⚡ ${overrideText}
                     </button>
-                    <button class="btn-sm btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
+                    <button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
                         📡 Cek Koneksi
                     </button>
                 </div>
