@@ -12,7 +12,7 @@ services:
       - APP_NAME=PKP Secure
       - APP_ENV=production
       - APP_DEBUG=false
-      - APP_KEY=${APP_KEY:-base64:309l7r53f5qO2cZ7X8hYlqV1V6C5q8j+7p7+9n9=placeholder}
+      - APP_KEY=${APP_KEY:-base64:y3DL2dhW977FhBlrZRz9/blN21H8wXcAdNoCjdVkDGs=}
       - APP_URL=${APP_URL:-http://localhost:8000}
       - APP_TIMEZONE=Asia/Jakarta
       - LOG_CHANNEL=stack
