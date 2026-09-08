@@ -123,9 +123,11 @@ Untuk mengatasi kendala tersebut:
 |---|---|---|---|---|
 | **Central Server** | Gedung B (Data Center) | `192.168.90.100` | HTTP/HTTPS (80/443) | Web Dashboard Laravel, REST API, Database |
 | **Door A** | Gedung A (Kantor Utama) | `192.168.90.11` | ISAPI Digest (Port 80) | Akses Pegawai Kantor & Tamu |
-| **Door B** | Gedung B (IT & Infra) | `192.168.90.12` | ISAPI Digest (Port 80) | Akses Khusus Ruang Server (Restricted) |
+| **Door B** | Gedung B (IT & Infra) | `192.168.90.15` | ISAPI Digest (Port 80) | Akses Khusus Ruang Server (Restricted) |
 | **Door C** | Gedung C (Operasional) | `192.168.90.13` | ISAPI Digest (Port 80) | Akses Staf Operasional Lapangan |
 | **Door D** | Gedung D (Produksi) | `192.168.90.14` | ISAPI Digest (Port 80) | Akses Pabrik & Tim Produksi |
+
+> Gateway default seluruh subnet perangkat kontrol akses: `192.168.90.1`
 
 ---
 

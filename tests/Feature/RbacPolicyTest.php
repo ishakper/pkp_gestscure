@@ -29,7 +29,7 @@ class RbacPolicyTest extends TestCase
             'door_id' => 'DOOR-B',
             'door_name' => 'Door B - Gedung B',
             'location' => 'Gedung B',
-            'device_ip' => '192.168.90.12',
+            'device_ip' => '192.168.90.15',
             'device_model' => 'DS-K1T804AMF',
             'connection_status' => 'online',
         ]);

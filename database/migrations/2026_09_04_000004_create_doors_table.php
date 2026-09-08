@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('location');
             $table->string('ip_address')->nullable();
             $table->string('device_ip')->nullable();
+            $table->string('gateway')->nullable()->default('192.168.90.1');
             $table->string('model')->default('DS-K1T804AMF');
             $table->string('device_model')->default('DS-K1T804AMF');
             $table->enum('status', ['online', 'offline', 'error'])->default('online');

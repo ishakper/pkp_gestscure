@@ -1606,7 +1606,7 @@
                         <label>Terminal Pintu (Origin Device)</label>
                         <select id="simDoorId">
                             <option value="DOOR-A">DOOR-A (192.168.90.11 - Gedung A)</option>
-                            <option value="DOOR-B">DOOR-B (192.168.90.12 - Gedung B)</option>
+                            <option value="DOOR-B">DOOR-B (192.168.90.15 - Gedung B)</option>
                             <option value="DOOR-C">DOOR-C (192.168.90.13 - Gedung C)</option>
                             <option value="DOOR-D">DOOR-D (192.168.90.14 - Gedung D)</option>
                         </select>

@@ -42,4 +42,23 @@ return [
         'request_timeout' => (int) env('ISAPI_REQUEST_TIMEOUT', 10),
     ],
 
+    'doors' => [
+        'DOOR-A' => [
+            'ip' => env('DOOR_A_IP', '192.168.90.11'),
+            'gateway' => env('DOOR_A_GATEWAY', '192.168.90.1'),
+        ],
+        'DOOR-B' => [
+            'ip' => env('DOOR_B_IP', '192.168.90.15'),
+            'gateway' => env('DOOR_B_GATEWAY', '192.168.90.1'),
+        ],
+        'DOOR-C' => [
+            'ip' => env('DOOR_C_IP', '192.168.90.13'),
+            'gateway' => env('DOOR_C_GATEWAY', '192.168.90.1'),
+        ],
+        'DOOR-D' => [
+            'ip' => env('DOOR_D_IP', '192.168.90.14'),
+            'gateway' => env('DOOR_D_GATEWAY', '192.168.90.1'),
+        ],
+    ],
+
 ];

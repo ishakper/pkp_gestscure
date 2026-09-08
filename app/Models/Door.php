@@ -16,6 +16,7 @@ class Door extends Model
         'location',
         'ip_address',
         'device_ip',
+        'gateway',
         'model',
         'device_model',
         'status',

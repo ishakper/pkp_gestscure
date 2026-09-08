@@ -49,7 +49,7 @@ class ApiListingAndAuditTest extends TestCase
             'door_id' => 'DOOR-B',
             'name' => 'Door B - Server Room',
             'location' => 'Gedung B',
-            'device_ip' => '192.168.90.12',
+            'device_ip' => '192.168.90.15',
             'connection_status' => 'online',
         ]);
 
