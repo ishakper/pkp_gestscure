@@ -146,3 +146,20 @@ Sprint 7: Asset Management, Classification (Asset Categories), Assignment & Hand
 - REPOSITORY_SYNC: PASS
 
 Next: Sprint 8 Work Calendar + Attendance Core.
+
+Sprint 8: Work Calendar + Attendance Core.
+- SPRINT_8: PASS (commit `2f1f9dfeb50ab8078ad59b8add7769ba8a83bea0`)
+- FULL_REGRESSION: PASS (176 tests, 838 assertions at acceptance)
+
+Sprint 9: Office Attendance Integration.
+- SPRINT_9: IN_PROGRESS — local implementation and validation complete; GitLab delivery evidence pending.
+- ACCESSLOG_IMMUTABLE: PASS
+- NORMALIZED_EVIDENCE / EVENT_DISPATCH / LISTENER_EXECUTION: PASS
+- ENTRY / EXIT / MULTIPLE_EVENT / UNKNOWN_DIRECTION / DENIED / UNMAPPED / DEDUPLICATION: PASS
+- ATTENDANCE_PROCESSOR_INTEGRATION: PASS (08:30 PRESENT, 08:31 LATE)
+- OFFICE_ATTENDANCE_UI: PASS (processed data only; no raw device payload or device secret in browser config)
+- TARGETED_TESTS: PASS (57 tests, 185 assertions)
+- FULL_REGRESSION: PASS (183 tests, 884 assertions)
+- MIGRATION_SAFETY: additive `attendance_evidences` table; SPRINT9_PRE_MIGRATION_COUNT_EVIDENCE = NOT_CAPTURED.
+- PHYSICAL_CARD_E2E: DEFERRED_WITH_EVIDENCE
+- PHYSICAL_FINGERPRINT_E2E: DEFERRED_WITH_EVIDENCE

@@ -289,7 +289,14 @@ class AttendanceController extends Controller
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
 
-        $query = Attendance::with(['employee:id,name,employee_id,department', 'workCalendar:id,name,code'])
+        $query = Attendance::with([
+            'employee:id,name,employee_id,department',
+            'workCalendar:id,name,code',
+            'accessLogIn:id,door_id,verify_method,timestamp',
+            'accessLogIn.door:id,door_id,door_name,name',
+            'accessLogOut:id,door_id,verify_method,timestamp',
+            'accessLogOut.door:id,door_id,door_name,name',
+        ])
             ->orderByDesc('attendance_date');
 
         // Self-service: employees see only their own

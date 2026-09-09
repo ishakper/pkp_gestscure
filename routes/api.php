@@ -216,6 +216,7 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
+        Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent']);
     });
 
     // ISAPI Physical Device Push Webhook (Protected via IP Whitelist & X-Device-Secret)

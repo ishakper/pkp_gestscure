@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Admin;
+use App\Models\AccessLog;
 use App\Models\Attendance;
 use App\Models\Employee;
 use App\Models\EmployeeCalendarAssignment;
@@ -177,6 +178,7 @@ class AttendanceProcessor
 
         $status = $lateMinutes > 0 ? 'LATE' : 'PRESENT';
 
+
         return [
             'status'                 => $status,
             'late_minutes'           => $lateMinutes,
@@ -215,26 +217,108 @@ class AttendanceProcessor
         }
 
         return DB::transaction(function () use ($employee, $date, $data, $calendar, $clockIn, $clockOut, $computed) {
-            $attendance = Attendance::updateOrCreate(
-                [
-                    'employee_id'     => $employee->id,
-                    'attendance_date' => $date->toDateString(),
-                ],
-                array_merge([
-                    'work_calendar_id'       => $calendar?->id,
-                    'clock_in_at'            => $clockIn,
-                    'clock_out_at'           => $clockOut,
-                    'clock_in_source'        => $data['clock_in_source']  ?? 'MANUAL',
-                    'clock_out_source'       => $data['clock_out_source'] ?? 'MANUAL',
-                    'access_log_in_id'       => $data['access_log_in_id']  ?? null,
-                    'access_log_out_id'      => $data['access_log_out_id'] ?? null,
-                    'notes'                  => $data['notes'] ?? null,
-                    'created_by'             => $data['created_by'] ?? null,
-                ], $computed)
-            );
+            // `attendance_date` is a DATE column. whereDate keeps lookups stable
+            // across SQLite/MySQL serialization differences and avoids duplicate rows.
+            $attendance = Attendance::withTrashed()
+                ->where('employee_id', $employee->id)
+                ->whereDate('attendance_date', $date->toDateString())
+                ->first();
 
-            return $attendance;
+            if ($attendance?->trashed()) {
+                $attendance->restore();
+            }
+
+            $attributes = array_merge([
+                'employee_id'             => $employee->id,
+                'attendance_date'          => $date->toDateString(),
+                'work_calendar_id'         => $calendar?->id,
+                'clock_in_at'              => $clockIn,
+                'clock_out_at'             => $clockOut,
+                'clock_in_source'          => $data['clock_in_source']  ?? 'MANUAL',
+                'clock_out_source'         => $data['clock_out_source'] ?? 'MANUAL',
+                'access_log_in_id'         => $data['access_log_in_id']  ?? null,
+                'access_log_out_id'        => $data['access_log_out_id'] ?? null,
+                'notes'                    => $data['notes'] ?? null,
+                'created_by'               => $data['created_by'] ?? null,
+            ], $computed);
+
+            if ($attendance) {
+                $attendance->fill($attributes)->save();
+                return $attendance;
+            }
+
+            return Attendance::create($attributes);
         });
+    }
+    /**
+     * Process an AttendanceEvidence record from a physical access log
+     * to update the daily Attendance check-in or check-out.
+     */
+    public function processEvidence(\App\Models\AttendanceEvidence $evidence): ?Attendance
+    {
+        if (!$evidence->employee_id || $evidence->status !== 'MAPPED') {
+            return null;
+        }
+
+        $employee = \App\Models\Employee::find($evidence->employee_id);
+        if (!$employee) return null;
+
+        $date = $evidence->event_timestamp->copy()->startOfDay();
+        $calendar = $this->resolveCalendar($employee, $date);
+
+        // Fetch existing attendance for the day
+        $attendance = Attendance::where('employee_id', $employee->id)
+            ->where('attendance_date', $date->toDateString())
+            ->first();
+
+        $clockIn = $attendance?->clock_in_at;
+        $clockOut = $attendance?->clock_out_at;
+        $accessLogInId = $attendance?->access_log_in_id;
+        $accessLogOutId = $attendance?->access_log_out_id;
+        $sourceIn = $attendance?->clock_in_source ?? 'DEVICE';
+        $sourceOut = $attendance?->clock_out_source ?? 'DEVICE';
+
+        $isEntry = false;
+        $isExit = false;
+
+        // Direction is device/config supplied. UNKNOWN may safely establish a
+        // first check-in, but can never create a check-out based on scan order.
+        if ($evidence->direction === 'UNKNOWN') {
+            if (!$clockIn) {
+                $isEntry = true;
+            }
+        } elseif ($evidence->direction === 'ENTRY') {
+            $isEntry = true;
+        } elseif ($evidence->direction === 'EXIT') {
+            $isExit = true;
+        }
+
+        if ($isEntry && !$clockIn) {
+            $clockIn = $evidence->event_timestamp;
+            $accessLogInId = $evidence->access_log_id;
+            $sourceIn = 'DEVICE';
+        }
+
+        if ($isExit) {
+            // Overwrite latest checkout
+            $clockOut = $evidence->event_timestamp;
+            $accessLogOutId = $evidence->access_log_id;
+            $sourceOut = 'DEVICE';
+        }
+
+        // If neither resolved (e.g. rapid double tap UNKNOWN), do nothing
+        if (!$isEntry && !$isExit) {
+            return $attendance;
+        }
+
+        return $this->record($employee, $date, [
+            'clock_in_at' => $clockIn?->toDateTimeString(),
+            'clock_out_at' => $clockOut?->toDateTimeString(),
+            'clock_in_source' => $sourceIn,
+            'clock_out_source' => $sourceOut,
+            'access_log_in_id' => $accessLogInId,
+            'access_log_out_id' => $accessLogOutId,
+        ]);
     }
 
     /**
@@ -297,6 +381,12 @@ class AttendanceProcessor
             ->pluck('cnt', 'status')
             ->toArray();
 
+        $latestDeviceEvent = AccessLog::query()
+            ->with('door:id,door_id,door_name,name')
+            ->whereDate('timestamp', $today)
+            ->orderByDesc('timestamp')
+            ->first();
+
         return [
             'today' => [
                 'date'    => $today,
@@ -315,6 +405,16 @@ class AttendanceProcessor
                 'off'     => $monthStats['OFF'] ?? 0,
             ],
             'calendars_count' => WorkCalendar::where('is_active', true)->count(),
+            'live' => [
+                'latest_event_at' => $latestDeviceEvent?->timestamp?->toIso8601String(),
+                'latest_door' => $latestDeviceEvent?->door?->door_name,
+                'latest_status' => $latestDeviceEvent?->access_status,
+                'unmatched_events' => AccessLog::query()
+                    ->whereDate('timestamp', $today)
+                    ->where(function ($query) {
+                        $query->whereNull('employee_id')->orWhere('access_status', 'Denied');
+                    })->count(),
+            ],
         ];
     }
 

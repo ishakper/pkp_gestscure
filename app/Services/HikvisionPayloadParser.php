@@ -24,6 +24,7 @@ class HikvisionPayloadParser
             'major_event' => null,
             'minor_event' => null,
             'device_serial' => '',
+            'direction' => 'UNKNOWN',
             'is_valid_event' => false,
             'raw_payload' => $rawContent
         ];
@@ -41,6 +42,7 @@ class HikvisionPayloadParser
             $normalized['card_reference'] = $eventData['cardNo'] ?? $eventData['cardNumber'] ?? '';
             $normalized['employee_no'] = $eventData['employeeNoString'] ?? $eventData['employeeNo'] ?? '';
             $normalized['device_serial'] = $eventData['serialNo'] ?? '';
+            $normalized['direction'] = strtoupper((string) ($eventData['direction'] ?? $eventData['readerDirection'] ?? $eventData['attendanceDirection'] ?? 'UNKNOWN'));
             $normalized['is_valid_event'] = true;
             return $normalized;
         }
@@ -78,6 +80,7 @@ class HikvisionPayloadParser
                     $normalized['card_reference'] = (string) ($eventData->cardNo ?? $eventData->cardNumber ?? '');
                     $normalized['employee_no'] = (string) ($eventData->employeeNoString ?? $eventData->employeeNo ?? '');
                     $normalized['device_serial'] = (string) ($eventData->serialNo ?? '');
+                    $normalized['direction'] = strtoupper((string) ($eventData->direction ?? $eventData->readerDirection ?? $eventData->attendanceDirection ?? 'UNKNOWN'));
                     $normalized['is_valid_event'] = true;
                     return $normalized;
                 }

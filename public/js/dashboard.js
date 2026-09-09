@@ -1016,14 +1016,17 @@ async function runEventSimulation(e) {
     }
 
     try {
-        const res = await fetch('/api/v1/isapi/event-notification', {
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-Simulator': 'true',
+        };
+        if (appToken) headers.Authorization = `Bearer ${appToken}`;
+
+        const res = await fetch('/api/v1/doors/simulate-event', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-Device-Secret': window.APP_CONFIG?.deviceSecret || window.SECUREGATE_DEVICE_SECRET || '',
-                'X-Simulator': 'true',
-            },
+            headers,
             body: JSON.stringify(payload),
         });
 
@@ -5033,20 +5036,24 @@ async function loadAttendanceData() {
     const tbody = document.getElementById('attendanceTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
     try {
         const res = await apiFetch('/api/v1/attendance/records');
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
         
         const records = res.data.data || res.data;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="7" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Tidak ada data kehadiran hari ini.</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses untuk scope Anda.</td></tr>';
             return;
         }
 
         tbody.innerHTML = records.map(r => {
             const empName = r.employee ? r.employee.name : '-';
             const calName = r.work_calendar ? r.work_calendar.name : '-';
+            const sourceLog = r.access_log_out || r.access_log_in;
+            const doorName = sourceLog?.door?.door_name || '-';
+            const credential = sourceLog?.verify_method || '-';
+            const processingState = sourceLog ? 'Diproses perangkat' : 'Input terverifikasi';
             
             let statusBadge = '';
             switch (r.status) {
@@ -5069,13 +5076,16 @@ async function loadAttendanceData() {
                     <td>${escapeHtml(calName)}</td>
                     <td>${r.clock_in_at ? r.clock_in_at.substring(11, 16) : '-'}</td>
                     <td>${r.clock_out_at ? r.clock_out_at.substring(11, 16) : '-'}</td>
+                    <td>${escapeHtml(doorName)}</td>
+                    <td>${escapeHtml(credential)}</td>
+                    <td><span class="status-badge ${sourceLog ? 'status-active' : 'status-info'}">${escapeHtml(processingState)}</span></td>
                     <td>${statusBadge}</td>
                     <td>${lateSpan}</td>
                 </tr>
             `;
         }).join('');
     } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Error: ${escapeHtml(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="error-td">Gagal memuat kehadiran. ${escapeHtml(e.message)}</td></tr>`;
     }
 }
 
@@ -5089,6 +5099,7 @@ async function loadAttendanceMetrics() {
         
         const m = res.data;
         const t = m.today;
+        const live = m.live || {};
         const total = t.present + t.late + t.absent + t.off + t.leave;
         const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
 
@@ -5113,9 +5124,18 @@ async function loadAttendanceMetrics() {
                 <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
                 <div class="stat-desc">Dikelola oleh sistem</div>
             </div>
+            <div class="stat-card">
+                <div class="stat-title">Live Office Attendance</div>
+                <div class="stat-value" style="font-size:1.15rem;color:#10b981;">${live.latest_event_at ? new Date(live.latest_event_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</div>
+                <div class="stat-desc">${escapeHtml(live.latest_door || 'Belum ada event hari ini')}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Event Belum Terpetakan</div>
+                <div class="stat-value" style="color:#f59e0b;">${Number(live.unmatched_events || 0)}</div>
+                <div class="stat-desc">Hanya terlihat oleh pengguna berwenang</div>
+            </div>
         `;
     } catch (e) {
         console.error('Failed to load attendance metrics', e);
     }
 }
-

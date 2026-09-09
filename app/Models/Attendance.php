@@ -64,7 +64,13 @@ class Attendance extends Model
         'FIELD',
     ];
 
-    public const SOURCES = ['MANUAL', 'ACCESS_LOG', 'KIOSK'];
+    public const SOURCES = ['MANUAL', 'ACCESS_LOG', 'KIOSK', 'DEVICE'];
+
+    /** Persist calendar days as DATE values on every supported database driver. */
+    public function setAttendanceDateAttribute($value): void
+    {
+        $this->attributes['attendance_date'] = $value ? \Carbon\Carbon::parse($value)->toDateString() : null;
+    }
 
     public function employee()
     {
@@ -74,6 +80,17 @@ class Attendance extends Model
     public function workCalendar()
     {
         return $this->belongsTo(WorkCalendar::class);
+    }
+
+    /** Immutable device records referenced by the derived attendance row. */
+    public function accessLogIn()
+    {
+        return $this->belongsTo(AccessLog::class, 'access_log_in_id');
+    }
+
+    public function accessLogOut()
+    {
+        return $this->belongsTo(AccessLog::class, 'access_log_out_id');
     }
 
     /** True if this record has been verified by an admin/HR. */

@@ -3048,7 +3048,7 @@
                     <span>⏰</span> Kehadiran & Kalender Kerja
                 </h2>
                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-                    Pusat manajemen kehadiran karyawan, kalender kerja, hari libur nasional, dan pelacakan jam kerja.
+                    Pantau bukti kehadiran kantor yang telah diproses dari terminal pintu, kalender kerja, dan jam kerja tanpa menampilkan payload perangkat.
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
@@ -3072,12 +3072,15 @@
                         <th>Kalender</th>
                         <th>Jam Masuk</th>
                         <th>Jam Keluar</th>
+                        <th>Pintu</th>
+                        <th>Kredensial</th>
+                        <th>Status Proses</th>
                         <th>Status</th>
                         <th>Keterlambatan</th>
                     </tr>
                 </thead>
                 <tbody id="attendanceTableBody">
-                    <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>
+                    <tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -4827,7 +4830,6 @@
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),
-        deviceSecret: @json(config('services.hikvision.device_secret') ?? ''),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),

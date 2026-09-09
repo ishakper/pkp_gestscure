@@ -12,6 +12,19 @@ use Illuminate\Support\Str;
 
 class IsapiWebhookController extends Controller
 {
+    /**
+     * Browser simulation is authenticated as an administrator and never uses
+     * (or exposes) a physical terminal's webhook secret.
+     */
+    public function simulateEvent(Request $request)
+    {
+        if (!$request->user()?->isSuperAdmin()) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthorized.'], 403);
+        }
+
+        return $this->handleEventNotification($request);
+    }
+
     public function handleEventNotification(Request $request)
     {
         // 0. Detect and Parse Raw Payload using the centralized parser
@@ -21,9 +34,6 @@ class IsapiWebhookController extends Controller
         $parsedEvent = $request->attributes->get('hikvision_parsed_event') 
             ?: \App\Services\HikvisionPayloadParser::parse($rawContent, $contentType);
 
-        if (app()->environment('testing')) {
-            \Illuminate\Support\Facades\Log::info("DEBUG PARSER:", ['raw' => $rawContent, 'parsed' => $parsedEvent]);
-        }
 
         if ($parsedEvent && $parsedEvent['is_valid_event']) {
             $major = $parsedEvent['major_event'] ?? null;
@@ -34,8 +44,10 @@ class IsapiWebhookController extends Controller
             if ($major === 5) {
                 if (in_array((int)$sub, [37, 38])) {
                     $eventType = 'TAMPER_ALARM';
-                } else {
+                } elseif (in_array((int)$sub, [21, 22])) {
                     $eventType = 'DOOR_FORCED_OPEN';
+                } elseif (in_array((int)$sub, [26, 27])) {
+                    $eventType = 'DURESS_FINGERPRINT';
                 }
             }
 
@@ -57,6 +69,7 @@ class IsapiWebhookController extends Controller
                 'event_type' => $eventType,
                 'verify_method' => $verifyMethod,
                 'timestamp' => $timestamp,
+                'direction' => $parsedEvent['direction'] ?? 'UNKNOWN',
             ];
 
             // 1. door_id query parameter
@@ -71,7 +84,7 @@ class IsapiWebhookController extends Controller
             }
 
             // Extract serialNo for deduplication
-            $mergedData['serial_no'] = $parsedEvent['serial_no'] ?? null;
+            $mergedData['serial_no'] = $parsedEvent['device_serial'] ?? null;
 
             // Merge sanitized parameters into request so they pass anti-XSS regex validation
             $request->merge(array_filter($mergedData, fn($v) => !is_null($v)));
@@ -92,6 +105,7 @@ class IsapiWebhookController extends Controller
             'access_status' => 'nullable|string|max:50|regex:/^[^<>]*$/',
             'timestamp' => 'nullable|date',
             'reason' => 'nullable|string|max:255|regex:/^[^<>]*$/',
+            'direction' => 'nullable|in:ENTRY,EXIT,UNKNOWN',
         ], [
             'door_id.regex' => 'Parameter door_id mengandung karakter terlarang (< atau >).',
             'card_number.regex' => 'Parameter card_number mengandung karakter terlarang (< atau >).',
@@ -111,10 +125,8 @@ class IsapiWebhookController extends Controller
         $eventType = strtoupper($validated['event_type'] ?? 'STANDARD_TAP');
         $eventTimestamp = $validated['timestamp'] ?? now()->toIso8601String();
         $serialNo = $request->input('serial_no');
+        $direction = $validated['direction'] ?? 'UNKNOWN';
 
-        if (app()->environment('testing')) {
-            \Illuminate\Support\Facades\Log::info("DEBUG TEST:", ['cardNo' => $cardNo, 'nik' => $nikOrEmployeeId, 'payload' => $request->all(), 'doorId' => $doorId, 'deviceIp' => $deviceIp]);
-        }
 
         // 2. Resolve Door Device (Strict Deterministic Order)
         $door = null;
@@ -230,6 +242,8 @@ class IsapiWebhookController extends Controller
             'device_serial' => $serialNo,
         ]);
 
+        $accessLog->setAttribute('attendance_direction', $direction);
+
         Log::info('[ISAPI Webhook] Access event recorded', [
             'log_id' => $accessLog->log_id,
             'door_id' => $door->door_id,
@@ -241,6 +255,8 @@ class IsapiWebhookController extends Controller
             'device_serial' => $serialNo,
             'source_format' => $parsedEvent['source_format'] ?? 'REQUEST',
         ]);
+
+        \App\Events\AccessLogCreated::dispatch($accessLog);
 
         return response()->json([
             'status' => 'success',
