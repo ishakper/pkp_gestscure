@@ -978,6 +978,9 @@
         .badge-denied { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); font-weight: 700; }
         .badge-alarm { background: rgba(239, 68, 68, 0.25); color: #f87171; border: 1px solid #ef4444; font-weight: 700; box-shadow: 0 0 8px rgba(239, 68, 68, 0.35); }
         .badge-duress { background: rgba(245, 158, 11, 0.25); color: #fbbf24; border: 1px solid #f59e0b; font-weight: 700; box-shadow: 0 0 8px rgba(245, 158, 11, 0.35); }
+        .badge-online { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); font-weight: 700; }
+        .badge-offline { background: rgba(100, 116, 139, 0.2); color: #94a3b8; border: 1px solid rgba(100, 116, 139, 0.4); font-weight: 700; }
+        .badge-error { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); font-weight: 700; }
 
         .door-pills-wrap {
             display: flex;
@@ -1334,6 +1337,7 @@
                 <span class="nav-text">Security Access Logs</span>
             </button>
         </li>
+        @if (app()->environment('local', 'testing'))
         <li class="nav-item">
             <button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)">
                 <span class="nav-icon">🧪</span>
@@ -1346,6 +1350,7 @@
                 <span class="nav-text">cURL / Postman Specs</span>
             </button>
         </li>
+        @endif
     </ul>
 
     <div class="user-profile">
@@ -1587,6 +1592,7 @@
                         <th>Pengguna / Kartu</th>
                         <th>Metode</th>
                         <th>Status Akses</th>
+                        <th>Sumber</th>
                         <th>Waktu Tap (WIB)</th>
                     </tr>
                 </thead>
@@ -1613,10 +1619,23 @@
                 @foreach($doors as $door)
                     @php
                         $isOnline = ($door->connection_status === 'online' || $door->status === 'online');
+                        $isError = ($door->connection_status === 'error' || $door->status === 'error');
                         $targetOverride = $isOnline ? 'offline' : 'online';
                         $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
-                        $badgeClass = $isOnline ? 'badge-online' : 'badge-offline';
-                        $badgeText = $isOnline ? 'ONLINE' : 'OFFLINE';
+                        
+                        $badgeClass = 'badge-offline';
+                        $badgeText = 'OFFLINE';
+                        $statusText = '🔴 Device Offline';
+
+                        if ($isOnline) {
+                            $badgeClass = 'badge-online';
+                            $badgeText = 'ONLINE';
+                            $statusText = '🟢 Closed (Normal)';
+                        } elseif ($isError) {
+                            $badgeClass = 'badge-error';
+                            $badgeText = 'AUTH ERROR';
+                            $statusText = '🟠 Network OK, ISAPI Auth Failed (401)';
+                        }
                     @endphp
                     <div class="door-card">
                         <div class="door-card-header">
@@ -1645,7 +1664,7 @@
                             </div>
                             <div class="spec-item">
                                 <span class="spec-label">Status Pintu:</span>
-                                <span class="spec-val">{{ $isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline' }}</span>
+                                <span class="spec-val">{{ $statusText }}</span>
                             </div>
                         </div>
                         <div class="door-actions">
@@ -1716,6 +1735,7 @@
                         <th>Pengguna / Kartu</th>
                         <th>Metode</th>
                         <th>Status Akses</th>
+                        <th>Sumber</th>
                         <th>Waktu Tap (WIB)</th>
                     </tr>
                 </thead>
@@ -1727,6 +1747,7 @@
     </section>
 
     <!-- TAB 5: ISAPI HARDWARE EVENT SIMULATOR -->
+    @if (app()->environment('local', 'testing'))
     <section id="simulatorTab" class="tab-content">
         <div class="simulator-box">
             <h3 style="margin-bottom: 0.5rem; font-size: 1.25rem;">🧪 Hikvision ISAPI Hardware Webhook Simulator</h3>
@@ -1795,8 +1816,10 @@
             <div id="simResult" style="margin-top: 1.25rem; display: none;"></div>
         </div>
     </section>
+    @endif
 
     <!-- TAB 6: API SPECS -->
+    @if (app()->environment('local', 'testing'))
     <section id="apiDocsTab" class="tab-content">
         <div class="simulator-box">
             <h3 style="margin-bottom: 0.5rem;">📖 Dokumentasi cURL & Backend Endpoints V1</h3>
@@ -1821,7 +1844,7 @@
 
             <h4 style="margin-top: 1.5rem; color: var(--primary);">4. ISAPI Webhook Tap Push (POST /api/v1/isapi/event-notification)</h4>
             <pre>curl -X POST "http://localhost:8000/api/v1/isapi/event-notification" \
-  -H "X-Device-Secret: secret_door_a_9981" \
+  -H "X-Device-Secret: YOUR_DEVICE_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "door_id": "DOOR-A",
@@ -1831,6 +1854,7 @@
   }'</pre>
         </div>
     </section>
+    @endif
 
 </main>
 
@@ -1932,6 +1956,7 @@
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),
+        deviceSecret: @json(config('services.hikvision.device_secret') ?? ''),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),

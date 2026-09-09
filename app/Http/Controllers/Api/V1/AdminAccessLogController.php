@@ -180,6 +180,7 @@ class AdminAccessLogController extends Controller
                             'verify_method' => in_array($evt['verify_method'] ?? '', ['Card', 'Fingerprint', 'Face', 'PIN']) ? $evt['verify_method'] : 'Card',
                             'access_status' => in_array($evt['access_status'] ?? '', ['Granted', 'Denied']) ? $evt['access_status'] : 'Granted',
                             'reason' => ($evt['access_status'] === 'Denied' && !$emp) ? 'Unknown Card / Intrusion' : null,
+                            'source' => 'HIKVISION',
                             'timestamp' => $eventTime,
                         ]);
 

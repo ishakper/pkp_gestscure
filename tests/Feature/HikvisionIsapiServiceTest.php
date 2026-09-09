@@ -373,4 +373,39 @@ XML;
         $userResult = $this->service->setUser($this->door, $employee);
         $this->assertTrue($userResult['status']);
     }
+
+    /**
+     * Test credentials resolution strictly uses Laravel config without direct runtime env calls.
+     */
+    public function test_credentials_resolved_from_config_per_door(): void
+    {
+        Config::set('services.doors.DOOR-B.username', 'admin_door_b');
+        Config::set('services.doors.DOOR-B.password', 'CustomPassDoorB123');
+
+        $doorB = new Door(['door_id' => 'DOOR-B', 'device_ip' => '192.168.90.15']);
+        $creds = $this->service->getDeviceCredentials($doorB);
+
+        $this->assertEquals('admin_door_b', $creds['username']);
+        $this->assertEquals('CustomPassDoorB123', $creds['password']);
+
+        // Default fallback
+        $credsDefault = $this->service->getDeviceCredentials(null);
+        $this->assertEquals(config('services.hikvision.username'), $credsDefault['username']);
+        $this->assertEquals(config('services.hikvision.password'), $credsDefault['password']);
+    }
+
+    /**
+     * Test device host and port resolution from config.
+     */
+    public function test_device_host_and_port_resolved_from_config(): void
+    {
+        Config::set('services.doors.DOOR-C.ip', '192.168.90.13');
+        Config::set('services.hikvision.port', 8088);
+
+        $doorC = new Door(['door_id' => 'DOOR-C']);
+        $hostPort = $this->service->getDeviceHostAndPort($doorC);
+
+        $this->assertEquals('192.168.90.13', $hostPort['host']);
+        $this->assertEquals(8088, $hostPort['port']);
+    }
 }

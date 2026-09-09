@@ -22,8 +22,15 @@ class PingDoorDevicesCommand extends Command
                 continue;
             }
 
-            $isOnline = $isapiService->pingDevice($door);
-            $newStatus = $isOnline ? 'online' : 'offline';
+            $statusResult = $isapiService->getDeviceStatus($door);
+            $isOnline = (bool) ($statusResult['status'] ?? false);
+            
+            $newStatus = 'offline';
+            if ($isOnline) {
+                $newStatus = 'online';
+            } elseif (($statusResult['statusCode'] ?? 500) === 401) {
+                $newStatus = 'error';
+            }
 
             $door->update([
                 'connection_status' => $newStatus,

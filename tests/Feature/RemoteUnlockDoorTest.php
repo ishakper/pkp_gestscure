@@ -125,6 +125,22 @@ XML;
         $this->assertStringContainsString('Device Busy', $result['error']);
     }
 
+    public function test_remote_unlock_rejects_http_200_with_device_error(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*' => Http::response('<ResponseStatus><statusString>Invalid Operation</statusString></ResponseStatus>', 200)]);
+
+        $this->assertFalse($this->service->remoteControlDoor($this->doorB)['status']);
+    }
+
+    public function test_remote_unlock_rejects_http_error_with_ok_body(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*' => Http::response('<ResponseStatus><statusString>OK</statusString></ResponseStatus>', 500)]);
+
+        $this->assertFalse($this->service->remoteControlDoor($this->doorB)['status']);
+    }
+
     /**
      * Test API endpoint POST /api/v1/admin/doors/{door_id}/open successfully unlocks door and logs activity.
      */

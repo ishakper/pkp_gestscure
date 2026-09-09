@@ -66,6 +66,7 @@ Route::middleware(['auth'])->group(function () {
         ]);
     });
 
-    Route::post('/api/v1/doors/{door_id}/unlock', [\App\Http\Controllers\Api\V1\AdminDoorController::class, 'openDoor'])->name('doors.unlock');
+    // Web routes
+    Route::get('/live-stream', [\App\Http\Controllers\LiveAccessStreamController::class, 'stream']);
 });
 

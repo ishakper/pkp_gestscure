@@ -18,7 +18,7 @@ class HikvisionIsapiService
      */
     public function isMockMode(): bool
     {
-        return (bool) config('services.hikvision.use_mock', env('HIKVISION_ISAPI_USE_MOCK', env('HIKVISION_MOCK_MODE', true)));
+        return (bool) config('services.hikvision.use_mock', true);
     }
 
     /**
@@ -41,19 +41,21 @@ class HikvisionIsapiService
     public function getDeviceCredentials(?Door $door = null): array
     {
         if ($door && !empty($door->door_id)) {
-            $code = strtoupper(str_replace('-', '_', $door->door_id)); // e.g. DOOR_A
-            $userKey = "{$code}_USER";
-            $passKey = "{$code}_PASS";
+            $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
+            $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
+
+            $username = $doorConfig['username'] ?? config('services.hikvision.username', 'admin');
+            $password = $doorConfig['password'] ?? config('services.hikvision.password', 'Hikvision@DoorA');
 
             return [
-                'username' => env($userKey, config('services.hikvision.username', 'admin')),
-                'password' => env($passKey, config('services.hikvision.password', 'Hikvision@DoorA')),
+                'username' => $username,
+                'password' => $password,
             ];
         }
 
         return [
-            'username' => config('services.hikvision.username', env('HIKVISION_ISAPI_USERNAME', 'admin')),
-            'password' => config('services.hikvision.password', env('HIKVISION_ISAPI_PASSWORD', 'Hikvision@DoorA')),
+            'username' => config('services.hikvision.username', 'admin'),
+            'password' => config('services.hikvision.password', 'Hikvision@DoorA'),
         ];
     }
 
@@ -62,11 +64,14 @@ class HikvisionIsapiService
      */
     public function getDeviceHostAndPort(?Door $door = null): array
     {
+        $doorKey = $door && !empty($door->door_id) ? strtoupper($door->door_id) : null;
+        $configuredIp = $doorKey ? config("services.doors.{$doorKey}.ip") : null;
+
         $host = $door && !empty($door->device_ip) 
             ? $door->device_ip 
-            : config('services.hikvision.host', env('HIKVISION_ISAPI_HOST', '192.168.90.11'));
+            : ($configuredIp ?: config('services.hikvision.host', '192.168.90.11'));
         
-        $port = (int) config('services.hikvision.port', env('HIKVISION_ISAPI_PORT', 80));
+        $port = (int) config('services.hikvision.port', 80);
 
         return ['host' => $host, 'port' => $port];
     }
@@ -93,8 +98,8 @@ class HikvisionIsapiService
      */
     protected function buildHttpClient(?Door $door = null): PendingRequest
     {
-        $connectTimeout = (int) config('services.hikvision.connect_timeout', env('ISAPI_CONNECT_TIMEOUT', 5));
-        $requestTimeout = (int) config('services.hikvision.request_timeout', env('ISAPI_REQUEST_TIMEOUT', 10));
+        $connectTimeout = (int) config('services.hikvision.connect_timeout', 5);
+        $requestTimeout = (int) config('services.hikvision.request_timeout', 10);
 
         $client = Http::connectTimeout($connectTimeout)
             ->timeout($requestTimeout)
@@ -278,7 +283,7 @@ class HikvisionIsapiService
             $hasSuccessXml = stripos($body, '<statusString>OK</statusString>') !== false 
                 || stripos($body, '<subStatusCode>ok</subStatusCode>') !== false;
 
-            if ($isSuccessStatus || $hasSuccessXml) {
+            if ($isSuccessStatus && ($hasSuccessXml || ($response->status() === 204 && trim($body) === ''))) {
                 return [
                     'status' => true,
                     'statusCode' => 200,

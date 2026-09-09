@@ -119,25 +119,26 @@ async function apiFetch(endpoint, options = {}) {
 // ==========================================
 // Metric Cards Updater
 // ==========================================
-function updateMetricCards() {
-    // Total Users
-    const userMetric = document.getElementById('metricTotalUsers');
-    if (userMetric) userMetric.innerText = state.metrics.totalUsers;
+async function updateMetricCards() {
+    try {
+        const res = await apiFetch('/admin/dashboard-metrics');
+        if (res.status === 'success') {
+            const data = res.data;
+            const userMetric = document.getElementById('metricTotalUsers');
+            if (userMetric) userMetric.innerText = data.totalUsers;
 
-    // Active Doors
-    const onlineCount = state.doors.filter(d => (d.connection_status === 'online' || d.status === 'online')).length;
-    const doorMetric = document.getElementById('metricActiveDoors');
-    if (doorMetric) doorMetric.innerText = `${onlineCount} / ${state.doors.length || 4}`;
+            const doorMetric = document.getElementById('metricActiveDoors');
+            if (doorMetric) doorMetric.innerText = `${data.activeDoors} / ${data.totalDoors}`;
 
-    // Recent Granted / Denied
-    const grantedCount = state.accessLogs.filter(l => (l.access_status === 'Granted' || l.status === 'Granted')).length;
-    const deniedCount = state.accessLogs.filter(l => (l.access_status === 'Denied' || l.status === 'Denied')).length;
-    
-    const grantedMetric = document.getElementById('metricAccessGranted');
-    if (grantedMetric) grantedMetric.innerText = grantedCount;
+            const grantedMetric = document.getElementById('metricAccessGranted');
+            if (grantedMetric) grantedMetric.innerText = data.grantedLogs;
 
-    const deniedMetric = document.getElementById('metricAccessDenied');
-    if (deniedMetric) deniedMetric.innerText = deniedCount;
+            const deniedMetric = document.getElementById('metricAccessDenied');
+            if (deniedMetric) deniedMetric.innerText = data.deniedLogs;
+        }
+    } catch (err) {
+        console.error('Failed to fetch dashboard metrics:', err);
+    }
 }
 
 // ==========================================
@@ -173,8 +174,6 @@ function renderDoorCards(doors) {
         const isOnline = (door.connection_status === 'online' || door.status === 'online');
         const badgeClass = isOnline ? 'status-online' : 'status-offline';
         const statusLabel = isOnline ? 'ONLINE' : 'OFFLINE';
-        const overrideText = isOnline ? 'Set Offline' : 'Restore Online';
-        const targetOverride = isOnline ? 'offline' : 'online';
 
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.door_name || door.name || '');
@@ -221,9 +220,6 @@ function renderDoorCards(doors) {
                     </div>
                 </div>
                 <div class="door-actions">
-                    <button class="btn-action btn-override" onclick="toggleDoorStatus('${safeDoorId}', '${targetOverride}')" title="Manual Override Maintenance Mode">
-                        ⚡ ${overrideText}
-                    </button>
                     <button class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('${safeDoorId}', this)">🔓 Buka Pintu</button>
                     <button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
                         📡 Cek Koneksi
@@ -869,6 +865,14 @@ function renderAccessLogsTable(logs) {
         const safeDoorName = escapeHtml(log.door_name || '');
         const safeDeviceIp = escapeHtml(log.device_ip || '-');
         const safeTime = escapeHtml(timestampStr);
+        const safeSource = escapeHtml(log.source || 'SEED');
+
+        let sourceBadge = `<span class="badge badge-dim">${safeSource}</span>`;
+        if (safeSource === 'HIKVISION') {
+            sourceBadge = `<span class="badge badge-success">HIKVISION</span>`;
+        } else if (safeSource === 'SIMULATOR') {
+            sourceBadge = `<span class="badge badge-warning">SIMULATOR</span>`;
+        }
 
         return `
             <tr>
@@ -881,6 +885,7 @@ function renderAccessLogsTable(logs) {
                 <td>${userHtml}</td>
                 <td>${methodBadge}</td>
                 <td>${statusBadge}</td>
+                <td>${sourceBadge}</td>
                 <td>${safeTime}</td>
             </tr>
         `;
@@ -987,7 +992,8 @@ async function runEventSimulation(e) {
             headers: {
                 'Content-Type': 'application/json',
                 'Accept': 'application/json',
-                'X-Device-Secret': 'secret_simulator_key_2026',
+                'X-Device-Secret': window.APP_CONFIG?.deviceSecret || window.SECUREGATE_DEVICE_SECRET || '',
+                'X-Simulator': 'true',
             },
             body: JSON.stringify(payload),
         });
@@ -1218,6 +1224,65 @@ window.handleSimEventTypeChange = handleSimEventTypeChange;
 window.runEventSimulation = runEventSimulation;
 
 // ==========================================
+// Section 5: Real-Time SSE Stream (Phase 7-13)
+// ==========================================
+let liveEventSource = null;
+
+function initLiveAccessStream() {
+    if (liveEventSource) {
+        liveEventSource.close();
+    }
+
+    const sseUrl = '/live-stream';
+    liveEventSource = new EventSource(sseUrl);
+
+    liveEventSource.onopen = () => {
+        console.log('[SSE] Connected to real-time access stream');
+    };
+
+    liveEventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            handleNewLiveEvent(data);
+        } catch (e) {
+            console.error('[SSE] Failed to parse event', e);
+        }
+    };
+
+    liveEventSource.addEventListener('reload', () => {
+        console.log('[SSE] Server requested reconnect to prevent timeout');
+        initLiveAccessStream(); // Reconnect gracefully
+    });
+
+    liveEventSource.onerror = (error) => {
+        console.error('[SSE] Connection error. Attempting to reconnect...', error);
+        liveEventSource.close();
+        setTimeout(initLiveAccessStream, 5000); // Reconnect after 5s
+    };
+}
+
+function handleNewLiveEvent(data) {
+    // 1. Show Toast
+    let type = 'success';
+    if (data.access_status === 'DENIED') type = 'warning';
+    if (data.access_status === 'ERROR') type = 'error';
+    if (data.verify_method === 'REMOTE_UNLOCK') type = 'info';
+
+    showToast(`🚪 ${data.door_name} - ${data.employee_name} (${data.access_status})`, type, 5000);
+
+    // 2. Reload tables automatically so we don't have to write full row injection logic 
+    // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
+    if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
+        loadAccessLogs();
+    }
+    
+    // Also refresh door status
+    if (state.activeTab === 'doorsTab' || state.activeTab === 'overviewTab') {
+        loadDoors();
+    }
+}
+
+// ==========================================
 // Initial Boot
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
@@ -1229,7 +1294,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadEmployees();
     loadAccessLogs();
 
-    // Auto-refresh doors and logs periodically every 30 seconds
+    // Initialize Real-time SSE connection
+    initLiveAccessStream();
+
+    // Auto-refresh doors and logs periodically every 60 seconds (fallback)
     setInterval(() => {
         if (state.activeTab === 'doorsTab' || state.activeTab === 'overviewTab') {
             loadDoors();
@@ -1237,5 +1305,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
             loadAccessLogs();
         }
-    }, 30000);
+    }, 60000);
 });
+

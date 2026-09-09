@@ -501,7 +501,7 @@
     </div>
     <div class="ambient-hud-node ambient-node-2">
         <div>[ GATEWAY // ACTIVE ]</div>
-        <div>IP : 192.168.90.81:8000</div>
+        <div>HOST : {{ request()->getHttpHost() }}</div>
     </div>
     <div class="ambient-hud-node ambient-node-3">
         <div>[ ENCRYPTION // AES-256 ]</div>

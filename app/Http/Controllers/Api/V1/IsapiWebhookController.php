@@ -13,82 +13,67 @@ class IsapiWebhookController extends Controller
 {
     public function handleEventNotification(Request $request)
     {
-        // 0. Detect and Parse Raw XML Payload from Physical Hikvision Terminal
+        // 0. Detect and Parse Raw Payload using the centralized parser
         $rawContent = (string) $request->getContent();
+        $contentType = (string) $request->header('Content-Type', '');
+        
+        $parsedEvent = $request->attributes->get('hikvision_parsed_event') 
+            ?: \App\Services\HikvisionPayloadParser::parse($rawContent, $contentType);
 
-        if (str_contains($rawContent, '<EventNotificationAlert') || str_contains($rawContent, '<?xml')) {
-            try {
-                $xml = simplexml_load_string($rawContent, 'SimpleXMLElement', LIBXML_NOCDATA);
-                if ($xml !== false) {
-                    $ace = $xml->AccessControllerEvent ?? null;
+        if (app()->environment('testing')) {
+            \Illuminate\Support\Facades\Log::info("DEBUG PARSER:", ['raw' => $rawContent, 'parsed' => $parsedEvent]);
+        }
 
-                    // 1. card_number: from <cardNo> or <cardNumber>
-                    $cardNo = trim((string) ($xml->cardNo ?? ($xml->cardNumber ?? ($ace->cardNo ?? ($ace->cardNumber ?? '')))));
-
-                    // 2. employee_id: from <employeeNo> or <employeeNoString>
-                    $employeeId = trim((string) ($xml->employeeNo ?? ($xml->employeeNoString ?? ($ace->employeeNo ?? ($ace->employeeNoString ?? '')))));
-
-                    // 3. event_type: mapping majorEventType & subEventType (major 5: 'DOOR_FORCED_OPEN' atau 'TAMPER_ALARM', selain itu 'STANDARD_TAP')
-                    $major = trim((string) ($xml->majorEventType ?? ($ace->majorEventType ?? '')));
-                    $sub = trim((string) ($xml->subEventType ?? ($ace->subEventType ?? '')));
-                    $rawEventType = trim((string) ($xml->eventType ?? ($xml->event_type ?? '')));
-
-                    if ($major === '5' || (int)$major === 5) {
-                        if (str_contains(strtoupper($sub), 'TAMPER') || in_array($sub, ['38', '37'])) {
-                            $eventType = 'TAMPER_ALARM';
-                        } else {
-                            $eventType = 'DOOR_FORCED_OPEN';
-                        }
-                    } elseif (in_array(strtoupper($rawEventType), ['DOOR_FORCED_OPEN', 'TAMPER_ALARM', 'DURESS_FINGERPRINT'])) {
-                        $eventType = strtoupper($rawEventType);
-                    } else {
-                        $eventType = 'STANDARD_TAP';
-                    }
-
-                    // 4. verify_method: tentukan 'Card' jika ada cardNo, selain itu 'Fingerprint'
-                    $verifyMethod = !empty($cardNo) ? 'Card' : 'Fingerprint';
-
-                    // 5. timestamp: ambil dari <dateTime> atau <time>
-                    $timestamp = trim((string) ($xml->dateTime ?? ($xml->time ?? ($ace->dateTime ?? ($ace->time ?? '')))));
-                    if (empty($timestamp)) {
-                        $timestamp = now()->toIso8601String();
-                    }
-
-                    // 6. device_ip: ambil dari $request->ip()
-                    $deviceIp = $request->ip();
-                    $xmlIp = trim((string) ($xml->ipAddress ?? ($xml->device_ip ?? ($ace->ipAddress ?? ''))));
-                    if (($deviceIp === '127.0.0.1' || $deviceIp === '::1' || empty($deviceIp)) && !empty($xmlIp)) {
-                        $deviceIp = $xmlIp;
-                    }
-
-                    // Optional door_id and access_status from XML
-                    $doorId = trim((string) ($xml->door_id ?? ($xml->doorId ?? ($ace->door_id ?? ($ace->doorId ?? '')))));
-                    $accessStatus = trim((string) ($xml->access_status ?? ($xml->accessStatus ?? ($ace->accessStatus ?? ''))));
-
-                    $mergedData = [
-                        'device_ip' => $deviceIp,
-                        'card_number' => !empty($cardNo) ? $cardNo : null,
-                        'card_no' => !empty($cardNo) ? $cardNo : null,
-                        'employee_id' => !empty($employeeId) ? $employeeId : null,
-                        'user' => !empty($employeeId) ? $employeeId : (!empty($cardNo) ? $cardNo : null),
-                        'event_type' => $eventType,
-                        'verify_method' => $verifyMethod,
-                        'timestamp' => $timestamp,
-                    ];
-
-                    if (!empty($doorId)) {
-                        $mergedData['door_id'] = $doorId;
-                    }
-                    if (!empty($accessStatus)) {
-                        $mergedData['access_status'] = ucfirst(strtolower($accessStatus));
-                    }
-
-                    // Merge sanitized parameters into request so they pass anti-XSS regex validation
-                    $request->merge(array_filter($mergedData, fn($v) => !is_null($v)));
+        if ($parsedEvent && $parsedEvent['is_valid_event']) {
+            $major = $parsedEvent['major_event'] ?? null;
+            $sub = $parsedEvent['minor_event'] ?? null;
+            
+            // Map event type
+            $eventType = 'STANDARD_TAP';
+            if ($major === 5) {
+                if (in_array((int)$sub, [37, 38])) {
+                    $eventType = 'TAMPER_ALARM';
+                } else {
+                    $eventType = 'DOOR_FORCED_OPEN';
                 }
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning("XML Webhook parsing warning: " . $e->getMessage());
             }
+
+            $cardNo = $parsedEvent['card_reference'] ?? '';
+            $employeeId = $parsedEvent['employee_no'] ?? '';
+            
+            $verifyMethod = !empty($cardNo) ? 'Card' : 'Fingerprint';
+            
+            $timestamp = $parsedEvent['event_time'] ?: now()->toIso8601String();
+            
+            $deviceIp = $parsedEvent['device_ip'] ?: $request->ip();
+
+            $mergedData = [
+                'device_ip' => $deviceIp,
+                'card_number' => !empty($cardNo) ? $cardNo : null,
+                'card_no' => !empty($cardNo) ? $cardNo : null,
+                'employee_id' => !empty($employeeId) ? $employeeId : null,
+                'user' => !empty($employeeId) ? $employeeId : (!empty($cardNo) ? $cardNo : null),
+                'event_type' => $eventType,
+                'verify_method' => $verifyMethod,
+                'timestamp' => $timestamp,
+            ];
+
+            // 1. door_id query parameter
+            $queryDoorId = $request->query('door_id');
+            if ($queryDoorId) {
+                $door = \App\Models\Door::where('door_id', $queryDoorId)->first();
+                if ($door) {
+                    $mergedData['door_id'] = $door->door_id;
+                    $mergedData['device_ip'] = $door->device_ip ?: $deviceIp;
+                    $deviceIp = $mergedData['device_ip'];
+                }
+            }
+
+            // Extract serialNo for deduplication
+            $mergedData['serial_no'] = $parsedEvent['serial_no'] ?? null;
+
+            // Merge sanitized parameters into request so they pass anti-XSS regex validation
+            $request->merge(array_filter($mergedData, fn($v) => !is_null($v)));
         }
 
         // 1. Strict Request Validation & Anti-XSS regex to block HTML injection (< or >)
@@ -118,18 +103,28 @@ class IsapiWebhookController extends Controller
             'reason.regex' => 'Parameter reason mengandung karakter terlarang (< atau >).',
         ]);
 
-        $doorId = $validated['door_id'] ?? null;
+        $doorId = $validated['door_id'] ?? $request->query('door_id');
         $deviceIp = $validated['device_ip'] ?? $request->ip();
         $cardNo = $validated['card_number'] ?? ($validated['card_no'] ?? ($validated['card'] ?? null));
         $nikOrEmployeeId = $validated['user'] ?? ($validated['nik'] ?? ($validated['employee_id'] ?? $cardNo));
         $eventType = strtoupper($validated['event_type'] ?? 'STANDARD_TAP');
         $eventTimestamp = $validated['timestamp'] ?? now()->toIso8601String();
+        $serialNo = $request->input('serial_no');
 
-        // 2. Resolve Door Device (Strict: No fallback to Door::first())
+        if (app()->environment('testing')) {
+            \Illuminate\Support\Facades\Log::info("DEBUG TEST:", ['cardNo' => $cardNo, 'nik' => $nikOrEmployeeId, 'payload' => $request->all(), 'doorId' => $doorId, 'deviceIp' => $deviceIp]);
+        }
+
+        // 2. Resolve Door Device (Strict Deterministic Order)
         $door = null;
         if ($doorId) {
             $door = Door::where('door_id', $doorId)->first();
         }
+        
+        if (!$door && !empty($parsedEvent['device_ip'])) {
+            $door = Door::where('device_ip', $parsedEvent['device_ip'])->first();
+        }
+        
         if (!$door && $deviceIp) {
             $door = Door::where('device_ip', $deviceIp)->first();
         }
@@ -196,10 +191,30 @@ class IsapiWebhookController extends Controller
             $reason = $reason ?: ($accessStatus === 'Denied' && !$employee ? 'Unknown Card / Unregistered User' : null);
         }
 
-        // 4. Generate Unique Log ID
+        // 4. Deduplication
+        if ($serialNo) {
+            $existingLog = AccessLog::where('door_id', $door->id)
+                ->where('device_serial', $serialNo)
+                ->where('event_type', $eventType)
+                ->where('created_at', '>=', now()->subMinutes(5))
+                ->first();
+                
+            if ($existingLog) {
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Event duplikat diabaikan',
+                    'data' => [
+                        'log_id' => $existingLog->log_id,
+                        'door_id' => $door->door_id,
+                    ],
+                ], 200);
+            }
+        }
+
+        // 5. Generate Unique Log ID
         $logId = 'LOG-' . date('YmdHis') . '-' . Str::random(4);
 
-        // 5. Create Access Log Entry with sanitized fields
+        // 6. Create Access Log Entry with sanitized fields
         $accessLog = AccessLog::create([
             'log_id' => strtoupper($logId),
             'door_id' => $door->id,
@@ -211,6 +226,7 @@ class IsapiWebhookController extends Controller
             'access_status' => $accessStatus,
             'reason' => $reason,
             'timestamp' => $eventTimestamp ? date('Y-m-d H:i:s', strtotime($eventTimestamp)) : now(),
+            'device_serial' => $serialNo,
         ]);
 
         return response()->json([

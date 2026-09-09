@@ -37,8 +37,9 @@ class VerifyDeviceWebhook
 
         $allowedIps = array_unique(array_merge($defaultAllowedIps, $dbDoorIps, $envIps));
         $clientIp = $request->ip();
+        $isTrustedProxy = str_starts_with($clientIp, '172.') || str_starts_with($clientIp, '10.') || $clientIp === '127.0.0.1';
 
-        if (!in_array($clientIp, $allowedIps, true)) {
+        if (!$isTrustedProxy && !in_array($clientIp, $allowedIps, true)) {
             return response()->json([
                 'status' => 'error',
                 'code' => 403,
@@ -51,12 +52,11 @@ class VerifyDeviceWebhook
         $authHeader = $request->header('Authorization');
 
         $validSecrets = array_filter([
-            env('DOOR_A_WEBHOOK_SECRET', 'secret_door_a_9981'),
-            env('DOOR_B_WEBHOOK_SECRET', 'secret_door_b_9982'),
-            env('DOOR_C_WEBHOOK_SECRET', 'secret_door_c_9983'),
-            env('DOOR_D_WEBHOOK_SECRET', 'secret_door_d_9984'),
-            env('ISAPI_DEVICE_SECRET', 'secret_simulator_key_2026'),
-            'secret_simulator_key_2026',
+            config('services.doors.DOOR-A.webhook_secret'),
+            config('services.doors.DOOR-B.webhook_secret'),
+            config('services.doors.DOOR-C.webhook_secret'),
+            config('services.doors.DOOR-D.webhook_secret'),
+            config('services.hikvision.device_secret'),
         ]);
 
         $isSecretValid = ($secretHeader && in_array($secretHeader, $validSecrets, true));
@@ -75,7 +75,50 @@ class VerifyDeviceWebhook
             }
         }
 
-        if (!$isSecretValid && !$isTokenValid) {
+        // If no secret provided, but the IP is confirmed as a physical registered door, allow it as a physical event fallback
+        $hasSecretProvided = ($isSecretValid || $isTokenValid);
+        $isPhysicalHardwareEvent = false;
+
+        if (!$hasSecretProvided) {
+            $rawContent = (string) $request->getContent();
+            $contentType = (string) $request->header('Content-Type', '');
+            
+            $parsedEvent = \App\Services\HikvisionPayloadParser::parse($rawContent, $contentType);
+
+            $isRegisteredDoorIp = false;
+            
+            // Check door_id query parameter first
+            $queryDoorId = $request->query('door_id');
+            if ($queryDoorId && $isTrustedProxy) {
+                // For proxy clients, if door_id is present, ensure it maps to a real door
+                $queryDoor = Door::where('door_id', $queryDoorId)->first();
+                if ($queryDoor && !empty($queryDoor->device_ip) && in_array($queryDoor->device_ip, $allowedIps, true)) {
+                    $isRegisteredDoorIp = true;
+                }
+            } else {
+                $isRegisteredDoorIp = in_array($clientIp, $allowedIps, true);
+            }
+
+            if ($parsedEvent && $parsedEvent['is_valid_event']) {
+                if (!$isRegisteredDoorIp) {
+                    $payloadIp = $parsedEvent['device_ip'];
+                    
+                    if ($isTrustedProxy && !empty($payloadIp) && in_array($payloadIp, $allowedIps, true)) {
+                        $isRegisteredDoorIp = true;
+                    }
+                }
+
+                if ($isRegisteredDoorIp) {
+                    $isPhysicalHardwareEvent = true;
+                    $request->attributes->set('hikvision_parsed_event', $parsedEvent);
+                }
+            }
+        }
+
+        if (!$hasSecretProvided && !$isPhysicalHardwareEvent) {
+            \Illuminate\Support\Facades\Log::warning('[ISAPI Webhook] Unauthorized request or unrecognized device IP', [
+                'ip' => $clientIp,
+            ]);
             return response()->json([
                 'status' => 'error',
                 'code' => 403,

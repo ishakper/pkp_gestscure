@@ -14,11 +14,11 @@ class RegisterHikvisionWebhookCommand extends Command
      */
     protected $signature = 'door:register-webhook 
                             {door_id=DOOR-B : Kode identitas terminal pintu}
-                            {--ip=10.10.8.124 : Alamat IP host server penerima webhook}
-                            {--port=8000 : Port server penerima webhook}
+                            {--ip= : Alamat IP host server penerima webhook (default dari konfigurasi)}
+                            {--port= : Port server penerima webhook (default dari konfigurasi)}
                             {--path=api/v1/isapi/event-notification : URL endpoint webhook tanpa leading slash}
-                            {--user=admin : Username Digest Auth}
-                            {--password=PKP12345678 : Password Digest Auth}
+                            {--user= : Override username Digest Auth dari konfigurasi perangkat}
+                            {--password= : Override password Digest Auth dari konfigurasi perangkat}
                             {--real : Paksa request HTTP nyata ke terminal melewati mode mock}';
 
     /**
@@ -40,31 +40,40 @@ class RegisterHikvisionWebhookCommand extends Command
 
         $deviceIp = $door && !empty($door->device_ip) 
             ? $door->device_ip 
-            : ($doorId === 'DOOR-B' ? env('DOOR_B_IP', '192.168.90.15') : '192.168.90.15');
+            : config("services.doors.{$doorId}.ip", '192.168.90.15');
 
-        $listenerIp = $this->option('ip') ?: '10.10.8.124';
-        $listenerPort = (int) ($this->option('port') ?: 8000);
-        $rawPath = $this->option('path') ?: 'api/v1/isapi/event-notification';
-        $listenerPath = ltrim($rawPath, '/');
+        if (!$door) {
+            $door = new Door(['door_id' => $doorId, 'device_ip' => $deviceIp, 'name' => "Door {$doorId}"]);
+        }
+
+        $listenerIp = $this->option('ip') ?: config('services.hikvision.listener_ip', '192.168.90.64');
+        $listenerPort = (int) ($this->option('port') ?: config('services.hikvision.listener_port', 8080));
+        $rawPath = $this->option('path') ?: '/api/v1/isapi/event-notification';
+        $listenerPath = '/' . ltrim($rawPath, '/');
         $forceReal = $this->option('real');
 
         $creds = $isapiService->getDeviceCredentials($door);
         $username = $this->option('user') ?: ($creds['username'] ?? 'admin');
-        $password = $this->option('password') ?: ($creds['password'] ?? 'PKP12345678');
+        $password = $this->option('password') ?: ($creds['password'] ?? '');
 
-        $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts/1";
+        $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts/2";
+        
+        $finalUrl = str_contains($listenerPath, '?') ? "{$listenerPath}&door_id={$doorId}" : "{$listenerPath}?door_id={$doorId}";
 
         $xmlPayload = <<<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
-  <id>1</id>
-  <url>{$listenerPath}</url>
+  <id>2</id>
+  <url>{$finalUrl}</url>
   <protocolType>HTTP</protocolType>
   <parameterFormatType>XML</parameterFormatType>
   <addressingFormatType>ipaddress</addressingFormatType>
   <ipAddress>{$listenerIp}</ipAddress>
   <portNo>{$listenerPort}</portNo>
   <httpAuthenticationMethod>none</httpAuthenticationMethod>
+  <SubscribeEvent>
+    <eventMode>all</eventMode>
+  </SubscribeEvent>
 </HttpHostNotification>
 XML;
 
@@ -113,7 +122,7 @@ XML;
             $this->info("statusString         : {$statusString}");
             $this->line("Response Body        :\n{$body}");
 
-            if (in_array($statusCode, [200, 204], true) || strcasecmp($statusString, 'OK') === 0) {
+            if ($statusCode === 200 && strcasecmp($statusString, 'OK') === 0) {
                 $this->info("\n[SUCCESS] Listener HTTP Host Webhook berhasil didaftarkan ke terminal {$doorId} ({$deviceIp})!");
                 return Command::SUCCESS;
             }

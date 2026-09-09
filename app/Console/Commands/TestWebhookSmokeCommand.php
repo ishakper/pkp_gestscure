@@ -42,7 +42,7 @@ class TestWebhookSmokeCommand extends Command
 
         $reqA = Request::create('/api/v1/isapi/event-notification', 'POST', $caseAPayload, [], [], [
             'REMOTE_ADDR' => '192.168.90.11',
-            'HTTP_X_DEVICE_SECRET' => env('DOOR_A_WEBHOOK_SECRET', 'secret_door_a_9981'),
+            'HTTP_X_DEVICE_SECRET' => config('services.doors.DOOR-A.webhook_secret', 'secret_door_a_9981'),
             'HTTP_ACCEPT' => 'application/json',
         ]);
         $responseA = app()->handle($reqA);
@@ -71,7 +71,7 @@ class TestWebhookSmokeCommand extends Command
 
         $reqB = Request::create('/api/v1/isapi/event-notification', 'POST', $caseBPayload, [], [], [
             'REMOTE_ADDR' => '192.168.90.11',
-            'HTTP_X_DEVICE_SECRET' => env('DOOR_A_WEBHOOK_SECRET', 'secret_door_a_9981'),
+            'HTTP_X_DEVICE_SECRET' => config('services.doors.DOOR-A.webhook_secret', 'secret_door_a_9981'),
             'HTTP_ACCEPT' => 'application/json',
         ]);
         $responseB = app()->handle($reqB);
@@ -118,7 +118,7 @@ class TestWebhookSmokeCommand extends Command
         // CASE C2: Unauthorized Intrusion - Untrusted IP Origin
         $reqC2 = Request::create('/api/v1/isapi/event-notification', 'POST', $caseCPayload, [], [], [
             'REMOTE_ADDR' => '10.200.5.99',
-            'HTTP_X_DEVICE_SECRET' => env('DOOR_A_WEBHOOK_SECRET', 'secret_door_a_9981'),
+            'HTTP_X_DEVICE_SECRET' => config('services.doors.DOOR-A.webhook_secret', 'secret_door_a_9981'),
             'HTTP_ACCEPT' => 'application/json',
         ]);
         $responseC2 = app()->handle($reqC2);

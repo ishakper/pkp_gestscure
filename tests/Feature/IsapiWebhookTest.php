@@ -126,7 +126,7 @@ class IsapiWebhookTest extends TestCase
 
     public function test_case_c_unauthorized_intrusion_untrusted_origin_ip(): void
     {
-        $response = $this->withServerVariables(['REMOTE_ADDR' => '10.200.5.99'])
+        $response = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
             ->postJson('/api/v1/isapi/event-notification', [
                 'door_id' => 'DOOR-A',
                 'user' => 'NIK-882101',
@@ -278,5 +278,73 @@ XML;
             'event_type' => 'TAMPER_ALARM',
             'access_status' => 'Alarm',
         ]);
+    }
+
+    /**
+     * Test proxy + door_id parameter
+     */
+    public function test_trusted_proxy_with_door_id_parameter(): void
+    {
+        $response = $this->withServerVariables(['REMOTE_ADDR' => '172.25.0.1'])
+            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+                'user' => 'NIK-882101',
+                'verify_method' => 'Fingerprint',
+                'access_status' => 'Granted',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('data.door_id', 'DOOR-A');
+    }
+
+    /**
+     * Test untrusted source + door_id parameter
+     */
+    public function test_untrusted_source_with_door_id_parameter_rejected(): void
+    {
+        $response = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
+            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+                'user' => 'NIK-882101',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ]);
+
+        $response->assertStatus(403);
+    }
+
+    /**
+     * Test deduplication logic
+     */
+    public function test_duplicate_serial_no_retry(): void
+    {
+        // First request
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+                'serial_no' => '123456',
+                'event_type' => 'STANDARD_TAP',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ]);
+
+        $countBefore = AccessLog::count();
+
+        // Duplicate request
+        $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+                'serial_no' => '123456',
+                'event_type' => 'STANDARD_TAP',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJsonPath('message', 'Event duplikat diabaikan');
+
+        $this->assertEquals($countBefore, AccessLog::count(), 'AccessLog should not duplicate');
     }
 }

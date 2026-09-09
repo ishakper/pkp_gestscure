@@ -21,10 +21,10 @@ class TestDoorConnectivityCommand extends Command
         $this->info('================================================================================');
 
         $expectedTopology = [
-            'DOOR-A' => env('DOOR_A_IP', '192.168.90.11'),
-            'DOOR-B' => env('DOOR_B_IP', '192.168.90.15'),
-            'DOOR-C' => env('DOOR_C_IP', '192.168.90.13'),
-            'DOOR-D' => env('DOOR_D_IP', '192.168.90.14'),
+            'DOOR-A' => config('services.doors.DOOR-A.ip', '192.168.90.11'),
+            'DOOR-B' => config('services.doors.DOOR-B.ip', '192.168.90.15'),
+            'DOOR-C' => config('services.doors.DOOR-C.ip', '192.168.90.13'),
+            'DOOR-D' => config('services.doors.DOOR-D.ip', '192.168.90.14'),
         ];
 
         $doors = Door::all();

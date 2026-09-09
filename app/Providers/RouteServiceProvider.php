@@ -25,9 +25,9 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(5)->by($key);
         });
 
-        // 60 requests per minute for device ISAPI webhooks
+        // 500 requests per minute for device ISAPI webhooks to accommodate retry bursts
         RateLimiter::for('isapi-webhook', function (Request $request) {
-            return Limit::perMinute(60)->by($request->ip());
+            return Limit::perMinute(500)->by($request->ip());
         });
 
         $this->routes(function () {

@@ -21,8 +21,10 @@ class AccessLog extends Model
         'status',
         'access_status',
         'reason',
+        'source',
         'scanned_at',
         'timestamp',
+        'device_serial',
     ];
 
     protected $casts = [
