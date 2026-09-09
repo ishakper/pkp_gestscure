@@ -28,3 +28,16 @@ access-door-management.md
 
 *-v2.md
 
+# Temporary & diagnostic scripts
+run_auth.php
+public/run_auth.php
+raw_*.php
+scratch/
+*.tar.gz
+deploy/release-*.tar.gz
+release-*.tar.gz
+
+# Local agent metadata & planning
+.agents/
+openspec/
+

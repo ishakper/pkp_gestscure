@@ -27,6 +27,12 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
+        <env name="APP_KEY" value="base64:4pZ2h7n2V9n8n+p/LhN5Yv1kQzR6S8t0W2v4x6y8z0A="/>
+        <env name="DOOR_A_WEBHOOK_SECRET" value="secret_door_a_9981"/>
+        <env name="DOOR_B_WEBHOOK_SECRET" value="secret_door_b_9982"/>
+        <env name="DOOR_C_WEBHOOK_SECRET" value="secret_door_c_9983"/>
+        <env name="DOOR_D_WEBHOOK_SECRET" value="secret_door_d_9984"/>
+        <env name="ISAPI_DEVICE_SECRET" value="secret_simulator_key_2026"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>
