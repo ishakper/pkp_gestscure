@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DoorSyncController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\IsapiWebhookController;
+use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Mock\HikvisionMockController;
 use App\Http\Middleware\VerifyDeviceWebhook;
 use Illuminate\Support\Facades\Route;
@@ -37,6 +38,10 @@ Route::prefix('v1')->group(function () {
             Route::get('/users', [EmployeeController::class, 'index']);
             Route::get('/employees', [EmployeeController::class, 'index']); // Spec alias
             Route::get('/doors-lookup', [AdminDoorController::class, 'lookup']);
+            Route::get('/organization/lookup', [OrganizationController::class, 'lookup']);
+            Route::get('/organization/{type}', [OrganizationController::class, 'index']);
+            Route::post('/organization/{type}', [OrganizationController::class, 'store']);
+            Route::put('/organization/{type}/{id}', [OrganizationController::class, 'update']);
             Route::post('/users', [EmployeeController::class, 'store']);
             Route::post('/employees', [EmployeeController::class, 'store']); // Spec alias
             Route::get('/users/{id}', [EmployeeController::class, 'show']);
@@ -86,4 +91,3 @@ Route::prefix('mock/isapi')->group(function () {
     Route::put('/AccessControl/RemoteControl/door/{doorNo}', [HikvisionMockController::class, 'remoteControl']);
     Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
 });
-

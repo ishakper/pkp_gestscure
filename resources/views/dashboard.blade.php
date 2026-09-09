@@ -1933,7 +1933,13 @@
                 <label>Jabatan</label>
                 <input type="text" id="empRole" placeholder="Staff / Operator / Supervisor" required>
             </div>
-            <div class="form-row">
+            <div class="form-row"><label>Email</label><input type="email" id="empEmail" placeholder="name@company.com"></div>
+            <div class="form-row"><label>Telepon</label><input type="text" id="empPhone" placeholder="08..."></div>
+            <div class="form-row"><label>Gedung</label><select id="empBuilding"><option value="">Pilih Gedung</option></select></div>
+            <div class="form-row"><label>Divisi</label><select id="empDivision"><option value="">Pilih Divisi</option></select></div>
+            <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
+            <div class="form-row"><label>Tipe / Status Kerja</label><div style="display:flex;gap:.5rem"><select id="empEmploymentType"><option value="">Pilih Tipe</option><option>PERMANENT</option><option>CONTRACT</option><option>OUTSOURCE</option></select><select id="empEmploymentStatus"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div></div>
+            <div class="form-row"><label>Tanggal Masuk</label><input type="date" id="empHireDate"></div>            <div class="form-row">
                 <label>Enrollment Biometrik</label>
                 <div style="display: flex; gap: 1.5rem; margin-top: 0.35rem;">
                     <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; color: #ffffff;">
@@ -2038,4 +2044,3 @@ window.remoteUnlockDoor = remoteUnlockDoor;
 
 </body>
 </html>
-

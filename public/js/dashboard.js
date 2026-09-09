@@ -22,6 +22,7 @@ let state = {
     activeTab: 'overviewTab',
     selectedEmployeeForAssign: null,
     searchDebounceTimer: null,
+    organization: { buildings: [], divisions: [], positions: [] },
 };
 
 // ==========================================
@@ -361,6 +362,18 @@ async function checkAllDoors(btn) {
 // ==========================================
 // Section 2: User & Privilege Management
 // ==========================================
+async function loadOrganizationLookup() {
+    try {
+        const res = await apiFetch('/user-management/organization/lookup');
+        if (res.status !== 'success') return;
+        state.organization = res.data;
+        for (const [field, values] of [['empBuilding', res.data.buildings], ['empDivision', res.data.divisions], ['empPosition', res.data.positions]]) {
+            const el = document.getElementById(field); if (!el) continue;
+            el.innerHTML = '<option value="">Pilih</option>' + values.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+        }
+    } catch (err) { console.warn('Organization lookup unavailable', err); }
+}
+
 async function loadEmployees() {
     const tbody = document.getElementById('employeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
@@ -665,6 +678,8 @@ function openAddEmployeeModal() {
     document.getElementById('empName').value = '';
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
+    ['empEmail','empPhone','empBuilding','empDivision','empPosition','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('empEmploymentStatus').value = 'ACTIVE';
     document.getElementById('empFp').checked = true;
     document.getElementById('empCard').checked = true;
     document.getElementById('employeeModal').classList.add('active');
@@ -682,6 +697,9 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empCardNo').value = emp.card_no || '';
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
+    document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
+    document.getElementById('empBuilding').value = emp.building?.id || ''; document.getElementById('empDivision').value = emp.division?.id || ''; document.getElementById('empPosition').value = emp.position?.id || '';
+    document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
     document.getElementById('employeeModal').classList.add('active');
@@ -695,6 +713,9 @@ async function saveEmployee(e) {
         nik: document.getElementById('empNik').value,
         name: document.getElementById('empName').value,
         card_no: document.getElementById('empCardNo').value,
+        email: document.getElementById('empEmail').value, phone: document.getElementById('empPhone').value,
+        building_id: document.getElementById('empBuilding').value || null, division_id: document.getElementById('empDivision').value || null, position_id: document.getElementById('empPosition').value || null,
+        employment_type: document.getElementById('empEmploymentType').value || null, employment_status: document.getElementById('empEmploymentStatus').value, hire_date: document.getElementById('empHireDate').value || null,
         department: document.getElementById('empDept').value,
         role_jabatan: document.getElementById('empRole').value,
         fingerprint_enrolled: document.getElementById('empFp').checked,
@@ -1307,4 +1328,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 60000);
 });
-

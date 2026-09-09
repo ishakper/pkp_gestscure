@@ -101,7 +101,7 @@ class EmployeeCrudTest extends TestCase
         $this->assertDatabaseHas('employees', ['id' => $employee->id, 'name' => 'Budi Santoso Updated']);
     }
 
-    public function test_can_soft_delete_employee(): void
+    public function test_can_deactivate_employee_without_deleting_history(): void
     {
         $employee = Employee::create([
             'employee_id' => 'USR-1001',
@@ -114,6 +114,6 @@ class EmployeeCrudTest extends TestCase
         $response = $this->deleteJson("/api/v1/user-management/employees/{$employee->id}");
 
         $response->assertStatus(200);
-        $this->assertSoftDeleted('employees', ['id' => $employee->id]);
+        $this->assertDatabaseHas('employees', ['id' => $employee->id, 'employment_status' => 'INACTIVE', 'deleted_at' => null]);
     }
 }

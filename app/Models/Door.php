@@ -14,6 +14,8 @@ class Door extends Model
         'name',
         'door_name',
         'location',
+        'building_id',
+        'zone_id',
         'ip_address',
         'device_ip',
         'gateway',
@@ -117,6 +119,9 @@ class Door extends Model
         $this->attributes['connection_status'] = $val;
         $this->attributes['status'] = $val;
     }
+
+    public function building() { return $this->belongsTo(Building::class); }
+    public function zone() { return $this->belongsTo(Zone::class); }
 
     public function doorAssignments()
     {

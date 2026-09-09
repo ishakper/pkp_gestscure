@@ -12,13 +12,25 @@ class Employee extends Model
 
     protected $fillable = [
         'employee_id',
+        'hikvision_employee_no',
         'nik',
         'name',
+        'email',
+        'phone',
+        'photo_path',
         'card_no',
         'department',
         'role',
         'role_jabatan',
+        'building_id',
+        'division_id',
+        'position_id',
+        'employment_type',
+        'employment_status',
+        'hire_date',
     ];
+
+    protected $casts = ['hire_date' => 'date'];
 
     public function getRoleAttribute()
     {
@@ -41,6 +53,10 @@ class Employee extends Model
         $this->attributes['role_jabatan'] = $val;
         $this->attributes['role'] = $val;
     }
+
+    public function building() { return $this->belongsTo(Building::class); }
+    public function division() { return $this->belongsTo(Division::class); }
+    public function position() { return $this->belongsTo(Position::class); }
 
     public function biometricStatus()
     {
