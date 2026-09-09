@@ -1,0 +1,3 @@
+<?php
+namespace Tests\Feature;use App\Models\Admin;use App\Models\Employee;use Illuminate\Foundation\Testing\RefreshDatabase;use Laravel\Sanctum\Sanctum;use Tests\TestCase;
+class Employee360AuthorizationTest extends TestCase {use RefreshDatabase;public function test_unauthenticated_360_is_json_401_and_hrd_is_allowed():void{$employee=Employee::create(['employee_id'=>'E1','nik'=>'N1','name'=>'E','department'=>'HR']);$this->getJson('/api/v1/user-management/employees/'.$employee->id.'/360')->assertUnauthorized();$hrd=Admin::create(['name'=>'HRD','email'=>'hrd@test.local','password'=>bcrypt('p'),'role'=>'hrd']);Sanctum::actingAs($hrd);$this->getJson('/api/v1/user-management/employees/'.$employee->id.'/360')->assertOk();}}

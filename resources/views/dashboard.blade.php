@@ -1949,7 +1949,7 @@
     </div>
 </div>
 
-<!-- Configuration & Global Variables -->
+<div class="modal-overlay" id="employee360Modal"><div class="modal-card"><div class="modal-header"><h3 class="modal-title">Employee 360</h3><button class="modal-close-btn" onclick="closeModal(&quot;employee360Modal&quot;)">✖</button></div><div id="employee360Content" class="section-desc">Memuat profil…</div></div></div><!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),

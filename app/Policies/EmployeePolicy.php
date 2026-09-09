@@ -15,18 +15,12 @@ class EmployeePolicy
 
     public function view(Admin $admin, Employee $employee): bool
     {
-        if ($admin->isSuperAdmin()) {
-            return true;
-        }
-
-        // If building_admin, allow viewing if employee has access to their assigned building
-        if (!$admin->assigned_building) {
-            return true;
-        }
-
+        if ($admin->isSuperAdmin() || in_array($admin->role, ['hrd', 'management'], true)) return true;
+        if (in_array($admin->role, ['employee', 'intern'], true)) return (int) $admin->employee_id === (int) $employee->id;
+        if ($admin->role === 'supervisor') return (int) $employee->supervisor_id === (int) $admin->employee_id;
+        if (!$admin->assigned_building) return false;
         return $employee->doors()->where('location', $admin->assigned_building)->exists();
     }
-
     public function create(Admin $admin): bool
     {
         return true;
