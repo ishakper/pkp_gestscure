@@ -93,27 +93,13 @@ security_hygiene:
     - apk add --no-cache git grep
   script:
     - echo "Checking that .env is NOT tracked in Git..."
-    - |
-      if git ls-files --error-unmatch .env 2>/dev/null; then
-        echo "ERROR: .env file is tracked in Git!"
-        exit 1
-      fi
+    - test -z "$(git ls-files .env)"
     - echo "Checking that no temporary debug/auth scripts are tracked..."
-    - |
-      if [ -n "$(git ls-files 'run_auth.php' 'public/run_auth.php' 'scratch/*' 'raw_*.php')" ]; then
-        echo "ERROR: temporary debug scripts tracked in Git!"
-        exit 1
-      fi
+    - test -z "$(git ls-files run_auth.php public/run_auth.php scratch/* raw_*.php)"
     - echo "Verifying docker-compose.yml has no committed secret defaults..."
-    - |
-      if grep -F 'APP_KEY=${APP_KEY:-base64:' docker-compose.yml; then
-        echo "ERROR: hardcoded APP_KEY default found in docker-compose.yml"
-        exit 1
-      fi
-      if grep -F 'HIKVISION_ISAPI_PASSWORD=Hikvision@' docker-compose.yml; then
-        echo "ERROR: hardcoded Hikvision password found in docker-compose.yml"
-        exit 1
-      fi
+    - grep -F 'APP_KEY=${APP_KEY}' docker-compose.yml
+    - test -z "$(grep -F 'APP_KEY=${APP_KEY:-base64:' docker-compose.yml)"
+    - test -z "$(grep -F 'HIKVISION_ISAPI_PASSWORD=Hikvision@' docker-compose.yml)"
     - echo "Security hygiene checks passed cleanly."
 
 # ------------------------------------------------------------------------------
@@ -132,20 +118,9 @@ build_docker:
     - test_suite
     - security_hygiene
   script:
-    - echo "Building reproducible Docker image: pkp-securegate:${IMAGE_TAG}..."
+    - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
     - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
-    - |
-      if [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
-        echo "GitLab Container Registry detected: logging in to $CI_REGISTRY..."
-        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
-        docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}"
-        docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest"
-        docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}"
-        docker push "${CI_REGISTRY_IMAGE}:latest"
-        echo "Image published to registry: ${CI_REGISTRY_IMAGE}:${IMAGE_TAG}"
-      else
-        echo "Registry not configured or runner standalone: local Docker image tagged pkp-securegate:latest."
-      fi
+    - if [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" && docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" && docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"; fi
 
 # ------------------------------------------------------------------------------
 # Stage 5: Gated Production Deployment
@@ -184,11 +159,5 @@ verify_healthcheck:
     - deploy_production
   script:
     - echo "Verifying container endpoint health..."
-    - |
-      HEALTH_URL="${APP_URL:-http://localhost:8080}/login"
-      echo "Probing endpoint: $HEALTH_URL..."
-      curl -s -f -o /dev/null -w "%{http_code}\n" "$HEALTH_URL" | grep -E "200|302" || {
-        echo "Health check failed for $HEALTH_URL"
-        exit 1
-      }
+    - curl -s -f -o /dev/null -w "%{http_code}\n" "${APP_URL:-http://localhost:8080}/login"
     - echo "SecureGate deployment health check verified successfully."
