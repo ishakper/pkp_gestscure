@@ -186,6 +186,35 @@ Route::prefix('v1')->group(function () {
             Route::post('/{id}/dispose', [\App\Http\Controllers\Api\AssetController::class, 'dispose']);
         });
 
+        // Sprint 8: Work Calendar + Attendance Core
+        Route::prefix('attendance')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\AttendanceController::class, 'metrics']);
+
+            // Work Calendars
+            Route::get('/calendars', [\App\Http\Controllers\Api\AttendanceController::class, 'calendars']);
+            Route::post('/calendars', [\App\Http\Controllers\Api\AttendanceController::class, 'storeCalendar']);
+            Route::get('/calendars/{id}', [\App\Http\Controllers\Api\AttendanceController::class, 'showCalendar']);
+            Route::put('/calendars/{id}', [\App\Http\Controllers\Api\AttendanceController::class, 'updateCalendar']);
+            Route::post('/calendars/{id}/days', [\App\Http\Controllers\Api\AttendanceController::class, 'upsertCalendarDays']);
+
+            // Public Holidays
+            Route::get('/holidays', [\App\Http\Controllers\Api\AttendanceController::class, 'holidays']);
+            Route::post('/holidays', [\App\Http\Controllers\Api\AttendanceController::class, 'storeHoliday']);
+            Route::delete('/holidays/{id}', [\App\Http\Controllers\Api\AttendanceController::class, 'destroyHoliday']);
+
+            // Calendar Assignment
+            Route::post('/employees/{id}/assign-calendar', [\App\Http\Controllers\Api\AttendanceController::class, 'assignCalendar']);
+
+            // Attendance Records
+            Route::get('/records', [\App\Http\Controllers\Api\AttendanceController::class, 'records']);
+            Route::post('/records', [\App\Http\Controllers\Api\AttendanceController::class, 'record']);
+            Route::get('/records/{id}', [\App\Http\Controllers\Api\AttendanceController::class, 'showRecord']);
+            Route::post('/records/{id}/verify', [\App\Http\Controllers\Api\AttendanceController::class, 'verifyRecord']);
+
+            // Employee Attendance Summary
+            Route::get('/employees/{id}/summary', [\App\Http\Controllers\Api\AttendanceController::class, 'employeeSummary']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

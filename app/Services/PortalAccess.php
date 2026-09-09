@@ -61,6 +61,10 @@ class PortalAccess
                 $perms[] = 'asset.incident';
                 $perms[] = 'asset.dispose';
                 $perms[] = 'asset.report';
+                $perms[] = 'attendance.view';
+                $perms[] = 'attendance.manage';
+                $perms[] = 'attendance.verify';
+                $perms[] = 'attendance.calendar.manage';
             }
             return $perms;
         }
@@ -78,6 +82,7 @@ class PortalAccess
                 $perms[] = 'document.view';
                 $perms[] = 'document.download';
                 $perms[] = 'access.request';
+                $perms[] = 'attendance.view';
             }
             if (in_array($role, ['hrd', 'management'], true)) {
                 $perms[] = 'contract.view';
@@ -111,6 +116,9 @@ class PortalAccess
                 $perms[] = 'credential.sync';
                 $perms[] = 'credential.revoke';
                 $perms[] = 'emoney.manage';
+                $perms[] = 'attendance.manage';
+                $perms[] = 'attendance.verify';
+                $perms[] = 'attendance.calendar.manage';
             }
             if (in_array($role, ['supervisor'], true)) {
                 $perms[] = 'internship.mentor';
@@ -128,6 +136,7 @@ class PortalAccess
                 'credential.self',
                 'emoney.self',
                 'asset.self',
+                'attendance.self',
             ];
         }
 

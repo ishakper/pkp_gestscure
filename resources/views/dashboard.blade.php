@@ -1392,6 +1392,9 @@
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Manajemen Aset & Inventaris" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Manajemen Aset</span></button></li>
         @endif
+        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Kehadiran & Kalender Kerja" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Kehadiran & Kalender</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -3033,6 +3036,50 @@
                     </tbody>
                 </table>
             </div>
+        </div>
+    </section>
+
+    <!-- SECTION 12: WORK CALENDAR & ATTENDANCE CORE (SPRINT 8) -->
+    <section class="tab-content" id="attendanceTab">
+        <!-- Header & Action -->
+        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+            <div class="toolbar-left">
+                <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
+                    <span>⏰</span> Kehadiran & Kalender Kerja
+                </h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Pusat manajemen kehadiran karyawan, kalender kerja, hari libur nasional, dan pelacakan jam kerja.
+                </div>
+            </div>
+            <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadAttendanceData(); showToast('Data Kehadiran disinkronkan', 'info');">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+
+        <div class="stats-grid" id="attendanceMetricsContainer" style="margin-bottom: 1.5rem;">
+            <!-- Metrics populated by JS -->
+        </div>
+
+        <!-- Attendance Content -->
+        <div class="table-container">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Tgl Kehadiran</th>
+                        <th>Karyawan</th>
+                        <th>Kalender</th>
+                        <th>Jam Masuk</th>
+                        <th>Jam Keluar</th>
+                        <th>Status</th>
+                        <th>Keterlambatan</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceTableBody">
+                    <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>
+                </tbody>
+            </table>
         </div>
     </section>
 

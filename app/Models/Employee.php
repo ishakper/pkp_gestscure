@@ -133,4 +133,27 @@ class Employee extends Model
     {
         return $this->hasMany(AssetIncident::class);
     }
+
+    // Sprint 8: Work Calendar + Attendance
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
+    public function calendarAssignments()
+    {
+        return $this->hasMany(EmployeeCalendarAssignment::class);
+    }
+
+    /** Returns the currently active WorkCalendar for this employee, or null. */
+    public function activeCalendarAssignment()
+    {
+        return $this->hasOne(EmployeeCalendarAssignment::class)
+            ->where('effective_from', '<=', now()->toDateString())
+            ->where(function ($q) {
+                $q->whereNull('effective_until')
+                  ->orWhere('effective_until', '>=', now()->toDateString());
+            })
+            ->latest('effective_from');
+    }
 }

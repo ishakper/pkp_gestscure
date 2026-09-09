@@ -1128,6 +1128,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'onboardingTab') loadOnboardingData();
     if (tabId === 'accessTab') loadAccessData();
     if (tabId === 'assetsTab') loadAssetsData();
+    if (tabId === 'attendanceTab') loadAttendanceData();
 }
 
 // ==========================================
@@ -5022,3 +5023,99 @@ function debounceAssetSearch() {
     clearTimeout(state.searchDebounceTimer);
     state.searchDebounceTimer = setTimeout(loadAssetsInventory, 350);
 }
+
+// ==========================================
+// SPRINT 8: WORK CALENDAR & ATTENDANCE CORE
+// ==========================================
+
+async function loadAttendanceData() {
+    loadAttendanceMetrics();
+    const tbody = document.getElementById('attendanceTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
+    try {
+        const res = await apiFetch('/api/v1/attendance/records');
+        if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
+        
+        const records = res.data.data || res.data;
+        if (!records.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Tidak ada data kehadiran hari ini.</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = records.map(r => {
+            const empName = r.employee ? r.employee.name : '-';
+            const calName = r.work_calendar ? r.work_calendar.name : '-';
+            
+            let statusBadge = '';
+            switch (r.status) {
+                case 'PRESENT': statusBadge = '<span class="status-badge status-active">Hadir</span>'; break;
+                case 'LATE': statusBadge = '<span class="status-badge status-warning">Terlambat</span>'; break;
+                case 'ABSENT': statusBadge = '<span class="status-badge status-inactive">Mangkir</span>'; break;
+                case 'OFF': statusBadge = '<span class="status-badge" style="background:#475569;color:#fff;">Libur / OFF</span>'; break;
+                case 'LEAVE': statusBadge = '<span class="status-badge status-info">Cuti</span>'; break;
+                default: statusBadge = `<span class="status-badge">${escapeHtml(r.status)}</span>`;
+            }
+
+            const lateSpan = r.late_minutes > 0 
+                ? `<span style="color: #ef4444; font-weight: 700;">+${r.late_minutes} min</span>` 
+                : '<span style="color: var(--text-muted);">-</span>';
+
+            return `
+                <tr>
+                    <td>${escapeHtml(r.attendance_date)}</td>
+                    <td><strong>${escapeHtml(empName)}</strong></td>
+                    <td>${escapeHtml(calName)}</td>
+                    <td>${r.clock_in_at ? r.clock_in_at.substring(11, 16) : '-'}</td>
+                    <td>${r.clock_out_at ? r.clock_out_at.substring(11, 16) : '-'}</td>
+                    <td>${statusBadge}</td>
+                    <td>${lateSpan}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Error: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadAttendanceMetrics() {
+    const container = document.getElementById('attendanceMetricsContainer');
+    if (!container) return;
+
+    try {
+        const res = await apiFetch('/api/v1/attendance/metrics');
+        if (!res.success) return;
+        
+        const m = res.data;
+        const t = m.today;
+        const total = t.present + t.late + t.absent + t.off + t.leave;
+        const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
+
+        container.innerHTML = `
+            <div class="stat-card">
+                <div class="stat-title">Tingkat Kehadiran Harian</div>
+                <div class="stat-value" style="color: #10b981;">${presentRate}%</div>
+                <div class="stat-desc">Hari Ini: ${escapeHtml(t.date)}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Hadir & Terlambat</div>
+                <div class="stat-value" style="color: #f59e0b;">${t.present + t.late} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+                <div class="stat-desc">(${t.late} terlambat)</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Mangkir (Tanpa Keterangan)</div>
+                <div class="stat-value" style="color: #ef4444;">${t.absent} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+                <div class="stat-desc">Potensi pelanggaran</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Kalender Kerja Aktif</div>
+                <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
+                <div class="stat-desc">Dikelola oleh sistem</div>
+            </div>
+        `;
+    } catch (e) {
+        console.error('Failed to load attendance metrics', e);
+    }
+}
+
