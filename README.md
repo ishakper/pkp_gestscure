@@ -102,7 +102,7 @@ Integrasi terminal Hikvision dikendalikan melalui konfigurasi pada file `.env`:
 | `HIKVISION_ISAPI_HOST` | `192.168.90.11` | IP default terminal kontrol akses fisik Hikvision (DS-K1T804AMF). |
 | `HIKVISION_ISAPI_PORT` | `80` | Port HTTP ISAPI terminal (default: 80). |
 | `HIKVISION_ISAPI_USERNAME` | `admin` | Username administratif terminal Hikvision. |
-| `HIKVISION_ISAPI_PASSWORD` | `Hikvision@DoorA` | Password administratif terminal Hikvision. |
+| `HIKVISION_ISAPI_PASSWORD` | _(required; configure only in untracked `.env`)_ | Password administratif terminal Hikvision. |
 | `HIKVISION_ISAPI_MOCK_BASE_URL` | `http://localhost:8000/api/mock/isapi` | Base URL endpoint mock ISAPI lokal. |
 | `ISAPI_CONNECT_TIMEOUT` | `5` | Batas waktu koneksi socket cURL (detik). |
 | `ISAPI_REQUEST_TIMEOUT` | `10` | Batas waktu total request ISAPI (detik). |

@@ -408,4 +408,16 @@ XML;
         $this->assertEquals('192.168.90.13', $hostPort['host']);
         $this->assertEquals(8088, $hostPort['port']);
     }
-}
+
+    public function test_real_mode_fails_closed_when_credentials_are_missing(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Config::set('services.doors.DOOR-B.username', null);
+        Config::set('services.doors.DOOR-B.password', null);
+        Config::set('services.hikvision.username', null);
+        Config::set('services.hikvision.password', null);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('Hikvision credentials are not configured');
+        $this->service->getDeviceCredentials(new Door(['door_id' => 'DOOR-B']));
+    }}

@@ -44,19 +44,18 @@ class HikvisionIsapiService
             $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
             $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
 
-            $username = $doorConfig['username'] ?? config('services.hikvision.username', 'admin');
-            $password = $doorConfig['password'] ?? config('services.hikvision.password', 'Hikvision@DoorA');
-
-            return [
-                'username' => $username,
-                'password' => $password,
-            ];
+            $username = $doorConfig['username'] ?? config('services.hikvision.username');
+            $password = $doorConfig['password'] ?? config('services.hikvision.password');
+        } else {
+            $username = config('services.hikvision.username');
+            $password = config('services.hikvision.password');
         }
 
-        return [
-            'username' => config('services.hikvision.username', 'admin'),
-            'password' => config('services.hikvision.password', 'Hikvision@DoorA'),
-        ];
+        if (!is_string($username) || trim($username) === '' || !is_string($password) || $password === '') {
+            throw new \RuntimeException('Hikvision credentials are not configured for this device.');
+        }
+
+        return ['username' => $username, 'password' => $password];
     }
 
     /**
