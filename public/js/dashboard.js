@@ -55,7 +55,7 @@ function showToast(message, type = 'success', duration = 3500) {
 
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
+
     const icons = {
         success: '✓',
         error: '✕',
@@ -89,7 +89,7 @@ function showToast(message, type = 'success', duration = 3500) {
 // ==========================================
 async function apiFetch(endpoint, options = {}) {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
-    
+
     const headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
@@ -190,7 +190,7 @@ function renderDoorCards(doors) {
         const safeDeviceIp = escapeHtml(door.device_ip || '-');
         const safeModel = escapeHtml(door.device_model || 'DS-K1T804AMF');
         const safeTotalUsers = Number(door.total_assigned_users) || 0;
-        const lastCheckedStr = door.last_checked_at 
+        const lastCheckedStr = door.last_checked_at
             ? new Date(door.last_checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
             : 'Belum dicek';
 
@@ -435,11 +435,11 @@ function renderEmployeesTable(employees) {
         // Biometric Badges
         const hasFp = emp.biometric_status?.fingerprint_enrolled;
         const hasCard = emp.biometric_status?.card_enrolled;
-        const fpBadge = hasFp 
-            ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>` 
+        const fpBadge = hasFp
+            ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
             : `<span class="badge badge-dim" title="Belum enroll sidik jari">No FP</span>`;
-        const cardBadge = hasCard 
-            ? `<span class="badge badge-info" title="Kartu RFID: ${emp.card_no || 'Tercatat'}"><span class="badge-dot"></span> Kartu</span>` 
+        const cardBadge = hasCard
+            ? `<span class="badge badge-info" title="Kartu RFID: ${emp.card_no || 'Tercatat'}"><span class="badge-dot"></span> Kartu</span>`
             : `<span class="badge badge-dim" title="Belum enroll kartu">No Card</span>`;
 
         // Door Assignment Badges
@@ -545,7 +545,7 @@ async function openDoorAssignmentModal(empId) {
 
     document.getElementById('assignModalEmpName').innerText = `${employee.name} (${employee.user_id} - ${employee.nik})`;
     document.getElementById('assignModalEmpDept').innerText = `Departemen: ${employee.department} | Role: ${employee.role || 'Staff'}`;
-    
+
     const container = document.getElementById('doorCheckboxesContainer');
     container.innerHTML = '<div class="spinner"></div> Memuat daftar pintu...';
 
@@ -885,7 +885,7 @@ function renderAccessLogsTable(logs) {
             methodBadge = `<span class="method-chip method-fp">👆 Fingerprint</span>`;
         }
 
-        const timestampStr = log.timestamp 
+        const timestampStr = log.timestamp
             ? new Date(log.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' })
             : '-';
 
@@ -1127,6 +1127,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
     if (tabId === 'accessTab') loadAccessData();
+    if (tabId === 'assetsTab') loadAssetsData();
 }
 
 // ==========================================
@@ -1224,7 +1225,7 @@ function toggleSidebar(forceState) {
     const isMobile = window.innerWidth < 768;
     const backdrop = document.getElementById('sidebarBackdrop');
 
-    const isCurrentlyOpen = document.body.classList.contains('sidebar-open') || 
+    const isCurrentlyOpen = document.body.classList.contains('sidebar-open') ||
                             document.documentElement.classList.contains('sidebar-open');
     const shouldOpen = typeof forceState === 'boolean' ? forceState : !isCurrentlyOpen;
 
@@ -1303,12 +1304,12 @@ function handleNewLiveEvent(data) {
 
     showToast(`🚪 ${data.door_name} - ${data.employee_name} (${data.access_status})`, type, 5000);
 
-    // 2. Reload tables automatically so we don't have to write full row injection logic 
+    // 2. Reload tables automatically so we don't have to write full row injection logic
     // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
     if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
         loadAccessLogs();
     }
-    
+
     // Also refresh door status
     if (state.activeTab === 'doorsTab' || state.activeTab === 'overviewTab') {
         loadDoors();
@@ -4199,4 +4200,825 @@ function debounceCredentialSearch() {
 function debounceEmoneySearch() {
     clearTimeout(state.searchDebounceTimer);
     state.searchDebounceTimer = setTimeout(loadEmoneyCards, 350);
+}
+
+// =============================================================
+// SPRINT 7: ENTERPRISE ASSET MANAGEMENT CONTROLLER
+// =============================================================
+
+function loadAssetsData() {
+    loadAssetsMetrics();
+    loadAssetsCategories();
+    loadAssetsInventory();
+    loadAssetAssignments();
+    loadAssetMaintenances();
+    loadAssetIncidents();
+    populateAssetDropdowns();
+}
+
+function switchAssetSubTab(subTab, btn) {
+    document.querySelectorAll('#assetsTab .ats-subnav .subnav-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    const subs = {
+        'inventory': 'assetSubInventory',
+        'assignments': 'assetSubAssignments',
+        'maintenances': 'assetSubMaintenances',
+        'incidents': 'assetSubIncidents'
+    };
+
+    Object.values(subs).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    const activeEl = document.getElementById(subs[subTab]);
+    if (activeEl) activeEl.style.display = 'block';
+}
+
+async function loadAssetsMetrics() {
+    try {
+        const res = await apiFetch('/assets/metrics');
+        if (res && res.success) {
+            const d = res.data;
+            const elTotal = document.getElementById('metricTotalAssets');
+            const elAvail = document.getElementById('metricAvailableAssets');
+            const elAsg = document.getElementById('metricAssignedAssets');
+            const elMnt = document.getElementById('metricMaintenanceAssets');
+            const elLost = document.getElementById('metricLostDamagedAssets');
+            const elWarr = document.getElementById('metricExpiringWarranties');
+
+            if (elTotal) elTotal.innerText = d.total_assets ?? 0;
+            if (elAvail) elAvail.innerText = d.available_assets ?? 0;
+            if (elAsg) elAsg.innerText = d.assigned_assets ?? 0;
+            if (elMnt) elMnt.innerText = d.maintenance_assets ?? 0;
+            if (elLost) elLost.innerText = d.lost_or_damaged_assets ?? 0;
+            if (elWarr) elWarr.innerText = d.expiring_warranties ?? 0;
+        }
+    } catch (e) {
+        console.error('Failed to load asset metrics', e);
+    }
+}
+
+async function loadAssetsCategories() {
+    try {
+        const res = await apiFetch('/assets/categories');
+        if (res && res.success && Array.isArray(res.data)) {
+            const filterEl = document.getElementById('assetCategoryFilter');
+            const formEl = document.getElementById('assetFormCategory');
+
+            const options = res.data.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+
+            if (filterEl) {
+                filterEl.innerHTML = '<option value="">Semua Kategori</option>' + options;
+            }
+            if (formEl) {
+                formEl.innerHTML = '<option value="">-- Pilih Kategori --</option>' + options;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load asset categories', e);
+    }
+}
+
+function getAssetStatusBadge(status) {
+    const s = String(status || '').toUpperCase();
+    const map = {
+        'AVAILABLE': '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">Tersedia</span>',
+        'ASSIGNED': '<span class="badge badge-info" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">Dipinjam</span>',
+        'MAINTENANCE': '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.2); color: #fcd34d;">Servis</span>',
+        'REPAIR': '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.2); color: #fcd34d;">Perbaikan</span>',
+        'LOST': '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">Hilang</span>',
+        'DAMAGED': '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">Rusak</span>',
+        'DISPOSED': '<span class="badge badge-dim" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8;">Dihapus Buku</span>',
+    };
+    return map[s] || `<span class="badge badge-dim">${escapeHtml(s)}</span>`;
+}
+
+function getAssetConditionBadge(condition) {
+    const c = String(condition || '').toUpperCase();
+    const map = {
+        'NEW': '<span style="font-weight: 700; color: #10b981;">NEW</span>',
+        'GOOD': '<span style="font-weight: 600; color: #38bdf8;">GOOD</span>',
+        'FAIR': '<span style="font-weight: 600; color: #f59e0b;">FAIR</span>',
+        'POOR': '<span style="font-weight: 600; color: #f97316;">POOR</span>',
+        'DAMAGED': '<span style="font-weight: 700; color: #ef4444;">DAMAGED</span>',
+    };
+    return map[c] || `<span>${escapeHtml(c)}</span>`;
+}
+
+async function loadAssetsInventory() {
+    const tbody = document.getElementById('assetsTableBody');
+    if (!tbody) return;
+
+    try {
+        const search = document.getElementById('assetSearch')?.value || '';
+        const categoryId = document.getElementById('assetCategoryFilter')?.value || '';
+        const status = document.getElementById('assetStatusFilter')?.value || '';
+        const condition = document.getElementById('assetConditionFilter')?.value || '';
+
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (categoryId) params.append('category_id', categoryId);
+        if (status) params.append('status', status);
+        if (condition) params.append('condition', condition);
+
+        const res = await apiFetch(`/assets?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">Tidak ada aset inventaris yang sesuai dengan filter.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(a => {
+            const safeId = a.id;
+            const code = escapeHtml(a.asset_code);
+            const name = escapeHtml(a.asset_name);
+            const catName = escapeHtml(a.category?.name || 'Umum');
+            const brandModel = `${escapeHtml(a.brand || '-')} / ${escapeHtml(a.model || '-')}`;
+            const maskedSerial = escapeHtml(a.masked_serial_number || 'Tidak Ada');
+            const loc = `${escapeHtml(a.building_name || '-')}<br><small style="color: var(--text-dim);">${escapeHtml(a.location || 'Semua Ruang')}</small>`;
+            const statusBadge = getAssetStatusBadge(a.status);
+            const condBadge = getAssetConditionBadge(a.condition);
+
+            let actions = `
+                <button class="btn-sm btn-secondary" onclick="showAssetDetail(${safeId})" title="Lihat Detail & Riwayat 360">👁️ Detail</button>
+            `;
+
+            if (a.status !== 'DISPOSED') {
+                actions += ` <button class="btn-sm btn-edit" onclick="openEditAssetModal(${safeId})" title="Edit Data Aset">✏️ Edit</button>`;
+            }
+
+            if (a.status === 'AVAILABLE') {
+                actions += ` <button class="btn-sm btn-primary" onclick="openAssignSpecificAsset(${safeId})" title="Alokasikan ke Karyawan / Intern">📋 Serahkan</button>`;
+                actions += ` <button class="btn-sm btn-secondary" onclick="openMaintenanceSpecificAsset(${safeId})" title="Buka Tiket Servis">🔧 Servis</button>`;
+                actions += ` <button class="btn-sm btn-delete" onclick="openDisposeAssetModal(${safeId})" title="Hapus Buku (Disposal)">🗑️ Hapus</button>`;
+            } else if (a.status === 'ASSIGNED') {
+                actions += ` <button class="btn-sm btn-secondary" onclick="openIncidentSpecificAsset(${safeId})" title="Laporkan Kerusakan/Kehilangan">⚠️ Insiden</button>`;
+            } else if (a.status === 'DAMAGED') {
+                actions += ` <button class="btn-sm btn-secondary" onclick="openMaintenanceSpecificAsset(${safeId})" title="Buka Tiket Servis">🔧 Servis</button>`;
+                actions += ` <button class="btn-sm btn-delete" onclick="openDisposeAssetModal(${safeId})" title="Hapus Buku (Disposal)">🗑️ Hapus</button>`;
+            }
+
+            return `
+                <tr>
+                    <td><strong style="color: var(--primary); font-family: monospace;">${code}</strong></td>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${name}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${catName}</div>
+                    </td>
+                    <td>${brandModel}</td>
+                    <td><code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; color: #a5f3fc;">${maskedSerial}</code></td>
+                    <td>${loc}</td>
+                    <td>${condBadge}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right; white-space: nowrap;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load asset inventory', e);
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat data inventaris aset: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadAssetAssignments() {
+    const tbody = document.getElementById('assetAssignmentsTableBody');
+    if (!tbody) return;
+
+    try {
+        const status = document.getElementById('assetAssignmentStatusFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+
+        const res = await apiFetch(`/assets/assignments?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">Belum ada riwayat alokasi aset.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(asg => {
+            const asgNum = escapeHtml(asg.assignment_number);
+            const assetInfo = `<strong>${escapeHtml(asg.asset?.asset_code || '-')}</strong><br><small style="color: var(--text-muted);">${escapeHtml(asg.asset?.asset_name || '-')}</small>`;
+            const assignee = asg.employee
+                ? `<div>${escapeHtml(asg.employee.name)} <span style="font-size: 0.725rem; color: var(--primary);">[Karyawan]</span></div>`
+                : (asg.internship ? `<div>${escapeHtml(asg.internship.intern_id)} <span style="font-size: 0.725rem; color: #c084fc;">[Intern]</span></div>` : '-');
+            const asgDate = asg.assigned_at ? asg.assigned_at.substring(0, 10) : '-';
+            const expDate = asg.expected_return_date ? asg.expected_return_date.substring(0, 10) : '<span style="color: var(--text-dim);">-</span>';
+            const condOut = getAssetConditionBadge(asg.condition_out);
+            const condIn = asg.condition_in ? getAssetConditionBadge(asg.condition_in) : '<span style="color: var(--text-dim);">-</span>';
+            const statusBadge = asg.status === 'ACTIVE'
+                ? '<span class="badge badge-info" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">ACTIVE</span>'
+                : '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">RETURNED</span>';
+
+            let actions = '';
+            if (asg.status === 'ACTIVE') {
+                actions = `<button class="btn-sm btn-primary" onclick="openReturnAssetModal(${asg.id})">🔄 Kembalikan</button>`;
+            } else {
+                actions = `<span style="color: var(--text-muted); font-size: 0.8rem;">Selesai (${(asg.actual_return_date || '').substring(0, 10)})</span>`;
+            }
+
+            return `
+                <tr>
+                    <td><span style="font-family: monospace; color: #a5b4fc;">${asgNum}</span></td>
+                    <td>${assetInfo}</td>
+                    <td>${assignee}</td>
+                    <td>${asgDate}</td>
+                    <td>${expDate}</td>
+                    <td>${condOut}</td>
+                    <td>${condIn}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right; white-space: nowrap;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load asset assignments', e);
+        tbody.innerHTML = `<tr><td colspan="9" class="error-td">Gagal memuat penugasan aset: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadAssetMaintenances() {
+    const tbody = document.getElementById('assetMaintenancesTableBody');
+    if (!tbody) return;
+
+    try {
+        const status = document.getElementById('assetMaintenanceStatusFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+
+        const res = await apiFetch(`/assets/maintenances?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">Tidak ada catatan pemeliharaan atau tiket servis aset.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(m => {
+            const num = escapeHtml(m.maintenance_number);
+            const assetCode = escapeHtml(m.asset?.asset_code || '-');
+            const type = `<span class="badge" style="background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">${escapeHtml(m.maintenance_type)}</span>`;
+            const issue = escapeHtml(m.issue_description);
+            const vendor = escapeHtml(m.vendor || 'Internal IT');
+            const cost = Number(m.cost || 0).toLocaleString('id-ID');
+            const openedAt = m.opened_at ? m.opened_at.substring(0, 10) : '-';
+            const statusBadge = m.status === 'COMPLETED'
+                ? '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">COMPLETED</span>'
+                : '<span class="badge badge-warning" style="background: rgba(245, 158, 11, 0.2); color: #fcd34d;">OPEN</span>';
+
+            let actions = '';
+            if (m.status !== 'COMPLETED') {
+                actions = `<button class="btn-sm btn-primary" onclick="openCompleteMaintenanceModal(${m.id})">✅ Selesaikan</button>`;
+            } else {
+                actions = `<span style="color: var(--text-muted); font-size: 0.8rem;">Tuntas</span>`;
+            }
+
+            return `
+                <tr>
+                    <td><span style="font-family: monospace; color: #fcd34d;">${num}</span></td>
+                    <td><strong>${assetCode}</strong></td>
+                    <td>${type}</td>
+                    <td style="max-width: 250px;">${issue}</td>
+                    <td>${vendor}</td>
+                    <td>Rp ${cost}</td>
+                    <td>${openedAt}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right; white-space: nowrap;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load asset maintenances', e);
+        tbody.innerHTML = `<tr><td colspan="9" class="error-td">Gagal memuat catatan servis: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadAssetIncidents() {
+    const tbody = document.getElementById('assetIncidentsTableBody');
+    if (!tbody) return;
+
+    try {
+        const type = document.getElementById('assetIncidentTypeFilter')?.value || '';
+        const status = document.getElementById('assetIncidentStatusFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (type) params.append('incident_type', type);
+        if (status) params.append('status', status);
+
+        const res = await apiFetch(`/assets/incidents?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2.5rem;">Tidak ada laporan insiden aset yang tercatat.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(inc => {
+            const incNum = escapeHtml(inc.incident_number);
+            const assetCode = escapeHtml(inc.asset?.asset_code || '-');
+            const incType = `<span class="badge" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">${escapeHtml(inc.incident_type)}</span>`;
+            const reporter = escapeHtml(inc.employee?.name || inc.reported_by_admin?.name || 'Staf Operasional');
+            const desc = `${escapeHtml(inc.description)}<br><small style="color: var(--text-dim);">${escapeHtml(inc.location || '-')}</small>`;
+            const date = inc.incident_date ? inc.incident_date.substring(0, 10) : '-';
+            const statusBadge = inc.status === 'RESOLVED'
+                ? '<span class="badge badge-success" style="background: rgba(16, 185, 129, 0.2); color: #34d399;">RESOLVED</span>'
+                : '<span class="badge badge-danger" style="background: rgba(239, 68, 68, 0.2); color: #f87171;">REPORTED</span>';
+
+            let actions = '';
+            if (inc.status !== 'RESOLVED') {
+                actions = `<button class="btn-sm btn-primary" onclick="openResolveIncidentModal(${inc.id})">🛡️ Selesaikan</button>`;
+            } else {
+                actions = `<span style="color: var(--text-muted); font-size: 0.8rem;">Resolved</span>`;
+            }
+
+            return `
+                <tr>
+                    <td><span style="font-family: monospace; color: #f87171;">${incNum}</span></td>
+                    <td><strong>${assetCode}</strong></td>
+                    <td>${incType}</td>
+                    <td>${reporter}</td>
+                    <td style="max-width: 250px;">${desc}</td>
+                    <td>${date}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right; white-space: nowrap;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('Failed to load asset incidents', e);
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat insiden aset: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+// Populate Asset Dropdowns (Available assets, active employees, active interns)
+async function populateAssetDropdowns() {
+    try {
+        const res = await apiFetch('/assets?status=AVAILABLE');
+        const asgSelect = document.getElementById('asgAssetSelect');
+        const mntSelect = document.getElementById('mntAssetSelect');
+        const incSelect = document.getElementById('incAssetSelect');
+
+        if (res && res.success && Array.isArray(res.data)) {
+            const opts = res.data.map(a => `<option value="${a.id}">[${escapeHtml(a.asset_code)}] ${escapeHtml(a.asset_name)} (${escapeHtml(a.building_name)})</option>`).join('');
+            if (asgSelect) asgSelect.innerHTML = '<option value="">-- Pilih Aset Tersedia --</option>' + opts;
+        }
+
+        const resAll = await apiFetch('/assets');
+        if (resAll && resAll.success && Array.isArray(resAll.data)) {
+            const allOpts = resAll.data.map(a => `<option value="${a.id}">[${escapeHtml(a.asset_code)}] ${escapeHtml(a.asset_name)} (${escapeHtml(a.status)})</option>`).join('');
+            if (mntSelect) mntSelect.innerHTML = '<option value="">-- Pilih Aset --</option>' + allOpts;
+            if (incSelect) incSelect.innerHTML = '<option value="">-- Pilih Aset --</option>' + allOpts;
+        }
+
+        const empSelect = document.getElementById('asgEmployeeSelect');
+        if (empSelect && state.employees && state.employees.length) {
+            empSelect.innerHTML = '<option value="">-- Tidak Ada / Kosongkan Jika Pemagang --</option>' +
+                state.employees.filter(e => e.employment_status === 'ACTIVE' || e.employment_status === 'PROBATION')
+                    .map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id)})</option>`).join('');
+        }
+
+        const internSelect = document.getElementById('asgInternSelect');
+        if (internSelect) {
+            const intRes = await apiFetch('/internships?status=ACTIVE');
+            if (intRes && intRes.status === 'success' && Array.isArray(intRes.data)) {
+                internSelect.innerHTML = '<option value="">-- Tidak Ada / Kosongkan Jika Karyawan --</option>' +
+                    intRes.data.map(i => `<option value="${i.id}">[${escapeHtml(i.intern_id)}] ${escapeHtml(i.employee?.name || i.institution)}</option>`).join('');
+            }
+        }
+    } catch (e) {
+        console.warn('Could not populate asset dropdowns', e);
+    }
+}
+
+// Form & Modal Submissions
+function openAddAssetModal() {
+    document.getElementById('assetEditId').value = '';
+    document.getElementById('assetModalTitle').innerText = 'Daftarkan Aset Baru';
+    document.getElementById('formAddAsset').reset();
+    document.getElementById('assetFormBuilding').value = 'Kantor Pusat PKP';
+    openModal('modalAddAsset');
+}
+
+async function openEditAssetModal(id) {
+    try {
+        const res = await apiFetch(`/assets/${id}`);
+        if (!res || !res.success) return;
+        const a = res.data;
+
+        document.getElementById('assetEditId').value = a.id;
+        document.getElementById('assetModalTitle').innerText = `Edit Data Aset (${a.asset_code})`;
+        document.getElementById('assetFormName').value = a.asset_name || '';
+        document.getElementById('assetFormCategory').value = a.category_id || '';
+        document.getElementById('assetFormBrand').value = a.brand || '';
+        document.getElementById('assetFormModel').value = a.model || '';
+        document.getElementById('assetFormSerial').value = a.serial_number || '';
+        document.getElementById('assetFormBuilding').value = a.building_name || 'Kantor Pusat PKP';
+        document.getElementById('assetFormLocation').value = a.location || '';
+        document.getElementById('assetFormCondition').value = a.condition || 'GOOD';
+        document.getElementById('assetFormPurchaseDate').value = a.purchase_date ? a.purchase_date.substring(0, 10) : '';
+        document.getElementById('assetFormWarrantyEnd').value = a.warranty_end ? a.warranty_end.substring(0, 10) : '';
+        document.getElementById('assetFormNotes').value = a.notes || '';
+
+        openModal('modalAddAsset');
+    } catch (e) {
+        showToast(e.message, 'error');
+    }
+}
+
+async function submitAssetForm(e) {
+    e.preventDefault();
+    const editId = document.getElementById('assetEditId').value;
+    const isEdit = Boolean(editId);
+
+    const payload = {
+        asset_name: document.getElementById('assetFormName').value,
+        category_id: document.getElementById('assetFormCategory').value || null,
+        brand: document.getElementById('assetFormBrand').value || null,
+        model: document.getElementById('assetFormModel').value || null,
+        serial_number: document.getElementById('assetFormSerial').value || null,
+        building_name: document.getElementById('assetFormBuilding').value || null,
+        location: document.getElementById('assetFormLocation').value || null,
+        condition: document.getElementById('assetFormCondition').value || 'GOOD',
+        purchase_date: document.getElementById('assetFormPurchaseDate').value || null,
+        warranty_end: document.getElementById('assetFormWarrantyEnd').value || null,
+        notes: document.getElementById('assetFormNotes').value || null,
+    };
+
+    try {
+        const url = isEdit ? `/assets/${editId}` : '/assets';
+        const method = isEdit ? 'PUT' : 'POST';
+
+        const res = await apiFetch(url, {
+            method: method,
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast(res.message || 'Data aset berhasil disimpan', 'success');
+            closeModal('modalAddAsset');
+            loadAssetsInventory();
+            loadAssetsMetrics();
+            populateAssetDropdowns();
+        } else {
+            showToast(res?.message || 'Gagal menyimpan aset', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openAssignAssetModal() {
+    document.getElementById('formAssignAsset').reset();
+    populateAssetDropdowns();
+    openModal('modalAssignAsset');
+}
+
+function openAssignSpecificAsset(assetId) {
+    openAssignAssetModal();
+    setTimeout(() => {
+        const sel = document.getElementById('asgAssetSelect');
+        if (sel) sel.value = assetId;
+    }, 200);
+}
+
+async function submitAssignAsset(e) {
+    e.preventDefault();
+    const assetId = document.getElementById('asgAssetSelect').value;
+    if (!assetId) {
+        showToast('Pilih aset terlebih dahulu.', 'warning');
+        return;
+    }
+
+    const payload = {
+        employee_id: document.getElementById('asgEmployeeSelect').value || null,
+        internship_id: document.getElementById('asgInternSelect').value || null,
+        expected_return_date: document.getElementById('asgExpectedReturn').value || null,
+        condition_out: document.getElementById('asgConditionOut').value || 'GOOD',
+        handover_notes: document.getElementById('asgNotes').value || null,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/${assetId}/assign`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Aset berhasil diserahkan kepada pemegang', 'success');
+            closeModal('modalAssignAsset');
+            loadAssetsInventory();
+            loadAssetAssignments();
+            loadAssetsMetrics();
+            populateAssetDropdowns();
+        } else {
+            showToast(res?.message || 'Gagal menyerahkan aset', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openReturnAssetModal(assignmentId) {
+    document.getElementById('retAssignmentId').value = assignmentId;
+    document.getElementById('formReturnAsset').reset();
+    openModal('modalReturnAsset');
+}
+
+async function submitReturnAsset(e) {
+    e.preventDefault();
+    const assignmentId = document.getElementById('retAssignmentId').value;
+
+    const payload = {
+        condition_in: document.getElementById('retConditionIn').value,
+        return_notes: document.getElementById('retNotes').value || null,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/assignments/${assignmentId}/return`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Pengembalian aset berhasil diproses', 'success');
+            closeModal('modalReturnAsset');
+            loadAssetsInventory();
+            loadAssetAssignments();
+            loadAssetsMetrics();
+            populateAssetDropdowns();
+        } else {
+            showToast(res?.message || 'Gagal memproses pengembalian', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openMaintenanceModal() {
+    document.getElementById('formMaintenance').reset();
+    populateAssetDropdowns();
+    openModal('modalMaintenance');
+}
+
+function openMaintenanceSpecificAsset(assetId) {
+    openMaintenanceModal();
+    setTimeout(() => {
+        const sel = document.getElementById('mntAssetSelect');
+        if (sel) sel.value = assetId;
+    }, 200);
+}
+
+async function submitMaintenance(e) {
+    e.preventDefault();
+    const assetId = document.getElementById('mntAssetSelect').value;
+
+    const payload = {
+        maintenance_type: document.getElementById('mntType').value,
+        issue_description: document.getElementById('mntIssue').value,
+        vendor: document.getElementById('mntVendor').value || null,
+        cost: document.getElementById('mntCost').value || 0,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/${assetId}/maintenance`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Tiket servis aset berhasil dibuka', 'success');
+            closeModal('modalMaintenance');
+            loadAssetsInventory();
+            loadAssetMaintenances();
+            loadAssetsMetrics();
+        } else {
+            showToast(res?.message || 'Gagal membuka tiket servis', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openCompleteMaintenanceModal(maintenanceId) {
+    document.getElementById('compMntId').value = maintenanceId;
+    document.getElementById('formCompleteMnt').reset();
+    openModal('modalCompleteMaintenance');
+}
+
+async function submitCompleteMaintenance(e) {
+    e.preventDefault();
+    const maintenanceId = document.getElementById('compMntId').value;
+
+    const payload = {
+        result: document.getElementById('compMntResult').value,
+        condition: document.getElementById('compMntCondition').value,
+        cost: document.getElementById('compMntCost').value || null,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/maintenances/${maintenanceId}/complete`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Tiket servis selesai; aset kembali tersedia di inventaris', 'success');
+            closeModal('modalCompleteMaintenance');
+            loadAssetsInventory();
+            loadAssetMaintenances();
+            loadAssetsMetrics();
+            populateAssetDropdowns();
+        } else {
+            showToast(res?.message || 'Gagal menyelesaikan servis', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openIncidentModal() {
+    document.getElementById('formIncident').reset();
+    document.getElementById('incDate').value = new Date().toISOString().slice(0, 10);
+    populateAssetDropdowns();
+    openModal('modalIncident');
+}
+
+function openIncidentSpecificAsset(assetId) {
+    openIncidentModal();
+    setTimeout(() => {
+        const sel = document.getElementById('incAssetSelect');
+        if (sel) sel.value = assetId;
+    }, 200);
+}
+
+async function submitIncident(e) {
+    e.preventDefault();
+    const assetId = document.getElementById('incAssetSelect').value;
+
+    const payload = {
+        incident_type: document.getElementById('incType').value,
+        description: document.getElementById('incDescription').value,
+        location: document.getElementById('incLocation').value || null,
+        incident_date: document.getElementById('incDate').value || null,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/${assetId}/incident`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Laporan insiden aset berhasil diajukan', 'warning');
+            closeModal('modalIncident');
+            loadAssetsInventory();
+            loadAssetIncidents();
+            loadAssetsMetrics();
+        } else {
+            showToast(res?.message || 'Gagal mengajukan laporan insiden', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openResolveIncidentModal(incidentId) {
+    document.getElementById('resIncId').value = incidentId;
+    document.getElementById('formResolveIncident').reset();
+    openModal('modalResolveIncident');
+}
+
+async function submitResolveIncident(e) {
+    e.preventDefault();
+    const incidentId = document.getElementById('resIncId').value;
+
+    const payload = {
+        resolution: document.getElementById('resIncResolution').value,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/incidents/${incidentId}/resolve`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Insiden aset berhasil diselesaikan', 'success');
+            closeModal('modalResolveIncident');
+            loadAssetIncidents();
+            loadAssetsInventory();
+            loadAssetsMetrics();
+        } else {
+            showToast(res?.message || 'Gagal menyelesaikan insiden', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openDisposeAssetModal(assetId) {
+    document.getElementById('dispAssetId').value = assetId;
+    document.getElementById('formDisposeAsset').reset();
+    openModal('modalDisposeAsset');
+}
+
+async function submitDisposeAsset(e) {
+    e.preventDefault();
+    const assetId = document.getElementById('dispAssetId').value;
+
+    const payload = {
+        disposal_reason: document.getElementById('dispReason').value,
+        disposal_method: document.getElementById('dispMethod').value,
+    };
+
+    try {
+        const res = await apiFetch(`/assets/${assetId}/dispose`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Aset berhasil dihapusbukukan (Disposed)', 'success');
+            closeModal('modalDisposeAsset');
+            loadAssetsInventory();
+            loadAssetsMetrics();
+            populateAssetDropdowns();
+        } else {
+            showToast(res?.message || 'Gagal menghapusbukukan aset', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function showAssetDetail(id) {
+    const titleEl = document.getElementById('detailAssetTitle');
+    const codeEl = document.getElementById('detailAssetCode');
+    const bodyEl = document.getElementById('assetDetailBody');
+
+    bodyEl.innerHTML = '<div class="spinner"></div> Memuat rincian aset...';
+    openModal('modalAssetDetail');
+
+    try {
+        const res = await apiFetch(`/assets/${id}`);
+        if (!res || !res.success) {
+            bodyEl.innerHTML = '<div class="error-td">Aset tidak ditemukan.</div>';
+            return;
+        }
+
+        const a = res.data;
+        titleEl.innerText = a.asset_name;
+        codeEl.innerText = a.asset_code;
+
+        const assignmentsHtml = (a.assignments && a.assignments.length)
+            ? a.assignments.map(asg => {
+                const holder = asg.employee ? asg.employee.name : (asg.internship ? `Intern ${asg.internship.intern_id}` : '-');
+                const period = `${(asg.assigned_at || '').substring(0, 10)} s/d ${asg.actual_return_date ? asg.actual_return_date.substring(0, 10) : 'Saat ini'}`;
+                return `<li><strong>${escapeHtml(asg.assignment_number)}</strong>: ${escapeHtml(holder)} (${period}) [Status: ${asg.status}]</li>`;
+            }).join('')
+            : '<li style="color: var(--text-muted);">Belum pernah dialokasikan.</li>';
+
+        const maintenancesHtml = (a.maintenances && a.maintenances.length)
+            ? a.maintenances.map(m => `<li><strong>${escapeHtml(m.maintenance_number)}</strong>: ${escapeHtml(m.maintenance_type)} - ${escapeHtml(m.issue_description)} [${m.status}]</li>`).join('')
+            : '<li style="color: var(--text-muted);">Belum ada riwayat perbaikan/servis.</li>';
+
+        const incidentsHtml = (a.incidents && a.incidents.length)
+            ? a.incidents.map(inc => `<li><strong>${escapeHtml(inc.incident_number)}</strong>: ${escapeHtml(inc.incident_type)} - ${escapeHtml(inc.description)} [${inc.status}]</li>`).join('')
+            : '<li style="color: var(--text-muted);">Tidak ada catatan insiden.</li>';
+
+        bodyEl.innerHTML = `
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 0.75rem; border: 1px solid var(--border-color);">
+                    <div style="font-weight: 700; color: #ffffff; margin-bottom: 0.5rem;">Spesifikasi Perangkat</div>
+                    <div>Brand / Model: <strong>${escapeHtml(a.brand || '-')} / ${escapeHtml(a.model || '-')}</strong></div>
+                    <div>Nomor Seri (Masked): <code>${escapeHtml(a.masked_serial_number || '-')}</code></div>
+                    <div>Kategori: <strong>${escapeHtml(a.category?.name || '-')}</strong></div>
+                    <div>Kondisi Fisik: <strong>${escapeHtml(a.condition)}</strong></div>
+                    <div>Status Inventaris: <strong>${escapeHtml(a.status)}</strong></div>
+                </div>
+                <div style="background: rgba(15, 23, 42, 0.6); padding: 1rem; border-radius: 0.75rem; border: 1px solid var(--border-color);">
+                    <div style="font-weight: 700; color: #ffffff; margin-bottom: 0.5rem;">Lokasi & Pembelian</div>
+                    <div>Gedung: <strong>${escapeHtml(a.building_name || '-')}</strong></div>
+                    <div>Lokasi Ruangan: <strong>${escapeHtml(a.location || '-')}</strong></div>
+                    <div>Tgl Pembelian: <strong>${(a.purchase_date || '').substring(0, 10) || '-'}</strong></div>
+                    <div>Batas Garansi: <strong>${(a.warranty_end || '').substring(0, 10) || '-'}</strong></div>
+                    <div>Harga Pembelian: <strong>Rp ${Number(a.purchase_price || 0).toLocaleString('id-ID')}</strong></div>
+                </div>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <div style="font-weight: 700; color: #ffffff; margin-bottom: 0.25rem;">Riwayat Penugasan (Assignment History)</div>
+                <ul style="padding-left: 1.25rem; font-size: 0.825rem; color: var(--text-muted);">${assignmentsHtml}</ul>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <div style="font-weight: 700; color: #ffffff; margin-bottom: 0.25rem;">Riwayat Pemeliharaan & Servis</div>
+                <ul style="padding-left: 1.25rem; font-size: 0.825rem; color: var(--text-muted);">${maintenancesHtml}</ul>
+            </div>
+            <div>
+                <div style="font-weight: 700; color: #ffffff; margin-bottom: 0.25rem;">Catatan Insiden (Rusak / Hilang)</div>
+                <ul style="padding-left: 1.25rem; font-size: 0.825rem; color: var(--text-muted);">${incidentsHtml}</ul>
+            </div>
+        `;
+    } catch (e) {
+        bodyEl.innerHTML = `<div class="error-td">Gagal memuat detail aset: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function debounceAssetSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadAssetsInventory, 350);
 }

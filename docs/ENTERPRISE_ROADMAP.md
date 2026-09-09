@@ -11,8 +11,9 @@ Status per 2026-09-09.
 | 4 | Internship | PASS |
 | 5 | Onboarding, contracts, documents | PASS |
 | 6 | Access provisioning, credentials, e-money | PASS |
-| 7 | Assets | IN_PROGRESS |
-| 8-12 | Calendar, attendance, field attendance, requests, overtime | NOT_STARTED |
+| 7 | Assets | PASS |
+| 8 | Work Calendar + Attendance Core | IN_PROGRESS |
+| 9-12 | Field attendance, requests, overtime | NOT_STARTED |
 | 13-18 | Skills, work, projects, approvals, training, performance | NOT_STARTED |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
 | 25-27 | Privacy/RBAC audit, backup readiness, full regression | NOT_STARTED |
@@ -117,4 +118,31 @@ Sprint 6: Access Provisioning, Reusable Access Profiles, Approval Gate with Buil
 - SECRET_HYGIENE: PASS
 - PHYSICAL_DEVICE_E2E: DEFERRED_WITH_EVIDENCE (Physical DOOR-B hardware not reachable from runner; software mock integration PASS)
 
-Next: Sprint 7 Asset Management.
+Sprint 7: Asset Management, Classification (Asset Categories), Assignment & Handover (Employee, Intern, Building Scope), Return Workflow, Preventive Maintenance & Repairs, Incident Tracking (Loss, Damage, Theft), Safe Retirement & Disposal (History Preserved), Employee 360 Asset Section, Onboarding Asset Handoff Coordination, Intern Outstanding Asset Clearance Gate, Masked Serial Numbers, and Enterprise Asset Dashboard.
+- SPRINT_7: PASS
+- ASSET_DOMAIN: PASS
+- ASSET_MASTER: PASS
+- ASSET_CATEGORY: PASS
+- ASSIGNMENT: PASS
+- DUPLICATE_ASSIGNMENT_PREVENTION: PASS
+- HANDOVER: PASS
+- RETURN_WORKFLOW: PASS
+- MAINTENANCE: PASS
+- INCIDENT: PASS
+- RETIREMENT_DISPOSAL: PASS
+- ONBOARDING_INTEGRATION: PASS
+- EMPLOYEE_360_INTEGRATION: PASS
+- INTERN_INTEGRATION: PASS
+- RBAC: PASS
+- BUILDING_SCOPE: PASS
+- IDOR: PASS
+- PRIVACY: PASS
+- AUDIT: PASS
+- UI_UX: PASS
+- TARGETED_TESTS: PASS (16 tests, 78 assertions)
+- FULL_REGRESSION: PASS (140 tests, 737 assertions)
+- MIGRATION_SAFETY: PASS (BEFORE_COUNT == AFTER_COUNT, 100% row preservation across all tables)
+- SECRET_HYGIENE: PASS
+- REPOSITORY_SYNC: PASS
+
+Next: Sprint 8 Work Calendar + Attendance Core.

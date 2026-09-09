@@ -118,4 +118,14 @@ class Internship extends Model
     {
         return $this->hasMany(EmoneyCard::class, 'internship_id');
     }
+
+    public function assetAssignments(): HasMany
+    {
+        return $this->hasMany(AssetAssignment::class, 'internship_id');
+    }
+
+    public function activeAssetAssignments(): HasMany
+    {
+        return $this->hasMany(AssetAssignment::class, 'internship_id')->where('status', 'ACTIVE');
+    }
 }

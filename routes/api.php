@@ -166,6 +166,26 @@ Route::prefix('v1')->group(function () {
             Route::post('/emoney/{id}/status', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'updateEmoneyStatus']);
         });
 
+        // Sprint 7: Enterprise Asset Management
+        Route::prefix('assets')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\AssetController::class, 'metrics']);
+            Route::get('/categories', [\App\Http\Controllers\Api\AssetController::class, 'categories']);
+            Route::get('/', [\App\Http\Controllers\Api\AssetController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\AssetController::class, 'store']);
+            Route::get('/assignments', [\App\Http\Controllers\Api\AssetController::class, 'assignments']);
+            Route::get('/maintenances', [\App\Http\Controllers\Api\AssetController::class, 'maintenances']);
+            Route::get('/incidents', [\App\Http\Controllers\Api\AssetController::class, 'incidents']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\AssetController::class, 'show']);
+            Route::put('/{id}', [\App\Http\Controllers\Api\AssetController::class, 'update']);
+            Route::post('/{id}/assign', [\App\Http\Controllers\Api\AssetController::class, 'assign']);
+            Route::post('/assignments/{id}/return', [\App\Http\Controllers\Api\AssetController::class, 'returnAsset']);
+            Route::post('/{id}/maintenance', [\App\Http\Controllers\Api\AssetController::class, 'openMaintenance']);
+            Route::post('/maintenances/{id}/complete', [\App\Http\Controllers\Api\AssetController::class, 'completeMaintenance']);
+            Route::post('/{id}/incident', [\App\Http\Controllers\Api\AssetController::class, 'reportIncident']);
+            Route::post('/incidents/{id}/resolve', [\App\Http\Controllers\Api\AssetController::class, 'resolveIncident']);
+            Route::post('/{id}/dispose', [\App\Http\Controllers\Api\AssetController::class, 'dispose']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

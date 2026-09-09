@@ -53,6 +53,14 @@ class PortalAccess
                 $perms[] = 'emoney.view';
                 $perms[] = 'emoney.manage';
                 $perms[] = 'device.sync.view';
+                $perms[] = 'asset.view';
+                $perms[] = 'asset.manage';
+                $perms[] = 'asset.assign';
+                $perms[] = 'asset.return';
+                $perms[] = 'asset.maintenance';
+                $perms[] = 'asset.incident';
+                $perms[] = 'asset.dispose';
+                $perms[] = 'asset.report';
             }
             return $perms;
         }
@@ -61,6 +69,7 @@ class PortalAccess
             $perms = ['employee.view','employee.manage','organization.view','device.view','security.view'];
             if (in_array($role, ['hrd', 'management', 'supervisor', 'security', 'building_admin'], true)) {
                 $perms[] = 'access.view';
+                $perms[] = 'asset.view';
             }
             if (in_array($role, ['hrd', 'management', 'supervisor'], true)) {
                 $perms[] = 'recruitment.view';
@@ -73,6 +82,7 @@ class PortalAccess
             if (in_array($role, ['hrd', 'management'], true)) {
                 $perms[] = 'contract.view';
                 $perms[] = 'emoney.view';
+                $perms[] = 'asset.report';
             }
             if (in_array($role, ['hrd', 'security', 'building_admin'], true)) {
                 $perms[] = 'access.approve';
@@ -80,6 +90,14 @@ class PortalAccess
             }
             if (in_array($role, ['hrd', 'security'], true)) {
                 $perms[] = 'credential.view';
+            }
+            if (in_array($role, ['hrd', 'building_admin'], true)) {
+                $perms[] = 'asset.manage';
+                $perms[] = 'asset.assign';
+                $perms[] = 'asset.return';
+                $perms[] = 'asset.maintenance';
+                $perms[] = 'asset.incident';
+                $perms[] = 'asset.dispose';
             }
             if (in_array($role, ['hrd'], true)) {
                 $perms[] = 'recruitment.manage';
@@ -109,6 +127,7 @@ class PortalAccess
                 'access.self',
                 'credential.self',
                 'emoney.self',
+                'asset.self',
             ];
         }
 

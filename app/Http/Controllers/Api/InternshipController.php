@@ -142,7 +142,10 @@ class InternshipController extends Controller
     public function show(int $id): JsonResponse
     {
         $user = Auth::user();
-        $internship = Internship::with(['employee', 'candidate', 'division', 'mentor', 'dailyActivities', 'reports', 'evaluations'])->find($id);
+        $internship = Internship::with([
+            'employee', 'candidate', 'division', 'mentor', 'dailyActivities', 'reports', 'evaluations',
+            'activeAssetAssignments.asset.category'
+        ])->find($id);
 
         if (!$internship) {
             return response()->json(['status' => 'error', 'message' => 'Data magang tidak ditemukan.'], 404);
@@ -194,6 +197,16 @@ class InternshipController extends Controller
 
         if (isset($validated['mentor_id']) && $internship->employee_id && (int) $validated['mentor_id'] === (int) $internship->employee_id) {
             return response()->json(['status' => 'error', 'message' => 'Mentor tidak boleh pemagang yang sama.'], 422);
+        }
+
+        if (isset($validated['status']) && strtoupper((string)$validated['status']) === 'COMPLETED') {
+            $outstandingAssets = app(\App\Services\AssetService::class)->checkOutstandingAssetsForIntern($internship);
+            if ($outstandingAssets > 0) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => "Program magang tidak dapat diselesaikan karena pemagang masih memegang {$outstandingAssets} aset inventaris perusahaan yang belum dikembalikan."
+                ], 422);
+            }
         }
 
         $internship->update($validated);

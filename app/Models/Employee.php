@@ -118,4 +118,19 @@ class Employee extends Model
     {
         return $this->hasMany(EmoneyCard::class);
     }
+
+    public function assetAssignments()
+    {
+        return $this->hasMany(AssetAssignment::class);
+    }
+
+    public function activeAssetAssignments()
+    {
+        return $this->hasMany(AssetAssignment::class)->where('status', 'ACTIVE');
+    }
+
+    public function assetIncidents()
+    {
+        return $this->hasMany(AssetIncident::class);
+    }
 }

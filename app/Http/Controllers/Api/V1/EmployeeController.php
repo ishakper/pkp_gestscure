@@ -55,7 +55,11 @@ class EmployeeController extends Controller
     protected function findEmployeeByIdentifier($id): Employee { return Employee::where('id',$id)->orWhere('employee_id',$id)->firstOrFail(); }
     public function profile360(Request $request, $id)
     {
-        $employee = $this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position','supervisor','directReports','accessLogs','credentials.deviceSyncs.door','accessRequests.accessProfile','emoneyCards']);
+        $employee = $this->findEmployeeByIdentifier($id)->load([
+            'biometricStatus','doors','building','division','position','supervisor','directReports',
+            'accessLogs','credentials.deviceSyncs.door','accessRequests.accessProfile','emoneyCards',
+            'assetAssignments.asset.category','assetIncidents.asset'
+        ]);
         $this->authorize('view', $employee);
 
         $actor = $request->user();
@@ -86,6 +90,38 @@ class EmployeeController extends Controller
             ]);
         }
 
+        $assetsData = [];
+        $assetIncidentsData = [];
+        if (!$isTechOnly && ($actor?->isSuperAdmin() || in_array(strtolower((string)$actor?->role), ['hrd', 'management'], true) || $actor?->id === $employee->id)) {
+            $assetsData = $employee->assetAssignments->map(fn($a) => [
+                'id' => $a->id,
+                'assignment_number' => $a->assignment_number,
+                'asset_code' => $a->asset?->asset_code,
+                'asset_name' => $a->asset?->asset_name,
+                'category' => $a->asset?->category?->name,
+                'brand' => $a->asset?->brand,
+                'model' => $a->asset?->model,
+                'masked_serial_number' => $a->asset?->masked_serial_number,
+                'assigned_at' => $a->assigned_at?->toDateString(),
+                'expected_return_date' => $a->expected_return_date?->toDateString(),
+                'actual_return_date' => $a->actual_return_date?->toDateString(),
+                'status' => $a->status,
+                'condition_out' => $a->condition_out,
+                'condition_in' => $a->condition_in,
+            ]);
+
+            $assetIncidentsData = $employee->assetIncidents->map(fn($inc) => [
+                'id' => $inc->id,
+                'incident_number' => $inc->incident_number,
+                'asset_code' => $inc->asset?->asset_code,
+                'incident_type' => $inc->incident_type,
+                'description' => $inc->description,
+                'incident_date' => $inc->incident_date?->toDateString(),
+                'status' => $inc->status,
+                'resolution' => $inc->resolution,
+            ]);
+        }
+
         return response()->json(['status'=>'success','data'=>[
             'employee'=>new EmployeeResource($employee),
             'overview'=>['employment_status'=>$employee->employment_status,'employment_type'=>$employee->employment_type,'hire_date'=>$employee->hire_date?->toDateString()],
@@ -97,6 +133,8 @@ class EmployeeController extends Controller
             ],
             'credentials'=>$credentialsData,
             'emoney_summary'=>$emoneySummary,
+            'assets'=>$assetsData,
+            'asset_incidents'=>$assetIncidentsData,
             'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]
         ]]);
     }

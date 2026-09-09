@@ -822,8 +822,8 @@
             gap: 0.35rem;
             transition: all 0.15s ease;
         }
-        .btn-unlock:hover { 
-            background: #059669; 
+        .btn-unlock:hover {
+            background: #059669;
             box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
         }
 
@@ -1389,6 +1389,9 @@
         @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Akses & Kredensial" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Akses & Kredensial</span></button></li>
         @endif
+        @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Manajemen Aset & Inventaris" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Manajemen Aset</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -1478,7 +1481,7 @@
 
     <!-- TAB 1: OVERVIEW (UNIFIED DASHBOARD) -->
     <section id="overviewTab" class="tab-content active">
-        
+
         <!-- SECTION 1: 4 CENTRALIZED ACCESS DOORS -->
         <div class="section-header">
             <div>
@@ -1677,7 +1680,7 @@
                         $isError = ($door->connection_status === 'error' || $door->status === 'error');
                         $targetOverride = $isOnline ? 'offline' : 'online';
                         $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
-                        
+
                         $badgeClass = 'badge-offline';
                         $badgeText = 'OFFLINE';
                         $statusText = '🔴 Device Offline';
@@ -2784,6 +2787,249 @@
                     </thead>
                     <tbody id="emoneyTableBody">
                         <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data registri E-Money...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- SECTION 11: ASSET MANAGEMENT (SPRINT 7) -->
+    <section class="tab-content" id="assetsTab">
+        <!-- Header & Action -->
+        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+            <div class="toolbar-left">
+                <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
+                    <span>💻</span> Manajemen Aset & Inventaris Enterprise
+                </h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Pusat siklus hidup perangkat keras, klasifikasi inventaris, serah-terima karyawan & pemagang, pemeliharaan teknis, penanganan insiden, dan penghapusan buku aman.
+                </div>
+            </div>
+            <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadAssetsData(); showToast('Data Manajemen Aset disinkronkan', 'info');">
+                    🔄 Refresh
+                </button>
+                <button class="btn-primary" onclick="openAddAssetModal()">
+                    + Daftarkan Aset Baru
+                </button>
+                <button class="btn-secondary" onclick="openAssignAssetModal()">
+                    + Alokasikan Aset
+                </button>
+                <button class="btn-secondary" onclick="openMaintenanceModal()">
+                    + Buka Servis
+                </button>
+                <button class="btn-secondary" onclick="openIncidentModal()">
+                    + Lapor Insiden
+                </button>
+            </div>
+        </div>
+
+        <!-- 6 KPI Metrics -->
+        <div class="metrics-grid" style="margin-bottom: 2rem; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+            <div class="metric-card">
+                <div class="metric-icon-box icon-blue">📦</div>
+                <div>
+                    <div class="metric-label">Total Aset Aktif</div>
+                    <div class="metric-value" id="metricTotalAssets">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-green">✅</div>
+                <div>
+                    <div class="metric-label">Tersedia (Available)</div>
+                    <div class="metric-value" id="metricAvailableAssets">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-purple">👤</div>
+                <div>
+                    <div class="metric-label">Dialokasikan (Assigned)</div>
+                    <div class="metric-value" id="metricAssignedAssets">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-yellow">🔧</div>
+                <div>
+                    <div class="metric-label">Servis / Perbaikan</div>
+                    <div class="metric-value" id="metricMaintenanceAssets">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">⚠️</div>
+                <div>
+                    <div class="metric-label">Hilang / Rusak</div>
+                    <div class="metric-value" id="metricLostDamagedAssets">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-yellow">🛡️</div>
+                <div>
+                    <div class="metric-label">Garansi Segera Habis</div>
+                    <div class="metric-value" id="metricExpiringWarranties">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sub-Navigation Pills -->
+        <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; overflow-x: auto;">
+            <button class="subnav-btn active" onclick="switchAssetSubTab('inventory', this)">📦 Inventaris Aset</button>
+            <button class="subnav-btn" onclick="switchAssetSubTab('assignments', this)">📋 Penugasan & Handover</button>
+            <button class="subnav-btn" onclick="switchAssetSubTab('maintenances', this)">🔧 Pemeliharaan & Servis</button>
+            <button class="subnav-btn" onclick="switchAssetSubTab('incidents', this)">⚠️ Laporan Insiden</button>
+        </div>
+
+        <!-- SUB-TAB 1: INVENTARIS ASET -->
+        <div id="assetSubInventory" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="assetSearch" placeholder="Cari kode aset / nama / serial..." oninput="debounceAssetSearch()" style="width: 250px;">
+                        <select id="assetCategoryFilter" onchange="loadAssetsInventory()" style="width: 170px;">
+                            <option value="">Semua Kategori</option>
+                        </select>
+                        <select id="assetStatusFilter" onchange="loadAssetsInventory()" style="width: 150px;">
+                            <option value="">Semua Status</option>
+                            <option value="AVAILABLE">AVAILABLE</option>
+                            <option value="ASSIGNED">ASSIGNED</option>
+                            <option value="MAINTENANCE">MAINTENANCE</option>
+                            <option value="REPAIR">REPAIR</option>
+                            <option value="LOST">LOST</option>
+                            <option value="DAMAGED">DAMAGED</option>
+                            <option value="DISPOSED">DISPOSED</option>
+                        </select>
+                        <select id="assetConditionFilter" onchange="loadAssetsInventory()" style="width: 140px;">
+                            <option value="">Semua Kondisi</option>
+                            <option value="NEW">NEW</option>
+                            <option value="GOOD">GOOD</option>
+                            <option value="FAIR">FAIR</option>
+                            <option value="POOR">POOR</option>
+                            <option value="DAMAGED">DAMAGED</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kode Aset</th>
+                            <th>Nama Aset & Kategori</th>
+                            <th>Brand / Model</th>
+                            <th>Nomor Seri (Masked)</th>
+                            <th>Gedung & Lokasi</th>
+                            <th>Kondisi</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat inventaris aset...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 2: PENUGASAN & HANDOVER -->
+        <div id="assetSubAssignments" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <select id="assetAssignmentStatusFilter" onchange="loadAssetAssignments()" style="width: 170px;">
+                            <option value="">Semua Status</option>
+                            <option value="ACTIVE">ACTIVE (Sedang Dipinjam)</option>
+                            <option value="RETURNED">RETURNED (Sudah Kembali)</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Penugasan</th>
+                            <th>Aset Terkait</th>
+                            <th>Penerima (Karyawan / Intern)</th>
+                            <th>Tgl Alokasi</th>
+                            <th>Target Kembali</th>
+                            <th>Kondisi Awal</th>
+                            <th>Kondisi Masuk</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetAssignmentsTableBody">
+                        <tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat daftar penugasan aset...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 3: PEMELIHARAAN & SERVIS -->
+        <div id="assetSubMaintenances" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <select id="assetMaintenanceStatusFilter" onchange="loadAssetMaintenances()" style="width: 170px;">
+                            <option value="">Semua Status Servis</option>
+                            <option value="OPEN">OPEN</option>
+                            <option value="IN_PROGRESS">IN_PROGRESS</option>
+                            <option value="COMPLETED">COMPLETED</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Tiket</th>
+                            <th>Aset Terkait</th>
+                            <th>Tipe Pemeliharaan</th>
+                            <th>Deskripsi Kendala</th>
+                            <th>Vendor / Teknisi</th>
+                            <th>Biaya Servis</th>
+                            <th>Tgl Buka</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetMaintenancesTableBody">
+                        <tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat tiket pemeliharaan aset...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 4: LAPORAN INSIDEN -->
+        <div id="assetSubIncidents" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <select id="assetIncidentTypeFilter" onchange="loadAssetIncidents()" style="width: 170px;">
+                            <option value="">Semua Jenis Insiden</option>
+                            <option value="DAMAGED">DAMAGED (Rusak)</option>
+                            <option value="LOST">LOST (Hilang)</option>
+                            <option value="STOLEN">STOLEN (Dicuri)</option>
+                            <option value="MISSING_ACCESSORY">Aksesoris Hilang</option>
+                            <option value="OTHER">Lain-Lain</option>
+                        </select>
+                        <select id="assetIncidentStatusFilter" onchange="loadAssetIncidents()" style="width: 150px;">
+                            <option value="">Semua Status</option>
+                            <option value="REPORTED">REPORTED</option>
+                            <option value="INVESTIGATING">INVESTIGATING</option>
+                            <option value="RESOLVED">RESOLVED</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Insiden</th>
+                            <th>Aset Terkait</th>
+                            <th>Jenis Insiden</th>
+                            <th>Pelapor / Pemegang</th>
+                            <th>Deskripsi & Lokasi</th>
+                            <th>Tgl Kejadian</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assetIncidentsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat laporan insiden aset...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -4184,6 +4430,352 @@
     </div>
 </div>
 
+<!-- MODAL: TAMBAH / EDIT ASET -->
+<div class="modal-overlay" id="modalAddAsset">
+    <div class="modal-card" style="max-width: 650px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="assetModalTitle">Daftarkan Aset Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddAsset')">✖</button>
+        </div>
+        <form id="formAddAsset" onsubmit="submitAssetForm(event)">
+            <input type="hidden" id="assetEditId">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Nama Aset / Perangkat *</label>
+                    <input type="text" id="assetFormName" placeholder="MacBook Pro 16 M3 Max" required>
+                </div>
+                <div class="form-row">
+                    <label>Kategori Inventaris *</label>
+                    <select id="assetFormCategory" required></select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Brand / Merk</label>
+                    <input type="text" id="assetFormBrand" placeholder="Apple / Lenovo">
+                </div>
+                <div class="form-row">
+                    <label>Model / Tipe</label>
+                    <input type="text" id="assetFormModel" placeholder="T14 Gen 4">
+                </div>
+                <div class="form-row">
+                    <label>Nomor Seri (Serial No)</label>
+                    <input type="text" id="assetFormSerial" placeholder="C02ABC123XYZ">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Gedung Operasional</label>
+                    <input type="text" id="assetFormBuilding" placeholder="Kantor Pusat PKP" value="Kantor Pusat PKP">
+                </div>
+                <div class="form-row">
+                    <label>Lokasi / Ruangan</label>
+                    <input type="text" id="assetFormLocation" placeholder="Lantai 3 - IT Room">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kondisi Aset</label>
+                    <select id="assetFormCondition">
+                        <option value="NEW">NEW (Baru)</option>
+                        <option value="GOOD" selected>GOOD (Bagus / Siap Pakai)</option>
+                        <option value="FAIR">FAIR (Cukup Baik)</option>
+                        <option value="POOR">POOR (Butuh Perbaikan)</option>
+                        <option value="DAMAGED">DAMAGED (Rusak)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Tgl Pembelian</label>
+                    <input type="date" id="assetFormPurchaseDate">
+                </div>
+                <div class="form-row">
+                    <label>Batas Garansi (Warranty End)</label>
+                    <input type="date" id="assetFormWarrantyEnd">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Catatan Inventaris</label>
+                <textarea id="assetFormNotes" rows="2" placeholder="Informasi kelengkapan, garansi distributor, aset dinas..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddAsset')">Batal</button>
+                <button type="submit" class="btn-primary" id="btnSubmitAsset">Simpan Aset</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: ALOKASI / HANDOVER ASET -->
+<div class="modal-overlay" id="modalAssignAsset">
+    <div class="modal-card" style="max-width: 580px;">
+        <div class="modal-header">
+            <h3 class="modal-title">📋 Alokasi & Penyerahan Aset (Handover)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAssignAsset')">✖</button>
+        </div>
+        <form id="formAssignAsset" onsubmit="submitAssignAsset(event)">
+            <div class="form-row">
+                <label>Pilih Aset Tersedia *</label>
+                <select id="asgAssetSelect" required></select>
+            </div>
+            <div class="form-row">
+                <label>Penerima Aset (Karyawan Aktif)</label>
+                <select id="asgEmployeeSelect"></select>
+            </div>
+            <div class="form-row">
+                <label>Atau Pemagang (Intern Aktif)</label>
+                <select id="asgInternSelect"></select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Target Tanggal Pengembalian</label>
+                    <input type="date" id="asgExpectedReturn">
+                </div>
+                <div class="form-row">
+                    <label>Kondisi Saat Keluar</label>
+                    <select id="asgConditionOut">
+                        <option value="NEW">NEW (Baru)</option>
+                        <option value="GOOD" selected>GOOD (Baik)</option>
+                        <option value="FAIR">FAIR (Cukup)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Catatan Serah Terima (Handover Notes)</label>
+                <textarea id="asgNotes" rows="2" placeholder="Kelengkapan adaptor charger, tas ransel, mouse, kartu akses dinas..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAssignAsset')">Batal</button>
+                <button type="submit" class="btn-primary">Konfirmasi Penyerahan Aset</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: PENGEMBALIAN ASET (RETURN) -->
+<div class="modal-overlay" id="modalReturnAsset">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🔄 Pengembalian Aset (Asset Return)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalReturnAsset')">✖</button>
+        </div>
+        <form id="formReturnAsset" onsubmit="submitReturnAsset(event)">
+            <input type="hidden" id="retAssignmentId">
+            <div class="form-row">
+                <label>Kondisi Aset Saat Dikembalikan *</label>
+                <select id="retConditionIn" required>
+                    <option value="GOOD" selected>GOOD (Normal / Bagus)</option>
+                    <option value="FAIR">FAIR (Ada baret wajar / pemakaian)</option>
+                    <option value="POOR">POOR (Perlu pembersihan / servis)</option>
+                    <option value="DAMAGED">DAMAGED (Rusak / Butuh perbaikan teknis)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Catatan Pemeriksaan Pengembalian</label>
+                <textarea id="retNotes" rows="3" placeholder="Kelengkapan charger, kondisi fisik, layar, keyboard..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalReturnAsset')">Batal</button>
+                <button type="submit" class="btn-primary">Proses Pengembalian</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: BUKA PEMELIHARAAN / SERVIS -->
+<div class="modal-overlay" id="modalMaintenance">
+    <div class="modal-card" style="max-width: 550px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🔧 Buka Tiket Pemeliharaan / Perbaikan</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalMaintenance')">✖</button>
+        </div>
+        <form id="formMaintenance" onsubmit="submitMaintenance(event)">
+            <div class="form-row">
+                <label>Pilih Aset *</label>
+                <select id="mntAssetSelect" required></select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tipe Pemeliharaan *</label>
+                    <select id="mntType" required>
+                        <option value="PREVENTIVE">PREVENTIVE (Rutin / Berkala)</option>
+                        <option value="REPAIR">REPAIR (Perbaikan Kerusakan)</option>
+                        <option value="INSPECTION">INSPECTION (Pemeriksaan Teknis)</option>
+                        <option value="WARRANTY">WARRANTY (Klaim Garansi Vendor)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Estimasi Biaya (IDR)</label>
+                    <input type="number" id="mntCost" placeholder="0" min="0">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Vendor / Bengkel / Teknisi Servis</label>
+                <input type="text" id="mntVendor" placeholder="Contoh: Service Center Resmi Lenovo">
+            </div>
+            <div class="form-row">
+                <label>Deskripsi Kendala & Rencana Servis *</label>
+                <textarea id="mntIssue" rows="3" placeholder="Keyboard tidak merespons, baterai drop, instalasi firmware..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalMaintenance')">Batal</button>
+                <button type="submit" class="btn-primary">Buka Tiket Servis</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: SELESAIKAN PEMELIHARAAN -->
+<div class="modal-overlay" id="modalCompleteMaintenance">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">✅ Selesaikan Tiket Servis</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalCompleteMaintenance')">✖</button>
+        </div>
+        <form id="formCompleteMnt" onsubmit="submitCompleteMaintenance(event)">
+            <input type="hidden" id="compMntId">
+            <div class="form-row">
+                <label>Hasil Perbaikan / Tindakan *</label>
+                <textarea id="compMntResult" rows="3" placeholder="Penggantian suku cadang selesai, perangkat berfungsi normal..." required></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kondisi Aset Akhir</label>
+                    <select id="compMntCondition">
+                        <option value="GOOD" selected>GOOD (Siap Pakai)</option>
+                        <option value="NEW">NEW (Seperti Baru)</option>
+                        <option value="FAIR">FAIR (Cukup)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Biaya Akhir (IDR)</label>
+                    <input type="number" id="compMntCost" placeholder="0" min="0">
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalCompleteMaintenance')">Batal</button>
+                <button type="submit" class="btn-primary">Selesaikan & Kembalikan ke Inventaris</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: LAPOR INSIDEN ASET -->
+<div class="modal-overlay" id="modalIncident">
+    <div class="modal-card" style="max-width: 550px;">
+        <div class="modal-header">
+            <h3 class="modal-title">⚠️ Laporkan Insiden Aset</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalIncident')">✖</button>
+        </div>
+        <form id="formIncident" onsubmit="submitIncident(event)">
+            <div class="form-row">
+                <label>Pilih Aset Terkait *</label>
+                <select id="incAssetSelect" required></select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Jenis Insiden *</label>
+                    <select id="incType" required>
+                        <option value="DAMAGED">DAMAGED (Rusak Fisik/Jatuh)</option>
+                        <option value="LOST">LOST (Hilang / Tertinggal)</option>
+                        <option value="STOLEN">STOLEN (Dicuri / Kehilangan)</option>
+                        <option value="MISSING_ACCESSORY">MISSING_ACCESSORY (Aksesoris Hilang)</option>
+                        <option value="OTHER">OTHER (Lain-Lain)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Tanggal Insiden</label>
+                    <input type="date" id="incDate">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Lokasi Kejadian</label>
+                <input type="text" id="incLocation" placeholder="Contoh: Kantor Cabang, Kendaraan Operasional, Lokasi Proyek">
+            </div>
+            <div class="form-row">
+                <label>Kronologi / Deskripsi Kejadian *</label>
+                <textarea id="incDescription" rows="3" placeholder="Jelaskan secara rinci kronologi kejadian insiden..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalIncident')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Kirim Laporan Insiden</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: SELESAIKAN INSIDEN ASET -->
+<div class="modal-overlay" id="modalResolveIncident">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🛡️ Selesaikan Laporan Insiden</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalResolveIncident')">✖</button>
+        </div>
+        <form id="formResolveIncident" onsubmit="submitResolveIncident(event)">
+            <input type="hidden" id="resIncId">
+            <div class="form-row">
+                <label>Tindakan Penyelesaian / Resolusi *</label>
+                <textarea id="resIncResolution" rows="3" placeholder="Klaim asuransi selesai / surat kehilangan polisi telah dibuat / penggantian unit disetujui..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalResolveIncident')">Batal</button>
+                <button type="submit" class="btn-primary">Tandai Selesai (Resolved)</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: HAPUS BUKU / DISPOSAL ASET -->
+<div class="modal-overlay" id="modalDisposeAsset">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Penghapusan Buku Aset (Disposal)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalDisposeAsset')">✖</button>
+        </div>
+        <form id="formDisposeAsset" onsubmit="submitDisposeAsset(event)">
+            <input type="hidden" id="dispAssetId">
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; color: #f87171;">
+                ⚠️ <strong>Perhatian:</strong> Tindakan ini menandai aset sebagai DISPOSED. Riwayat penugasan, pemeliharaan, dan audit tetap tersimpan permanen di sistem.
+            </div>
+            <div class="form-row">
+                <label>Metode Penghapusan *</label>
+                <select id="dispMethod" required>
+                    <option value="SCRAP">SCRAP (Dihancurkan / Daur Ulang)</option>
+                    <option value="SOLD">SOLD (Dijual sebagai Bekas)</option>
+                    <option value="DONATED">DONATED (Dihibahkan / Donasi)</option>
+                    <option value="WRITTEN_OFF">WRITTEN_OFF (Habis Masa Manfaat)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Alasan Penghapusan Buku *</label>
+                <textarea id="dispReason" rows="3" placeholder="Perangkat usang / rusak total tidak ekonomis untuk diperbaiki..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalDisposeAsset')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Konfirmasi Penghapusan Buku</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: ASSET DETAIL / 360 -->
+<div class="modal-overlay" id="modalAssetDetail">
+    <div class="modal-card" style="max-width: 750px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="detailAssetTitle">Detail Aset Enterprise</h3>
+                <div style="font-size: 0.8rem; color: var(--primary); font-weight: 600;" id="detailAssetCode">AST-CODE</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('modalAssetDetail')">✖</button>
+        </div>
+        <div id="assetDetailBody" style="font-size: 0.85rem; color: var(--text-main);">
+            <div class="spinner"></div> Memuat rincian aset...
+        </div>
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+            <button type="button" class="btn-secondary" onclick="closeModal('modalAssetDetail')">Tutup</button>
+        </div>
+    </div>
+</div>
+
 <!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
@@ -4218,11 +4810,11 @@ async function remoteUnlockDoor(doorId, btn) {
         btn.innerHTML = '⏳ Membuka...';
     }
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') 
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
         || '{{ csrf_token() }}';
-    const appToken = window.APP_CONFIG?.apiToken 
-        || sessionStorage.getItem('api_token') 
-        || localStorage.getItem('api_token') 
+    const appToken = window.APP_CONFIG?.apiToken
+        || sessionStorage.getItem('api_token')
+        || localStorage.getItem('api_token')
         || '';
 
     const headers = {
