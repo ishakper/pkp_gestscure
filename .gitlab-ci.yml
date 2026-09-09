@@ -2,7 +2,7 @@
 # GitLab CI/CD Pipeline - PKP SecureGate
 # ==============================================================================
 # Pipeline Architecture:
-#   validate -> test -> security -> build -> deploy -> verify
+#   .pre -> validate -> test -> security -> build -> deploy -> verify
 #
 # Quality Gate Rule:
 #   Deployment is strictly prohibited until validate, test, security, and build
@@ -10,6 +10,7 @@
 # ==============================================================================
 
 stages:
+  - .pre
   - validate
   - test
   - security
@@ -21,8 +22,25 @@ variables:
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: ""
   IMAGE_TAG: $CI_COMMIT_SHA
-  # Default runner tag as configured in PKP infrastructure
   RUNNER_TAG: Sandbox
+
+# ------------------------------------------------------------------------------
+# Stage 0: Workspace Permission Fix (Essential for Shell Executor Runners)
+# ------------------------------------------------------------------------------
+fix_runner_workspace:
+  stage: .pre
+  tags:
+    - Sandbox
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - echo "Recovering workspace permissions from any prior root-owned Docker mounts..."
+    - id
+    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
+    - chmod -R u+rwX . 2>/dev/null || true
+    - echo "Workspace permissions successfully restored."
 
 # ------------------------------------------------------------------------------
 # Stage 1: Validation
@@ -36,7 +54,12 @@ validate_composer:
     - if: $CI_COMMIT_BRANCH
   script:
     - echo "Validating composer configuration and lockfile..."
-    - composer validate --strict --no-check-publish
+    - |
+      if command -v composer >/dev/null 2>&1; then
+        composer validate --strict --no-check-publish
+      else
+        docker run --rm -v "$(pwd):/app" -w /app composer:2 composer validate --strict --no-check-publish
+      fi
 
 validate_syntax:
   stage: validate
@@ -47,7 +70,12 @@ validate_syntax:
     - if: $CI_COMMIT_BRANCH
   script:
     - echo "Checking PHP syntax across application source..."
-    - find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true
+    - |
+      if command -v php >/dev/null 2>&1; then
+        find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true
+      else
+        docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true'
+      fi
 
 # ------------------------------------------------------------------------------
 # Stage 2: Automated Quality Test Suite
@@ -63,16 +91,18 @@ test_suite:
     key: composer-${CI_COMMIT_REF_SLUG}
     paths:
       - vendor/
-  before_script:
-    - apk add --no-cache git unzip libzip-dev sqlite-dev oniguruma-dev curl
-    - docker-php-ext-install zip pdo_sqlite mbstring bcmath
-    - curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
   script:
-    - cp .env.example .env
-    - composer install --no-interaction --prefer-dist --optimize-autoloader
-    - php artisan key:generate --force
     - echo "Executing full automated feature & regression test suite..."
-    - php artisan test --colors=never
+    - |
+      if command -v php >/dev/null 2>&1 && command -v composer >/dev/null 2>&1; then
+        cp -n .env.example .env || true
+        composer install --no-interaction --prefer-dist --optimize-autoloader
+        php artisan key:generate --force
+        php artisan test --colors=never
+      else
+        docker compose run --rm -e APP_ENV=testing app php artisan test --colors=never
+        docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
+      fi
   artifacts:
     when: on_failure
     expire_in: 3 days
@@ -89,8 +119,6 @@ security_hygiene:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
-  before_script:
-    - apk add --no-cache git grep
   script:
     - echo "Checking that .env is NOT tracked in Git..."
     - test -z "$(git ls-files .env)"
@@ -144,6 +172,7 @@ deploy_production:
     - chmod -R 777 storage bootstrap/cache database
     - docker compose up -d --force-recreate app
     - docker compose ps
+    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # Stage 6: Post-Deployment Verification
