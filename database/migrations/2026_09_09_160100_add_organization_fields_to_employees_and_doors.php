@@ -8,28 +8,23 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration {
     public function up(): void
     {
-        Schema::table('employees', function (Blueprint $table) {
-            $table->foreignId('building_id')->nullable()->after('id')->constrained()->nullOnDelete();
-            $table->foreignId('division_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
-            $table->foreignId('position_id')->nullable()->after('division_id')->constrained()->nullOnDelete();
-            $table->string('email')->nullable()->unique()->after('name');
-            $table->string('phone')->nullable()->after('email');
-            $table->string('photo_path')->nullable()->after('phone');
-            $table->string('employment_type')->nullable()->after('department');
-            $table->string('employment_status')->default('ACTIVE')->after('employment_type');
-            $table->date('hire_date')->nullable()->after('employment_status');
-            $table->string('hikvision_employee_no')->nullable()->unique()->after('employee_id');
-        });
+        // SQLite can retain columns from a failed ALTER TABLE. Each field is guarded so
+        // a restart safely resumes this additive migration without altering old records.
+        $addEmployee = function (string $column, \Closure $definition): void { if (!Schema::hasColumn('employees', $column)) Schema::table('employees', $definition); };
+        $addEmployee('building_id', fn (Blueprint $t) => $t->foreignId('building_id')->nullable()->constrained()->nullOnDelete());
+        $addEmployee('division_id', fn (Blueprint $t) => $t->foreignId('division_id')->nullable()->constrained()->nullOnDelete());
+        $addEmployee('position_id', fn (Blueprint $t) => $t->foreignId('position_id')->nullable()->constrained()->nullOnDelete());
+        $addEmployee('email', fn (Blueprint $t) => $t->string('email')->nullable()->unique());
+        $addEmployee('phone', fn (Blueprint $t) => $t->string('phone')->nullable());
+        $addEmployee('photo_path', fn (Blueprint $t) => $t->string('photo_path')->nullable());
+        $addEmployee('employment_type', fn (Blueprint $t) => $t->string('employment_type')->nullable());
+        $addEmployee('employment_status', fn (Blueprint $t) => $t->string('employment_status')->default('ACTIVE'));
+        $addEmployee('hire_date', fn (Blueprint $t) => $t->date('hire_date')->nullable());
+        $addEmployee('hikvision_employee_no', fn (Blueprint $t) => $t->string('hikvision_employee_no')->nullable()->unique());
         DB::table('employees')->whereNull('hikvision_employee_no')->update(['hikvision_employee_no' => DB::raw('employee_id')]);
-        Schema::table('doors', function (Blueprint $table) {
-            $table->foreignId('building_id')->nullable()->after('location')->constrained()->nullOnDelete();
-            $table->foreignId('zone_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
-        });
+        $addDoor = function (string $column, \Closure $definition): void { if (!Schema::hasColumn('doors', $column)) Schema::table('doors', $definition); };
+        $addDoor('building_id', fn (Blueprint $t) => $t->foreignId('building_id')->nullable()->constrained()->nullOnDelete());
+        $addDoor('zone_id', fn (Blueprint $t) => $t->foreignId('zone_id')->nullable()->constrained()->nullOnDelete());
     }
-    public function down(): void
-    {
-        DB::table('employees')->whereNull('hikvision_employee_no')->update(['hikvision_employee_no' => DB::raw('employee_id')]);
-        Schema::table('doors', function (Blueprint $table) { $table->dropConstrainedForeignId('zone_id'); $table->dropConstrainedForeignId('building_id'); });
-        Schema::table('employees', function (Blueprint $table) { $table->dropUnique(['email']); $table->dropUnique(['hikvision_employee_no']); $table->dropColumn(['email','phone','photo_path','employment_type','employment_status','hire_date','hikvision_employee_no']); $table->dropConstrainedForeignId('position_id'); $table->dropConstrainedForeignId('division_id'); $table->dropConstrainedForeignId('building_id'); });
-    }
+    public function down(): void { /* Additive production migration: rollback is intentionally not automated. */ }
 };
