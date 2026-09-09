@@ -19,6 +19,5 @@ Status per 2026-09-09.
 
 Sprint 1 maps legacy `super_admin` to ADMIN_PORTAL and `building_admin` to MANAGEMENT_PORTAL while preserving building scope. Future employee/intern identities require a first-class authenticated employee account before self-service access is enabled.
 
-Sprint 1 validation: portal mapping and legacy building scope regression passed (77 tests, 383 assertions). Commit SHA is recorded after synchronization.
+Sprint 1 validation: portal mapping and legacy building scope regression passed (77 tests, 383 assertions). Commit SHA: `30c210082547ee705eca0c2abfa5fb62f5336622`.
 Next: Sprint 3 Recruitment / ATS.
-
