@@ -93,12 +93,27 @@ security:hygiene:
     - apk add --no-cache git grep
   script:
     - echo "Checking that .env is NOT tracked in Git..."
-    - "! git ls-files --error-unmatch .env 2>/dev/null"
+    - |
+      if git ls-files --error-unmatch .env 2>/dev/null; then
+        echo "ERROR: .env file is tracked in Git!"
+        exit 1
+      fi
     - echo "Checking that no temporary debug/auth scripts are tracked..."
-    - "! git ls-files 'run_auth.php' 'public/run_auth.php' 'scratch/*' 'raw_*.php'"
+    - |
+      if [ -n "$(git ls-files 'run_auth.php' 'public/run_auth.php' 'scratch/*' 'raw_*.php')" ]; then
+        echo "ERROR: temporary debug scripts tracked in Git!"
+        exit 1
+      fi
     - echo "Verifying docker-compose.yml has no committed secret defaults..."
-    - "! grep -E 'APP_KEY=\\$\{APP_KEY:-base64:' docker-compose.yml"
-    - "! grep -E 'HIKVISION_ISAPI_PASSWORD=Hikvision@' docker-compose.yml"
+    - |
+      if grep -F 'APP_KEY=${APP_KEY:-base64:' docker-compose.yml; then
+        echo "ERROR: hardcoded APP_KEY default found in docker-compose.yml"
+        exit 1
+      fi
+      if grep -F 'HIKVISION_ISAPI_PASSWORD=Hikvision@' docker-compose.yml; then
+        echo "ERROR: hardcoded Hikvision password found in docker-compose.yml"
+        exit 1
+      fi
     - echo "Security hygiene checks passed cleanly."
 
 # ------------------------------------------------------------------------------
@@ -159,7 +174,7 @@ deploy:production:
 # Stage 6: Post-Deployment Verification
 # ------------------------------------------------------------------------------
 verify:healthcheck:
-  stage: deploy
+  stage: verify
   image: curlimages/curl:latest
   tags:
     - Sandbox
