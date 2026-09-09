@@ -6,6 +6,7 @@ use App\Models\AccessLog;
 use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
 
 class IsapiWebhookTest extends TestCase
@@ -45,6 +46,8 @@ class IsapiWebhookTest extends TestCase
      */
     public function test_case_a_valid_tap_granted(): void
     {
+        Log::spy();
+
         $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
                 'door_id' => 'DOOR-A',
@@ -70,6 +73,15 @@ class IsapiWebhookTest extends TestCase
             'verify_method' => 'Fingerprint',
             'access_status' => 'Granted',
         ]);
+
+        Log::shouldHaveReceived('info')
+            ->with('[ISAPI Webhook] Access event recorded', \Mockery::on(function (array $context) {
+                return $context['door_id'] === 'DOOR-A'
+                    && $context['access_status'] === 'Granted'
+                    && !array_key_exists('card_number', $context)
+                    && !array_key_exists('authorization', $context);
+            }))
+            ->once();
     }
 
     /**

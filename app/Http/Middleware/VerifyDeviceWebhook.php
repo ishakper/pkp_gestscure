@@ -32,10 +32,12 @@ class VerifyDeviceWebhook
             $dbDoorIps = [];
         }
 
-        // Environment-configured IPs
-        $envIps = env('ALLOWED_DEVICE_IPS') ? array_map('trim', explode(',', env('ALLOWED_DEVICE_IPS'))) : [];
+        $configuredAllowedIps = array_filter(array_map(
+            'trim',
+            explode(',', (string) config('services.hikvision.allowed_device_ips', ''))
+        ));
 
-        $allowedIps = array_unique(array_merge($defaultAllowedIps, $dbDoorIps, $envIps));
+        $allowedIps = array_unique(array_merge($defaultAllowedIps, $dbDoorIps, $configuredAllowedIps));
         $clientIp = $request->ip();
         $isTrustedProxy = str_starts_with($clientIp, '172.') || str_starts_with($clientIp, '10.') || $clientIp === '127.0.0.1';
 

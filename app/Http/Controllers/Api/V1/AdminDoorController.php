@@ -4,13 +4,39 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\DoorResource;
+use App\Models\AccessLog;
 use App\Models\ActivityLog;
 use App\Models\Door;
+use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use Illuminate\Http\Request;
 
 class AdminDoorController extends Controller
 {
+    public function metrics(Request $request)
+    {
+        $admin = $request->user();
+        $doors = Door::query();
+
+        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
+            $doors->where('location', $admin->assigned_building);
+        }
+
+        $scopedDoors = $doors->get();
+        $doorIds = $scopedDoors->pluck('id');
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'totalUsers' => Employee::count(),
+                'activeDoors' => $scopedDoors->where('connection_status', 'online')->count(),
+                'totalDoors' => $scopedDoors->count(),
+                'grantedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Granted')->count(),
+                'deniedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Denied')->count(),
+            ],
+        ]);
+    }
+
     public function index(Request $request)
     {
         $admin = $request->user();

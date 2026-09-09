@@ -7,6 +7,7 @@ use App\Models\AccessLog;
 use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 class IsapiWebhookController extends Controller
@@ -227,6 +228,18 @@ class IsapiWebhookController extends Controller
             'reason' => $reason,
             'timestamp' => $eventTimestamp ? date('Y-m-d H:i:s', strtotime($eventTimestamp)) : now(),
             'device_serial' => $serialNo,
+        ]);
+
+        Log::info('[ISAPI Webhook] Access event recorded', [
+            'log_id' => $accessLog->log_id,
+            'door_id' => $door->door_id,
+            'device_ip' => $deviceIp,
+            'event_type' => $eventType,
+            'access_status' => $accessLog->access_status,
+            'verify_method' => $verifyMethod,
+            'employee_id' => $employee?->employee_id,
+            'device_serial' => $serialNo,
+            'source_format' => $parsedEvent['source_format'] ?? 'REQUEST',
         ]);
 
         return response()->json([
