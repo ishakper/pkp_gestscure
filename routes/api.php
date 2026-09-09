@@ -72,6 +72,25 @@ Route::prefix('v1')->group(function () {
             Route::post('/door-assignments/sync', [DoorSyncController::class, 'sync']);
         });
 
+        // Recruitment & ATS Pillar
+        Route::prefix('recruitment')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\RecruitmentController::class, 'metrics']);
+            Route::get('/vacancies', [\App\Http\Controllers\Api\RecruitmentController::class, 'vacancies']);
+            Route::post('/vacancies', [\App\Http\Controllers\Api\RecruitmentController::class, 'storeVacancy']);
+            Route::get('/vacancies/{id}', [\App\Http\Controllers\Api\RecruitmentController::class, 'showVacancy']);
+            Route::put('/vacancies/{id}', [\App\Http\Controllers\Api\RecruitmentController::class, 'updateVacancy']);
+            Route::get('/candidates', [\App\Http\Controllers\Api\RecruitmentController::class, 'candidates']);
+            Route::post('/candidates', [\App\Http\Controllers\Api\RecruitmentController::class, 'storeCandidate']);
+            Route::get('/candidates/{id}', [\App\Http\Controllers\Api\RecruitmentController::class, 'showCandidate']);
+            Route::get('/applications', [\App\Http\Controllers\Api\RecruitmentController::class, 'applications']);
+            Route::post('/applications', [\App\Http\Controllers\Api\RecruitmentController::class, 'apply']);
+            Route::post('/applications/{id}/stage', [\App\Http\Controllers\Api\RecruitmentController::class, 'transitionStage']);
+            Route::post('/applications/{id}/interview', [\App\Http\Controllers\Api\RecruitmentController::class, 'scheduleInterview']);
+            Route::put('/interviews/{id}/feedback', [\App\Http\Controllers\Api\RecruitmentController::class, 'submitFeedback']);
+            Route::post('/applications/{id}/offer', [\App\Http\Controllers\Api\RecruitmentController::class, 'createOffer']);
+            Route::post('/applications/{id}/convert-to-employee', [\App\Http\Controllers\Api\RecruitmentController::class, 'convertToEmployee']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

@@ -23,9 +23,29 @@ class PortalAccess
 
     public function permissionsFor(Admin $admin): array
     {
+        $role = strtolower((string) $admin->role);
         $portal = $this->portalFor($admin);
-        if ($portal === self::ADMIN_PORTAL) return ['system.view','system.manage','device.view','device.manage','security.view','security.manage','employee.view','employee.manage','organization.view','organization.manage','audit.view'];
-        if ($portal === self::MANAGEMENT_PORTAL) return ['employee.view','employee.manage','organization.view','device.view','security.view'];
+
+        if ($portal === self::ADMIN_PORTAL) {
+            $perms = ['system.view','system.manage','device.view','device.manage','security.view','security.manage','employee.view','employee.manage','organization.view','organization.manage','audit.view'];
+            if ($admin->isSuperAdmin()) {
+                $perms[] = 'recruitment.view';
+                $perms[] = 'recruitment.manage';
+            }
+            return $perms;
+        }
+
+        if ($portal === self::MANAGEMENT_PORTAL) {
+            $perms = ['employee.view','employee.manage','organization.view','device.view','security.view'];
+            if (in_array($role, ['hrd', 'management', 'supervisor'], true)) {
+                $perms[] = 'recruitment.view';
+            }
+            if (in_array($role, ['hrd'], true)) {
+                $perms[] = 'recruitment.manage';
+            }
+            return $perms;
+        }
+
         return [];
     }
 

@@ -862,6 +862,58 @@
         }
         .btn-delete:hover { background: rgba(239, 68, 68, 0.25); }
 
+        /* ATS Specific Styling */
+        .ats-nav-pills {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.85rem;
+            flex-wrap: wrap;
+        }
+        .ats-nav-pill {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-muted);
+            padding: 0.5rem 1.1rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .ats-nav-pill:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: #ffffff;
+        }
+        .ats-nav-pill.active {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: var(--primary);
+            color: var(--primary);
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+        }
+        .ats-sub-content { display: none; }
+        .ats-sub-content.active { display: block; animation: fadeIn 0.25s ease-out; }
+        .stage-badge {
+            display: inline-block;
+            padding: 0.25rem 0.6rem;
+            border-radius: 0.4rem;
+            font-size: 0.725rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+        .stage-APPLIED { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+        .stage-SCREENING { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+        .stage-HR_INTERVIEW { background: rgba(99, 102, 241, 0.15); color: #a5b4fc; }
+        .stage-TECHNICAL_TEST { background: rgba(245, 158, 11, 0.15); color: #fcd34d; }
+        .stage-USER_INTERVIEW { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+        .stage-MANAGEMENT_REVIEW { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .stage-OFFER { background: rgba(20, 184, 166, 0.15); color: #2dd4bf; }
+        .stage-ACCEPTED { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .stage-REJECTED { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .stage-TALENT_POOL { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+
         /* Tables & Data Containers */
         .table-container {
             background: var(--card-bg);
@@ -1324,6 +1376,9 @@
         @endif
         @if(in_array('employee.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">{{ ($portal ?? '') === 'MANAGEMENT_PORTAL' ? 'People & Organization' : 'Hak Akses Karyawan' }}</span></button></li>
+        @endif
+        @if(in_array('recruitment.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Recruitment & ATS" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment / ATS</span></button></li>
         @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
@@ -1847,6 +1902,227 @@
     </section>
     @endif
 
+    <!-- TAB: RECRUITMENT & ATS -->
+    <section id="recruitmentTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">🎯 Recruitment & Applicant Tracking System (ATS)</h2>
+                <div class="section-desc">Pusat tata kelola rekrutmen PKP SecureGate: kelola lowongan, pipeline pelamar, interview, offering, dan konversi ke master karyawan.</div>
+            </div>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadRecruitmentData(); showToast('Memperbarui data rekrutmen...', 'info');">
+                    🔄 Refresh Data
+                </button>
+                <button class="btn-primary" onclick="openAddVacancyModal()">
+                    + Buat Lowongan
+                </button>
+                <button class="btn-action" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid rgba(99, 102, 241, 0.4);" onclick="openAddCandidateModal()">
+                    + Daftar Kandidat
+                </button>
+            </div>
+        </div>
+
+        <!-- ATS Metrics Grid -->
+        <div class="metrics-grid" style="margin-bottom: 2rem;">
+            <div class="metric-card">
+                <div class="metric-icon-box icon-blue">📋</div>
+                <div>
+                    <div class="metric-label">Lowongan Terbuka</div>
+                    <div class="metric-value" id="atsMetricVacancies">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-indigo">👤</div>
+                <div>
+                    <div class="metric-label">Total Kandidat</div>
+                    <div class="metric-value" id="atsMetricCandidates">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">⏳</div>
+                <div>
+                    <div class="metric-label">Pelamar Aktif</div>
+                    <div class="metric-value" id="atsMetricApplications">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-green">✓</div>
+                <div>
+                    <div class="metric-label">Karyawan Lolos / Hired</div>
+                    <div class="metric-value" id="atsMetricHired">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ATS Sub-Navigation Pills -->
+        <div class="ats-nav-pills">
+            <button class="ats-nav-pill active" id="pillPipeline" onclick="switchAtsPill('pipeline', this)">
+                📊 Pipeline Lamaran
+            </button>
+            <button class="ats-nav-pill" id="pillVacancies" onclick="switchAtsPill('vacancies', this)">
+                💼 Lowongan Pekerjaan
+            </button>
+            <button class="ats-nav-pill" id="pillCandidates" onclick="switchAtsPill('candidates', this)">
+                👥 Talent Pool Kandidat
+            </button>
+            <button class="ats-nav-pill" id="pillInterviews" onclick="switchAtsPill('interviews', this)">
+                📅 Jadwal Interview
+            </button>
+        </div>
+
+        <!-- SUB-TAB 1: PIPELINE LAMARAN -->
+        <div id="atsSubPipeline" class="ats-sub-content active">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div class="search-box">
+                            <span>🔍</span>
+                            <input type="text" id="searchAtsApplications" placeholder="Cari kandidat / posisi..." onkeyup="debounceAtsApplicationsSearch()">
+                        </div>
+                        <div class="search-box">
+                            <span>📂</span>
+                            <select id="filterAtsStage" onchange="loadAtsApplications()">
+                                <option value="">Semua Tahapan</option>
+                                <option value="APPLIED">Berkas Masuk</option>
+                                <option value="SCREENING">Screening CV</option>
+                                <option value="HR_INTERVIEW">Interview HR</option>
+                                <option value="TECHNICAL_TEST">Tes Teknis</option>
+                                <option value="USER_INTERVIEW">Interview User</option>
+                                <option value="MANAGEMENT_REVIEW">Review Manajemen</option>
+                                <option value="OFFER">Offering</option>
+                                <option value="ACCEPTED">Hired / Diterima</option>
+                                <option value="REJECTED">Ditolak</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-secondary" onclick="openApplyModal()">+ Lamar ke Lowongan</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Lamaran</th>
+                            <th>Kandidat</th>
+                            <th>Posisi Lowongan</th>
+                            <th>Tahapan (Stage)</th>
+                            <th>Status</th>
+                            <th>Tanggal Lamaran</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="atsApplicationsTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat pipeline pelamar...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 2: LOWONGAN PEKERJAAN -->
+        <div id="atsSubVacancies" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div class="search-box">
+                            <span>🔍</span>
+                            <input type="text" id="searchAtsVacancies" placeholder="Cari lowongan..." onkeyup="debounceAtsVacanciesSearch()">
+                        </div>
+                        <div class="search-box">
+                            <span>🏷️</span>
+                            <select id="filterAtsVacancyStatus" onchange="loadAtsVacancies()">
+                                <option value="">Semua Status</option>
+                                <option value="OPEN">Dibuka (OPEN)</option>
+                                <option value="DRAFT">Draft</option>
+                                <option value="CLOSED">Ditutup (CLOSED)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openAddVacancyModal()">+ Lowongan Baru</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kode & Posisi</th>
+                            <th>Divisi & Lokasi</th>
+                            <th>Tipe / Level</th>
+                            <th>Kuota</th>
+                            <th>Pelamar</th>
+                            <th>Status</th>
+                            <th>Batas Waktu</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="atsVacanciesTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat daftar lowongan...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 3: TALENT POOL KANDIDAT -->
+        <div id="atsSubCandidates" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div class="search-box">
+                            <span>🔍</span>
+                            <input type="text" id="searchAtsCandidates" placeholder="Cari nama, email, NIK..." onkeyup="debounceAtsCandidatesSearch()">
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openAddCandidateModal()">+ Tambah Kandidat</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Kandidat</th>
+                            <th>Nama Lengkap</th>
+                            <th>Kontak</th>
+                            <th>Perusahaan & Posisi</th>
+                            <th>Sumber</th>
+                            <th>Status Akun</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="atsCandidatesTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat database kandidat...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 4: JADWAL INTERVIEW -->
+        <div id="atsSubInterviews" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: #ffffff;">📅 Jadwal Interview & Asesmen Terdaftar</div>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Lamaran & Kandidat</th>
+                            <th>Tahap</th>
+                            <th>Pewawancara</th>
+                            <th>Waktu & Durasi</th>
+                            <th>Lokasi / Tautan</th>
+                            <th>Status</th>
+                            <th>Hasil & Skor</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="atsInterviewsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat jadwal interview...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
 </main>
 
 <!-- MODAL 1: DOOR ASSIGNMENT MODAL -->
@@ -1949,7 +2225,364 @@
     </div>
 </div>
 
-<div class="modal-overlay" id="employee360Modal"><div class="modal-card"><div class="modal-header"><h3 class="modal-title">Employee 360</h3><button class="modal-close-btn" onclick="closeModal(&quot;employee360Modal&quot;)">✖</button></div><div id="employee360Content" class="section-desc">Memuat profil…</div></div></div><!-- Configuration & Global Variables -->
+<div class="modal-overlay" id="employee360Modal"><div class="modal-card"><div class="modal-header"><h3 class="modal-title">Employee 360</h3><button class="modal-close-btn" onclick="closeModal(&quot;employee360Modal&quot;)">✖</button></div><div id="employee360Content" class="section-desc">Memuat profil…</div></div></div>
+
+<!-- RECRUITMENT MODAL 1: BUAT LOWONGAN -->
+<div class="modal-overlay" id="modalAddVacancy">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">💼 Buat Lowongan Pekerjaan Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddVacancy')">✖</button>
+        </div>
+        <form id="formAddVacancy" onsubmit="saveVacancy(event)">
+            <div class="form-row">
+                <label>Judul Lowongan / Posisi</label>
+                <input type="text" id="vacTitle" placeholder="Contoh: Senior Backend Engineer" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tipe Pekerjaan</label>
+                    <select id="vacEmploymentType">
+                        <option value="FULL_TIME">Full Time</option>
+                        <option value="CONTRACT">Contract</option>
+                        <option value="INTERNSHIP">Internship / Magang</option>
+                        <option value="PART_TIME">Part Time</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Level Pengalaman</label>
+                    <select id="vacExperienceLevel">
+                        <option value="ENTRY">Entry Level</option>
+                        <option value="JUNIOR">Junior</option>
+                        <option value="MID" selected>Mid Level</option>
+                        <option value="SENIOR">Senior</option>
+                        <option value="LEAD">Lead / Managerial</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Divisi Organisasi</label>
+                    <select id="vacDivisionId"><option value="">Pilih Divisi</option></select>
+                </div>
+                <div class="form-row">
+                    <label>Gedung Penempatan</label>
+                    <select id="vacBuildingId"><option value="">Pilih Gedung</option></select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kuota Posisi</label>
+                    <input type="number" id="vacQuota" value="1" min="1" required>
+                </div>
+                <div class="form-row">
+                    <label>Gaji Min (IDR)</label>
+                    <input type="number" id="vacSalaryMin" placeholder="8000000">
+                </div>
+                <div class="form-row">
+                    <label>Gaji Max (IDR)</label>
+                    <input type="number" id="vacSalaryMax" placeholder="15000000">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Deskripsi Tanggung Jawab</label>
+                <textarea id="vacDescription" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Jelaskan peran kerja..." required></textarea>
+            </div>
+            <div class="form-row">
+                <label>Persyaratan & Kualifikasi</label>
+                <textarea id="vacRequirements" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Daftar keahlian yang dibutuhkan..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddVacancy')">Batal</button>
+                <button type="submit" class="btn-primary">Publikasikan Lowongan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 2: DAFTARKAN KANDIDAT -->
+<div class="modal-overlay" id="modalAddCandidate">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">👤 Daftarkan Kandidat Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddCandidate')">✖</button>
+        </div>
+        <form id="formAddCandidate" onsubmit="saveCandidate(event)">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Nama Depan</label>
+                    <input type="text" id="candFirstName" placeholder="Nama Depan" required>
+                </div>
+                <div class="form-row">
+                    <label>Nama Belakang</label>
+                    <input type="text" id="candLastName" placeholder="Nama Belakang">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Email</label>
+                    <input type="email" id="candEmail" placeholder="email@domain.com" required>
+                </div>
+                <div class="form-row">
+                    <label>Nomor Telepon / WhatsApp</label>
+                    <input type="text" id="candPhone" placeholder="08..." required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>NIK / KTP</label>
+                    <input type="text" id="candNationalId" placeholder="3201...">
+                </div>
+                <div class="form-row">
+                    <label>Sumber Pelamar</label>
+                    <select id="candSource">
+                        <option value="CAREER_SITE">Career Website PKP</option>
+                        <option value="LINKEDIN">LinkedIn</option>
+                        <option value="REFERRAL">Referral Karyawan</option>
+                        <option value="JOB_FAIR">Job Fair / Kampus</option>
+                        <option value="INTERNAL">Internal</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Perusahaan Terakhir</label>
+                    <input type="text" id="candCompany" placeholder="Nama Perusahaan">
+                </div>
+                <div class="form-row">
+                    <label>Posisi Terakhir</label>
+                    <input type="text" id="candPosition" placeholder="Contoh: Backend Developer">
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddCandidate')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Kandidat</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 3: LAMAR KE LOWONGAN -->
+<div class="modal-overlay" id="modalApplyVacancy">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📝 Daftarkan Lamaran Kandidat</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalApplyVacancy')">✖</button>
+        </div>
+        <form id="formApplyVacancy" onsubmit="saveApplication(event)">
+            <div class="form-row">
+                <label>Pilih Kandidat</label>
+                <select id="applyCandidateId" required></select>
+            </div>
+            <div class="form-row">
+                <label>Pilih Posisi Lowongan</label>
+                <select id="applyVacancyId" required></select>
+            </div>
+            <div class="form-row">
+                <label>Ekspektasi Gaji (IDR)</label>
+                <input type="number" id="applyExpectedSalary" placeholder="10000000">
+            </div>
+            <div class="form-row">
+                <label>Catatan Tambahan</label>
+                <textarea id="applyNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;"></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalApplyVacancy')">Batal</button>
+                <button type="submit" class="btn-primary">Kirimkan Lamaran</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 4: UBAH TAHAPAN PIPELINE -->
+<div class="modal-overlay" id="modalTransitionStage">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🔄 Ubah Tahapan Pelamar</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalTransitionStage')">✖</button>
+        </div>
+        <form id="formTransitionStage" onsubmit="submitTransitionStage(event)">
+            <input type="hidden" id="transAppId">
+            <div class="form-row">
+                <label>Pelamar</label>
+                <div id="transCandName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Pindah ke Tahapan</label>
+                <select id="transNewStage" required>
+                    <option value="SCREENING">Screening CV</option>
+                    <option value="HR_INTERVIEW">Interview HR</option>
+                    <option value="TECHNICAL_TEST">Tes Teknis / Assessment</option>
+                    <option value="USER_INTERVIEW">Interview User / Supervisor</option>
+                    <option value="MANAGEMENT_REVIEW">Review Manajemen</option>
+                    <option value="OFFER">Offering & Kontrak</option>
+                    <option value="REJECTED">Tolak Lamaran (Reject)</option>
+                    <option value="TALENT_POOL">Simpan ke Talent Pool</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Alasan / Catatan Perubahan</label>
+                <textarea id="transReason" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;"></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalTransitionStage')">Batal</button>
+                <button type="submit" class="btn-primary">Update Tahapan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 5: JADWALKAN INTERVIEW -->
+<div class="modal-overlay" id="modalScheduleInterview">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📅 Jadwalkan Interview</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalScheduleInterview')">✖</button>
+        </div>
+        <form id="formScheduleInterview" onsubmit="saveInterviewSchedule(event)">
+            <input type="hidden" id="schAppId">
+            <div class="form-row">
+                <label>Pelamar</label>
+                <div id="schCandName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tahap Interview</label>
+                    <select id="schStageCode" required>
+                        <option value="HR_INTERVIEW">Interview HR</option>
+                        <option value="TECHNICAL_TEST">Tes Teknis</option>
+                        <option value="USER_INTERVIEW">Interview User</option>
+                        <option value="MANAGEMENT_REVIEW">Review Manajemen</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Durasi (Menit)</label>
+                    <input type="number" id="schDuration" value="45" min="15" max="180">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Waktu Pelaksanaan</label>
+                <input type="datetime-local" id="schDateTime" required>
+            </div>
+            <div class="form-row">
+                <label>Lokasi Fisik / Tautan Google Meet</label>
+                <input type="text" id="schLocation" placeholder="Ruang Meeting Gedung A / https://meet.google.com/..." required>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalScheduleInterview')">Batal</button>
+                <button type="submit" class="btn-primary">Tetapkan Jadwal</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 6: FEEDBACK & SKOR INTERVIEW -->
+<div class="modal-overlay" id="modalInterviewFeedback">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📝 Evaluasi & Nilai Interview</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalInterviewFeedback')">✖</button>
+        </div>
+        <form id="formInterviewFeedback" onsubmit="saveInterviewFeedback(event)">
+            <input type="hidden" id="fbInterviewId">
+            <div class="form-row">
+                <label>Skor Evaluasi (1 - 100)</label>
+                <input type="number" id="fbScore" min="1" max="100" placeholder="85" required>
+            </div>
+            <div class="form-row">
+                <label>Rekomendasi Pewawancara</label>
+                <select id="fbRecommendation" required>
+                    <option value="PROCEED">PROCEED (Lolos ke Tahap Berikutnya)</option>
+                    <option value="HOLD">HOLD (Pertimbangkan / Cadangan)</option>
+                    <option value="REJECT">REJECT (Tidak Memenuhi Syarat)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Catatan & Feedback Lengkap</label>
+                <textarea id="fbNotes" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Catatan teknis, soft skill, dan pertimbangan..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalInterviewFeedback')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Hasil Evaluasi</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 7: BUAT OFFERING LETTER -->
+<div class="modal-overlay" id="modalCreateOffer">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📄 Buat Surat Penawaran Kerja (Offering)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalCreateOffer')">✖</button>
+        </div>
+        <form id="formCreateOffer" onsubmit="saveOffer(event)">
+            <input type="hidden" id="offAppId">
+            <div class="form-row">
+                <label>Pelamar</label>
+                <div id="offCandName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Gaji Pokok Ditawarkan (IDR / Bulan)</label>
+                <input type="number" id="offSalary" placeholder="12000000" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Mulai Masuk (Start Date)</label>
+                    <input type="date" id="offStartDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Batas Respon Offering</label>
+                    <input type="date" id="offExpiryDate" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Ketentuan & Syarat Khusus</label>
+                <textarea id="offTerms" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Ketentuan probation, fasilitas, tunjangan..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalCreateOffer')">Batal</button>
+                <button type="submit" class="btn-primary">Kirimkan Offering</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- RECRUITMENT MODAL 8: CONVERT TO EMPLOYEE MASTER (HIRE) -->
+<div class="modal-overlay" id="modalConvertToEmployee">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🎉 Pengangkatan Karyawan Baru (Hiring)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalConvertToEmployee')">✖</button>
+        </div>
+        <form id="formConvertToEmployee" onsubmit="submitConvertToEmployee(event)">
+            <input type="hidden" id="hireAppId">
+            <div class="form-row">
+                <label>Kandidat Diterima</label>
+                <div id="hireCandName" style="font-weight: 700; color: #10b981; font-size: 1.05rem; margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Nomor Induk Karyawan (Kosongkan untuk otomatis)</label>
+                <input type="text" id="hireEmployeeNo" placeholder="EMP-2026-XXXX">
+            </div>
+            <div class="form-row">
+                <label>Status Hubungan Kerja</label>
+                <select id="hireEmploymentStatus">
+                    <option value="permanent">Karyawan Tetap (Permanent)</option>
+                    <option value="contract" selected>Kontrak (PKWT)</option>
+                    <option value="probation">Probation / Masa Percobaan</option>
+                    <option value="internship">Internship / Magang</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalConvertToEmployee')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #10b981; border-color: #059669;">
+                    ✓ Konfirmasi Pengangkatan Karyawan
+                </button>
+            </div>
+        </form>
+    </div>
+</div><!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),

@@ -209,5 +209,8 @@ class DatabaseSeeder extends Seeder
             'description' => 'Assigned DOOR-B (IT & Infra) access right to Budi Santoso (USR-1001)',
             'timestamp' => now()->subHours(5),
         ]);
+
+        // 6. Seed Recruitment Stages
+        $this->call(RecruitmentStageSeeder::class);
     }
 }

@@ -1115,6 +1115,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
     if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
+    if (tabId === 'recruitmentTab') loadRecruitmentData();
 }
 
 // ==========================================
@@ -1328,3 +1329,751 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 60000);
 });
+
+// ==========================================
+// Section 7: Recruitment & ATS Controller
+// ==========================================
+state.ats = {
+    activePill: 'pipeline',
+    vacancies: [],
+    candidates: [],
+    applications: [],
+    interviews: [],
+    stages: [],
+    searchDebounce: null,
+};
+
+function formatRupiah(amount) {
+    if (!amount || isNaN(amount)) return '-';
+    return 'Rp ' + Number(amount).toLocaleString('id-ID');
+}
+
+function formatDateTime(dtStr) {
+    if (!dtStr) return '-';
+    try {
+        const d = new Date(dtStr);
+        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+        return dtStr;
+    }
+}
+
+function switchAtsPill(pillName, btn) {
+    document.querySelectorAll('.ats-nav-pill').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.ats-sub-content').forEach(el => el.classList.remove('active'));
+
+    if (btn) {
+        btn.classList.add('active');
+    } else {
+        const defaultBtn = document.getElementById(`pill${pillName.charAt(0).toUpperCase() + pillName.slice(1)}`);
+        if (defaultBtn) defaultBtn.classList.add('active');
+    }
+
+    const subId = `atsSub${pillName.charAt(0).toUpperCase() + pillName.slice(1)}`;
+    const subTarget = document.getElementById(subId);
+    if (subTarget) subTarget.classList.add('active');
+
+    state.ats.activePill = pillName;
+
+    if (pillName === 'pipeline') loadAtsApplications();
+    if (pillName === 'vacancies') loadAtsVacancies();
+    if (pillName === 'candidates') loadAtsCandidates();
+    if (pillName === 'interviews') loadAtsInterviews();
+}
+
+async function loadRecruitmentData() {
+    await Promise.allSettled([
+        loadAtsMetrics(),
+        loadAtsLookups(),
+    ]);
+
+    if (state.ats.activePill === 'pipeline') loadAtsApplications();
+    else if (state.ats.activePill === 'vacancies') loadAtsVacancies();
+    else if (state.ats.activePill === 'candidates') loadAtsCandidates();
+    else if (state.ats.activePill === 'interviews') loadAtsInterviews();
+}
+
+async function loadAtsLookups() {
+    try {
+        const [stagesRes, vacanciesRes, candidatesRes] = await Promise.allSettled([
+            apiFetch('/recruitment/stages'),
+            apiFetch('/recruitment/vacancies?status=OPEN'),
+            apiFetch('/recruitment/candidates')
+        ]);
+
+        if (stagesRes.status === 'fulfilled' && stagesRes.value?.status === 'success') {
+            state.ats.stages = stagesRes.value.data || [];
+        }
+        if (vacanciesRes.status === 'fulfilled' && vacanciesRes.value?.status === 'success') {
+            state.ats.vacancies = vacanciesRes.value.data || [];
+        }
+        if (candidatesRes.status === 'fulfilled' && candidatesRes.value?.status === 'success') {
+            state.ats.candidates = candidatesRes.value.data || [];
+        }
+    } catch (err) {
+        console.warn('ATS lookups error:', err);
+    }
+}
+
+async function loadAtsMetrics() {
+    try {
+        const res = await apiFetch('/recruitment/metrics');
+        if (res.status === 'success' && res.data) {
+            const m = res.data;
+            const elVac = document.getElementById('atsMetricVacancies');
+            const elCand = document.getElementById('atsMetricCandidates');
+            const elApps = document.getElementById('atsMetricApplications');
+            const elHired = document.getElementById('atsMetricHired');
+
+            if (elVac) elVac.textContent = m.open_vacancies ?? 0;
+            if (elCand) elCand.textContent = m.total_candidates ?? 0;
+            if (elApps) elApps.textContent = m.active_applications ?? 0;
+            if (elHired) elHired.textContent = m.hired_count ?? 0;
+        }
+    } catch (err) {
+        console.warn('Gagal memuat metrik ATS:', err);
+    }
+}
+
+// Sub-Tab 1: Pipeline Lamaran
+async function loadAtsApplications() {
+    const tbody = document.getElementById('atsApplicationsTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('searchAtsApplications')?.value.trim() || '';
+    const stage = document.getElementById('filterAtsStage')?.value || '';
+
+    tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat pipeline pelamar...</td></tr>`;
+
+    try {
+        let url = '/recruitment/applications';
+        const params = [];
+        if (search) params.push(`search=${encodeURIComponent(search)}`);
+        if (stage) params.push(`stage=${encodeURIComponent(stage)}`);
+        if (params.length > 0) url += `?${params.join('&')}`;
+
+        const res = await apiFetch(url);
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="empty-td">Tidak ada data lamaran ditemukan. Silakan klik "+ Lamar ke Lowongan".</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(app => {
+            const cand = app.candidate || {};
+            const vac = app.vacancy || {};
+            const stageInfo = app.stage || {};
+            const candName = `${cand.first_name || ''} ${cand.last_name || ''}`.trim() || 'Kandidat';
+
+            let stageBadgeColor = 'rgba(56, 189, 248, 0.2)';
+            let stageTextColor = '#38bdf8';
+            if (app.current_stage_code === 'APPLIED') { stageBadgeColor = 'rgba(148, 163, 184, 0.2)'; stageTextColor = '#94a3b8'; }
+            if (app.current_stage_code === 'TECHNICAL_TEST') { stageBadgeColor = 'rgba(168, 85, 247, 0.2)'; stageTextColor = '#c084fc'; }
+            if (app.current_stage_code.includes('INTERVIEW')) { stageBadgeColor = 'rgba(245, 158, 11, 0.2)'; stageTextColor = '#fbbf24'; }
+            if (app.current_stage_code === 'OFFER') { stageBadgeColor = 'rgba(16, 185, 129, 0.2)'; stageTextColor = '#34d399'; }
+            if (app.current_stage_code === 'ACCEPTED') { stageBadgeColor = 'rgba(16, 185, 129, 0.3)'; stageTextColor = '#10b981'; }
+            if (app.current_stage_code === 'REJECTED') { stageBadgeColor = 'rgba(239, 68, 68, 0.2)'; stageTextColor = '#f87171'; }
+
+            const canHire = ['OFFER', 'ACCEPTED'].includes(app.current_stage_code) || app.status === 'HIRED';
+
+            return `
+                <tr>
+                    <td>
+                        <span style="font-family: monospace; font-weight: 700; color: var(--primary);">${escapeHtml(app.application_number)}</span>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(candName)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(cand.email || '')} ${cand.phone ? '• ' + escapeHtml(cand.phone) : ''}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #e2e8f0;">${escapeHtml(vac.title || '-')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted); font-family: monospace;">${escapeHtml(vac.vacancy_code || '')}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: ${stageBadgeColor}; color: ${stageTextColor}; font-weight: 600;">
+                            ${escapeHtml(stageInfo.name || app.current_stage_code)}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge ${app.status === 'HIRED' ? 'badge-active' : (app.status === 'REJECTED' ? 'badge-danger' : 'badge-info')}">
+                            ${escapeHtml(app.status)}
+                        </span>
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        ${formatDateTime(app.applied_at || app.created_at)}
+                    </td>
+                    <td style="text-align: right;">
+                        <div style="display: flex; gap: 0.4rem; justify-content: flex-end; flex-wrap: wrap;">
+                            <button class="btn-action" title="Ubah Tahapan Lamaran" onclick="openTransitionStageModal(${app.id}, '${escapeHtml(candName)}', '${escapeHtml(app.current_stage_code)}')">
+                                🔄 Tahap
+                            </button>
+                            <button class="btn-action" title="Jadwalkan Wawancara" onclick="openScheduleInterviewModal(${app.id}, '${escapeHtml(candName)}')">
+                                📅 Interview
+                            </button>
+                            <button class="btn-action" title="Buat Penawaran Offering" onclick="openCreateOfferModal(${app.id}, '${escapeHtml(candName)}')">
+                                📄 Offer
+                            </button>
+                            ${canHire ? `
+                            <button class="btn-action" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);" title="Angkat Sebagai Karyawan Resmi" onclick="openConvertToEmployeeModal(${app.id}, '${escapeHtml(candName)}')">
+                                ✓ Hire
+                            </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat data pelamar: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Sub-Tab 2: Lowongan Pekerjaan
+async function loadAtsVacancies() {
+    const tbody = document.getElementById('atsVacanciesTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('searchAtsVacancies')?.value.trim() || '';
+    const status = document.getElementById('filterAtsVacancyStatus')?.value || '';
+
+    tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat daftar lowongan...</td></tr>`;
+
+    try {
+        let url = '/recruitment/vacancies';
+        const params = [];
+        if (search) params.push(`search=${encodeURIComponent(search)}`);
+        if (status) params.push(`status=${encodeURIComponent(status)}`);
+        if (params.length > 0) url += `?${params.join('&')}`;
+
+        const res = await apiFetch(url);
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-td">Belum ada lowongan pekerjaan ditemukan. Klik "+ Lowongan Baru" untuk membuat lowongan.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(v => {
+            const divName = v.division?.name || 'Seluruh Divisi';
+            const bldName = v.building?.name || 'Head Office';
+            const statusClass = v.status === 'OPEN' ? 'badge-active' : (v.status === 'CLOSED' ? 'badge-danger' : 'badge-info');
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 700; color: #ffffff;">${escapeHtml(v.title)}</div>
+                        <div style="font-size: 0.775rem; color: var(--primary); font-family: monospace;">${escapeHtml(v.vacancy_code)}</div>
+                    </td>
+                    <td>
+                        <div style="color: #cbd5e1;">${escapeHtml(divName)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(bldName)}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc;">${escapeHtml(v.employment_type)}</span>
+                        <span style="font-size: 0.775rem; color: var(--text-muted); margin-left: 4px;">${escapeHtml(v.experience_level)}</span>
+                    </td>
+                    <td style="font-weight: 600; text-align: center;">${v.quota}</td>
+                    <td style="text-align: center;">
+                        <span class="badge badge-info" style="font-weight: 700;">${v.applications_count ?? 0} Pelamar</span>
+                    </td>
+                    <td>
+                        <span class="badge ${statusClass}">${escapeHtml(v.status)}</span>
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        ${v.deadline_at ? formatDateTime(v.deadline_at) : 'Tidak Terbatas'}
+                    </td>
+                    <td style="text-align: right;">
+                        <button class="btn-action" onclick="viewVacancyApplicants(${v.id})" title="Lihat pelamar pada lowongan ini">
+                            👥 Pelamar
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat lowongan: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function viewVacancyApplicants(vacancyId) {
+    switchAtsPill('pipeline', document.getElementById('pillPipeline'));
+    const vac = state.ats.vacancies.find(x => x.id === vacancyId);
+    if (vac && document.getElementById('searchAtsApplications')) {
+        document.getElementById('searchAtsApplications').value = vac.title;
+        loadAtsApplications();
+    }
+}
+
+// Sub-Tab 3: Talent Pool Kandidat
+async function loadAtsCandidates() {
+    const tbody = document.getElementById('atsCandidatesTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('searchAtsCandidates')?.value.trim() || '';
+
+    tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat database kandidat...</td></tr>`;
+
+    try {
+        let url = '/recruitment/candidates';
+        if (search) url += `?search=${encodeURIComponent(search)}`;
+
+        const res = await apiFetch(url);
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="empty-td">Belum ada profil kandidat. Klik "+ Tambah Kandidat" untuk mendaftarkan talenta baru.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(c => {
+            const fullName = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+            return `
+                <tr>
+                    <td>
+                        <span style="font-family: monospace; font-weight: 700; color: var(--primary);">${escapeHtml(c.candidate_number)}</span>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(fullName)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${c.national_id ? 'NIK: ' + escapeHtml(c.national_id) : ''}</div>
+                    </td>
+                    <td>
+                        <div style="color: #cbd5e1;">${escapeHtml(c.email || '-')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(c.phone || '-')}</div>
+                    </td>
+                    <td>
+                        <div style="color: #e2e8f0;">${escapeHtml(c.current_position || 'Belum Tercatat')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(c.current_company || '-')}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #cbd5e1;">
+                            ${escapeHtml(c.source || 'CAREER_SITE')}
+                        </span>
+                    </td>
+                    <td>
+                        <span class="badge ${c.status === 'HIRED' ? 'badge-active' : (c.status === 'BLACKLISTED' ? 'badge-danger' : 'badge-info')}">
+                            ${escapeHtml(c.status || 'ACTIVE')}
+                        </span>
+                    </td>
+                    <td style="text-align: right;">
+                        <button class="btn-action" onclick="openApplyModal(${c.id})" title="Daftarkan lamaran untuk kandidat ini">
+                            📝 Lamar Lowongan
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat kandidat: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Sub-Tab 4: Jadwal Interview
+async function loadAtsInterviews() {
+    const tbody = document.getElementById('atsInterviewsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat jadwal interview...</td></tr>`;
+
+    try {
+        const res = await apiFetch('/recruitment/interviews');
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-td">Belum ada sesi wawancara yang dijadwalkan.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(inv => {
+            const app = inv.application || {};
+            const cand = app.candidate || {};
+            const candName = `${cand.first_name || ''} ${cand.last_name || ''}`.trim() || 'Kandidat';
+            const statusClass = inv.status === 'COMPLETED' ? 'badge-active' : (inv.status === 'CANCELLED' ? 'badge-danger' : 'badge-warning');
+
+            const isLink = inv.location && (inv.location.startsWith('http://') || inv.location.startsWith('https://'));
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(candName)}</div>
+                        <div style="font-size: 0.775rem; color: var(--primary); font-family: monospace;">${escapeHtml(app.application_number || '-')}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; font-weight: 600;">
+                            ${escapeHtml(inv.stage_code)}
+                        </span>
+                    </td>
+                    <td>
+                        <div style="color: #cbd5e1;">${escapeHtml(inv.interviewer_name || '-')}</div>
+                    </td>
+                    <td>
+                        <div style="color: #e2e8f0; font-weight: 600;">${formatDateTime(inv.scheduled_at)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${inv.duration_minutes} Menit</div>
+                    </td>
+                    <td>
+                        ${isLink ? `<a href="${escapeHtml(inv.location)}" target="_blank" style="color: var(--primary); text-decoration: underline;">Tautan Meeting ↗</a>` : `<span style="color: #cbd5e1;">${escapeHtml(inv.location || '-')}</span>`}
+                    </td>
+                    <td>
+                        <span class="badge ${statusClass}">${escapeHtml(inv.status)}</span>
+                    </td>
+                    <td>
+                        ${inv.result ? `
+                            <div style="font-weight: 700; color: ${inv.result === 'PROCEED' ? '#10b981' : (inv.result === 'REJECT' ? '#ef4444' : '#f59e0b')}">${escapeHtml(inv.result)}</div>
+                            <div style="font-size: 0.775rem; color: var(--text-muted);">Skor: ${inv.score ?? '-'}/100</div>
+                        ` : '<span style="color: var(--text-muted); font-size: 0.8rem;">Menunggu Evaluasi</span>'}
+                    </td>
+                    <td style="text-align: right;">
+                        ${inv.status === 'SCHEDULED' ? `
+                            <button class="btn-action" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.4);" onclick="openInterviewFeedbackModal(${inv.id})">
+                                ✍️ Nilai
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat interview: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Debounce Helpers for Search
+function debounceAtsApplicationsSearch() {
+    clearTimeout(state.ats.searchDebounce);
+    state.ats.searchDebounce = setTimeout(loadAtsApplications, 300);
+}
+
+function debounceAtsVacanciesSearch() {
+    clearTimeout(state.ats.searchDebounce);
+    state.ats.searchDebounce = setTimeout(loadAtsVacancies, 300);
+}
+
+function debounceAtsCandidatesSearch() {
+    clearTimeout(state.ats.searchDebounce);
+    state.ats.searchDebounce = setTimeout(loadAtsCandidates, 300);
+}
+
+// Modal 1: Buat Lowongan
+function openAddVacancyModal() {
+    const divSelect = document.getElementById('vacDivisionId');
+    const bldSelect = document.getElementById('vacBuildingId');
+
+    if (divSelect && state.organization?.divisions) {
+        divSelect.innerHTML = '<option value="">Pilih Divisi</option>' +
+            state.organization.divisions.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    }
+    if (bldSelect && state.organization?.buildings) {
+        bldSelect.innerHTML = '<option value="">Pilih Gedung</option>' +
+            state.organization.buildings.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+    }
+
+    const modal = document.getElementById('modalAddVacancy');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveVacancy(e) {
+    e.preventDefault();
+    const payload = {
+        title: document.getElementById('vacTitle')?.value.trim(),
+        employment_type: document.getElementById('vacEmploymentType')?.value,
+        experience_level: document.getElementById('vacExperienceLevel')?.value,
+        division_id: document.getElementById('vacDivisionId')?.value || null,
+        building_id: document.getElementById('vacBuildingId')?.value || null,
+        quota: parseInt(document.getElementById('vacQuota')?.value || 1),
+        salary_min: document.getElementById('vacSalaryMin')?.value || null,
+        salary_max: document.getElementById('vacSalaryMax')?.value || null,
+        description: document.getElementById('vacDescription')?.value.trim(),
+        requirements: document.getElementById('vacRequirements')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/recruitment/vacancies', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Lowongan pekerjaan baru berhasil dipublikasikan!', 'success');
+            closeModal('modalAddVacancy');
+            document.getElementById('formAddVacancy')?.reset();
+            await Promise.all([loadAtsVacancies(), loadAtsMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal membuat lowongan: ${err.message}`, 'error');
+    }
+}
+
+// Modal 2: Tambah Kandidat
+function openAddCandidateModal() {
+    const modal = document.getElementById('modalAddCandidate');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveCandidate(e) {
+    e.preventDefault();
+    const payload = {
+        first_name: document.getElementById('candFirstName')?.value.trim(),
+        last_name: document.getElementById('candLastName')?.value.trim() || null,
+        email: document.getElementById('candEmail')?.value.trim(),
+        phone: document.getElementById('candPhone')?.value.trim(),
+        national_id: document.getElementById('candNationalId')?.value.trim() || null,
+        source: document.getElementById('candSource')?.value,
+        current_company: document.getElementById('candCompany')?.value.trim() || null,
+        current_position: document.getElementById('candPosition')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/recruitment/candidates', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Profil kandidat berhasil didaftarkan!', 'success');
+            closeModal('modalAddCandidate');
+            document.getElementById('formAddCandidate')?.reset();
+            await Promise.all([loadAtsCandidates(), loadAtsMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mendaftarkan kandidat: ${err.message}`, 'error');
+    }
+}
+
+// Modal 3: Lamar Lowongan
+async function openApplyModal(preselectedCandidateId = null) {
+    await loadAtsLookups();
+
+    const candSelect = document.getElementById('applyCandidateId');
+    const vacSelect = document.getElementById('applyVacancyId');
+
+    if (candSelect) {
+        candSelect.innerHTML = '<option value="">-- Pilih Kandidat --</option>' +
+            state.ats.candidates.map(c => {
+                const name = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+                const selected = preselectedCandidateId && Number(preselectedCandidateId) === c.id ? 'selected' : '';
+                return `<option value="${c.id}" ${selected}>${escapeHtml(name)} (${escapeHtml(c.candidate_number)})</option>`;
+            }).join('');
+    }
+
+    if (vacSelect) {
+        vacSelect.innerHTML = '<option value="">-- Pilih Lowongan Dibuka --</option>' +
+            state.ats.vacancies.map(v => {
+                return `<option value="${v.id}">${escapeHtml(v.title)} (${escapeHtml(v.vacancy_code)})</option>`;
+            }).join('');
+    }
+
+    const modal = document.getElementById('modalApplyVacancy');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveApplication(e) {
+    e.preventDefault();
+    const payload = {
+        candidate_id: document.getElementById('applyCandidateId')?.value,
+        vacancy_id: document.getElementById('applyVacancyId')?.value,
+        expected_salary: document.getElementById('applyExpectedSalary')?.value || null,
+        notes: document.getElementById('applyNotes')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/recruitment/applications', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Lamaran kandidat berhasil didaftarkan ke pipeline!', 'success');
+            closeModal('modalApplyVacancy');
+            document.getElementById('formApplyVacancy')?.reset();
+            await Promise.all([loadAtsApplications(), loadAtsMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mendaftarkan lamaran: ${err.message}`, 'error');
+    }
+}
+
+// Modal 4: Transisi Tahapan
+function openTransitionStageModal(applicationId, candidateName, currentStage) {
+    document.getElementById('transAppId').value = applicationId;
+    const nameEl = document.getElementById('transCandName');
+    if (nameEl) nameEl.textContent = candidateName;
+
+    const selectEl = document.getElementById('transNewStage');
+    if (selectEl && currentStage) {
+        selectEl.value = currentStage;
+    }
+
+    const modal = document.getElementById('modalTransitionStage');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitTransitionStage(e) {
+    e.preventDefault();
+    const appId = document.getElementById('transAppId')?.value;
+    const payload = {
+        stage_code: document.getElementById('transNewStage')?.value,
+        notes: document.getElementById('transReason')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch(`/recruitment/applications/${appId}/transition`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Tahapan pelamar berhasil diperbarui!', 'success');
+            closeModal('modalTransitionStage');
+            document.getElementById('formTransitionStage')?.reset();
+            await Promise.all([loadAtsApplications(), loadAtsMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal memperbarui tahapan: ${err.message}`, 'error');
+    }
+}
+
+// Modal 5: Jadwal Interview
+function openScheduleInterviewModal(applicationId, candidateName) {
+    document.getElementById('schAppId').value = applicationId;
+    const nameEl = document.getElementById('schCandName');
+    if (nameEl) nameEl.textContent = candidateName;
+
+    // Default time: tomorrow at 10:00
+    const now = new Date();
+    now.setDate(now.getDate() + 1);
+    now.setHours(10, 0, 0, 0);
+    const isoString = new Date(now.getTime() - (now.getTimezoneOffset() * 60000)).toISOString().slice(0, 16);
+    const dtEl = document.getElementById('schDateTime');
+    if (dtEl) dtEl.value = isoString;
+
+    const modal = document.getElementById('modalScheduleInterview');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInterviewSchedule(e) {
+    e.preventDefault();
+    const payload = {
+        application_id: document.getElementById('schAppId')?.value,
+        stage_code: document.getElementById('schStageCode')?.value,
+        scheduled_at: document.getElementById('schDateTime')?.value,
+        duration_minutes: parseInt(document.getElementById('schDuration')?.value || 45),
+        location: document.getElementById('schLocation')?.value.trim(),
+    };
+
+    try {
+        const res = await apiFetch('/recruitment/interviews', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Jadwal interview berhasil ditetapkan!', 'success');
+            closeModal('modalScheduleInterview');
+            document.getElementById('formScheduleInterview')?.reset();
+            if (state.ats.activePill === 'interviews') loadAtsInterviews();
+            else loadAtsApplications();
+        }
+    } catch (err) {
+        showToast(`Gagal menjadwalkan interview: ${err.message}`, 'error');
+    }
+}
+
+// Modal 6: Interview Feedback & Scoring
+function openInterviewFeedbackModal(interviewId) {
+    document.getElementById('fbInterviewId').value = interviewId;
+    const modal = document.getElementById('modalInterviewFeedback');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInterviewFeedback(e) {
+    e.preventDefault();
+    const invId = document.getElementById('fbInterviewId')?.value;
+    const payload = {
+        score: parseInt(document.getElementById('fbScore')?.value || 0),
+        recommendation: document.getElementById('fbRecommendation')?.value,
+        feedback: document.getElementById('fbNotes')?.value.trim(),
+    };
+
+    try {
+        const res = await apiFetch(`/recruitment/interviews/${invId}/feedback`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Hasil evaluasi interview berhasil disimpan!', 'success');
+            closeModal('modalInterviewFeedback');
+            document.getElementById('formInterviewFeedback')?.reset();
+            await loadAtsInterviews();
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan evaluasi: ${err.message}`, 'error');
+    }
+}
+
+// Modal 7: Buat Surat Offering
+function openCreateOfferModal(applicationId, candidateName) {
+    document.getElementById('offAppId').value = applicationId;
+    const nameEl = document.getElementById('offCandName');
+    if (nameEl) nameEl.textContent = candidateName;
+
+    // Default start date = 14 days later, expiry = 7 days later
+    const start = new Date();
+    start.setDate(start.getDate() + 14);
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + 7);
+
+    const sEl = document.getElementById('offStartDate');
+    const eEl = document.getElementById('offExpiryDate');
+    if (sEl) sEl.value = start.toISOString().slice(0, 10);
+    if (eEl) eEl.value = expiry.toISOString().slice(0, 10);
+
+    const modal = document.getElementById('modalCreateOffer');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveOffer(e) {
+    e.preventDefault();
+    const payload = {
+        application_id: document.getElementById('offAppId')?.value,
+        basic_salary: parseFloat(document.getElementById('offSalary')?.value || 0),
+        start_date: document.getElementById('offStartDate')?.value,
+        expiry_date: document.getElementById('offExpiryDate')?.value,
+        terms: document.getElementById('offTerms')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/recruitment/offers', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Surat offering berhasil diterbitkan!', 'success');
+            closeModal('modalCreateOffer');
+            document.getElementById('formCreateOffer')?.reset();
+            await Promise.all([loadAtsApplications(), loadAtsMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal membuat offering: ${err.message}`, 'error');
+    }
+}
+
+// Modal 8: Konversi Pelamar ke Master Karyawan
+function openConvertToEmployeeModal(applicationId, candidateName) {
+    document.getElementById('hireAppId').value = applicationId;
+    const nameEl = document.getElementById('hireCandName');
+    if (nameEl) nameEl.textContent = candidateName;
+
+    const modal = document.getElementById('modalConvertToEmployee');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitConvertToEmployee(e) {
+    e.preventDefault();
+    const appId = document.getElementById('hireAppId')?.value;
+    const payload = {
+        employee_no: document.getElementById('hireEmployeeNo')?.value.trim() || null,
+        employment_status: document.getElementById('hireEmploymentStatus')?.value || 'contract',
+    };
+
+    try {
+        const res = await apiFetch(`/recruitment/applications/${appId}/convert-to-employee`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Kandidat berhasil diangkat menjadi Karyawan Resmi!', 'success');
+            closeModal('modalConvertToEmployee');
+            document.getElementById('formConvertToEmployee')?.reset();
+            await Promise.all([loadAtsApplications(), loadAtsMetrics(), loadEmployees()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mengangkat karyawan: ${err.message}`, 'error');
+    }
+}
