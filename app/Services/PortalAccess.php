@@ -42,21 +42,44 @@ class PortalAccess
                 $perms[] = 'document.manage';
                 $perms[] = 'document.verify';
                 $perms[] = 'document.download';
+                $perms[] = 'access.view';
+                $perms[] = 'access.request';
+                $perms[] = 'access.approve';
+                $perms[] = 'access.manage';
+                $perms[] = 'credential.view';
+                $perms[] = 'credential.manage';
+                $perms[] = 'credential.sync';
+                $perms[] = 'credential.revoke';
+                $perms[] = 'emoney.view';
+                $perms[] = 'emoney.manage';
+                $perms[] = 'device.sync.view';
             }
             return $perms;
         }
 
         if ($portal === self::MANAGEMENT_PORTAL) {
             $perms = ['employee.view','employee.manage','organization.view','device.view','security.view'];
+            if (in_array($role, ['hrd', 'management', 'supervisor', 'security', 'building_admin'], true)) {
+                $perms[] = 'access.view';
+            }
             if (in_array($role, ['hrd', 'management', 'supervisor'], true)) {
                 $perms[] = 'recruitment.view';
                 $perms[] = 'internship.view';
                 $perms[] = 'onboarding.view';
                 $perms[] = 'document.view';
                 $perms[] = 'document.download';
+                $perms[] = 'access.request';
             }
             if (in_array($role, ['hrd', 'management'], true)) {
                 $perms[] = 'contract.view';
+                $perms[] = 'emoney.view';
+            }
+            if (in_array($role, ['hrd', 'security', 'building_admin'], true)) {
+                $perms[] = 'access.approve';
+                $perms[] = 'device.sync.view';
+            }
+            if (in_array($role, ['hrd', 'security'], true)) {
+                $perms[] = 'credential.view';
             }
             if (in_array($role, ['hrd'], true)) {
                 $perms[] = 'recruitment.manage';
@@ -65,6 +88,11 @@ class PortalAccess
                 $perms[] = 'contract.manage';
                 $perms[] = 'document.manage';
                 $perms[] = 'document.verify';
+                $perms[] = 'access.manage';
+                $perms[] = 'credential.manage';
+                $perms[] = 'credential.sync';
+                $perms[] = 'credential.revoke';
+                $perms[] = 'emoney.manage';
             }
             if (in_array($role, ['supervisor'], true)) {
                 $perms[] = 'internship.mentor';
@@ -78,6 +106,9 @@ class PortalAccess
                 'onboarding.self',
                 'contract.self',
                 'document.self',
+                'access.self',
+                'credential.self',
+                'emoney.self',
             ];
         }
 

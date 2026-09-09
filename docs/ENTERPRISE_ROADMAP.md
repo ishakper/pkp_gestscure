@@ -10,8 +10,8 @@ Status per 2026-09-09.
 | 3 | Recruitment / ATS | PASS |
 | 4 | Internship | PASS |
 | 5 | Onboarding, contracts, documents | PASS |
-| 6 | Access provisioning, credentials, e-money | NOT_STARTED |
-| 7 | Assets | NOT_STARTED |
+| 6 | Access provisioning, credentials, e-money | PASS |
+| 7 | Assets | IN_PROGRESS |
 | 8-12 | Calendar, attendance, field attendance, requests, overtime | NOT_STARTED |
 | 13-18 | Skills, work, projects, approvals, training, performance | NOT_STARTED |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
@@ -78,6 +78,35 @@ Sprint 5: Onboarding Cases, 10-Task Standard Checklist, Completion Gate, Contrac
 - REPOSITORY_SYNC: PASS
 - DATABASE_SAFETY: Row preservation verified (BEFORE_COUNT == AFTER_COUNT)
 
-Next: Sprint 6 Access Provisioning + Credential Center.
+Sprint 6: Access Provisioning, Reusable Access Profiles, Approval Gate with Building Scope Check, Centralized Credential Center (Zero Raw Biometric Storage, Masked Identifiers), Idempotent Asynchronous Device Sync Queue, Inactive Employee & Completed Intern Revocation Hooks, Admin-Only E-Money Registry, and Employee 360 Access Integration.
+- SPRINT_6: PASS
+- FINAL_TEST_COUNT: 124 tests (122 passed, 2 warnings)
+- FINAL_ASSERTION_COUNT: 659 assertions
+- ACCESS_PROVISIONING_DOMAIN: PASS
+- ACCESS_REQUEST_WORKFLOW: PASS
+- ACCESS_APPROVAL: PASS
+- ACCESS_PROFILE: PASS
+- CREDENTIAL_CENTER: PASS
+- CARD_CREDENTIAL: PASS
+- BIOMETRIC_METADATA_ONLY: PASS
+- NO_RAW_BIOMETRIC_STORAGE: PASS
+- DEVICE_SYNC_QUEUE: PASS
+- SYNC_IDEMPOTENCY: PASS
+- REVOCATION: PASS
+- EMPLOYEE_STATUS_HOOK: PASS
+- INTERN_COMPLETION_HOOK: PASS
+- E_MONEY_REGISTRY: PASS
+- MASKING: PASS
+- RBAC: PASS
+- BUILDING_SCOPE: PASS
+- IDOR_PREVENTION: PASS
+- AUDIT: PASS
+- SECURITY: PASS
+- UI_UX: PASS
+- TARGETED_TESTS: PASS
+- FULL_REGRESSION: PASS (124 tests, 659 assertions)
+- MIGRATION_SAFETY: PASS (BEFORE_COUNT == AFTER_COUNT, 100% row preservation)
+- SECRET_HYGIENE: PASS
+- PHYSICAL_DEVICE_E2E: DEFERRED_WITH_EVIDENCE (Physical DOOR-B hardware not reachable from runner; software mock integration PASS)
 
-
+Next: Sprint 7 Asset Management.

@@ -230,6 +230,9 @@ class InternshipService
         $internship->access_revocation_marked = true; // Flag for later Sprint 22 access handoff
         $internship->save();
 
+        // Revoke active credentials and access requests upon internship completion
+        app(\App\Services\AccessProvisioningService::class)->revokeInternAccess($internship, 'Program magang selesai (COMPLETED)', $actor);
+
         ActivityLog::create([
             'admin_id' => $actor?->id,
             'action' => 'internship_completed',

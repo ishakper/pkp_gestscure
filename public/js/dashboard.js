@@ -1126,6 +1126,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'recruitmentTab') loadRecruitmentData();
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
+    if (tabId === 'accessTab') loadAccessData();
 }
 
 // ==========================================
@@ -3564,4 +3565,638 @@ function debounceContractSearch() {
 function debounceDocSearch() {
     clearTimeout(state.searchDebounceTimer);
     state.searchDebounceTimer = setTimeout(loadOnboardingDocuments, 350);
+}
+
+// =============================================================
+// SPRINT 6: ACCESS PROVISIONING, CREDENTIALS & E-MONEY CONTROLLER
+// =============================================================
+
+function loadAccessData() {
+    loadAccessMetrics();
+    loadAccessRequests();
+    loadAccessProfiles();
+    loadCredentials();
+    loadDeviceSyncs();
+    loadEmoneyCards();
+    populateAccessEmployees();
+}
+
+function switchAccessSubTab(subTab, btn) {
+    document.querySelectorAll('#accessTab .ats-subnav .subnav-btn').forEach(b => b.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+
+    const subs = {
+        'requests': 'accessSubRequests',
+        'profiles': 'accessSubProfiles',
+        'credentials': 'accessSubCredentials',
+        'syncs': 'accessSubSyncs',
+        'emoney': 'accessSubEmoney'
+    };
+
+    Object.values(subs).forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    const activeEl = document.getElementById(subs[subTab]);
+    if (activeEl) activeEl.style.display = 'block';
+}
+
+async function loadAccessMetrics() {
+    try {
+        const res = await apiFetch('/api/v1/access/metrics');
+        if (res && res.success) {
+            const d = res.data;
+            const elPending = document.getElementById('metricPendingAccessRequests');
+            const elCred = document.getElementById('metricActiveCredentials');
+            const elSync = document.getElementById('metricPendingDeviceSyncs');
+            const elEmn = document.getElementById('metricTotalEmoneyCards');
+
+            if (elPending) elPending.innerText = d.pending_requests ?? 0;
+            if (elCred) elCred.innerText = d.active_credentials ?? 0;
+            if (elSync) elSync.innerText = d.pending_syncs ?? 0;
+            if (elEmn) elEmn.innerText = d.total_emoney ?? 0;
+        }
+    } catch (e) {
+        console.error('Failed to load access metrics', e);
+    }
+}
+
+async function loadAccessRequests() {
+    const tbody = document.getElementById('accessRequestsTableBody');
+    if (!tbody) return;
+
+    try {
+        const search = document.getElementById('accessRequestSearch')?.value || '';
+        const status = document.getElementById('accessRequestStatusFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (status) params.append('status', status);
+
+        const res = await apiFetch(`/api/v1/access/requests?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada permohonan hak akses yang diajukan.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(r => {
+            const empName = r.employee?.name || (r.internship ? `[Intern] ${r.internship.intern_id}` : '-');
+            const profName = r.access_profile?.name || (r.specific_doors?.length ? `Khusus (${r.specific_doors.join(', ')})` : 'Standar');
+            const statusBadge = getAccessStatusBadge(r.status);
+            const validUntil = r.valid_until ? r.valid_until.substring(0, 10) : 'Permanen';
+            const validRange = `${(r.valid_from || '').substring(0, 10)} s/d ${validUntil}`;
+
+            let actions = '';
+            if (r.status === 'PENDING_APPROVAL') {
+                actions = `
+                    <button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: #10b981; border-color: #059669;" onclick="openApproveRequestModal(${r.id})">✓ Setujui</button>
+                    <button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" onclick="openRejectRequestModal(${r.id})">✕ Tolak</button>
+                `;
+            } else {
+                actions = `<span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(r.status)}</span>`;
+            }
+
+            return `
+                <tr>
+                    <td style="font-weight: 700; color: #38bdf8;">${escapeHtml(r.request_number)}</td>
+                    <td style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</td>
+                    <td>${escapeHtml(profName)}</td>
+                    <td>${escapeHtml(r.building_name || 'Kantor Pusat')}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(validRange)}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right; white-space: nowrap;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat permohonan akses: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadAccessProfiles() {
+    const tbody = document.getElementById('accessProfilesTableBody');
+    if (!tbody) return;
+
+    try {
+        const search = document.getElementById('accessProfileSearch')?.value || '';
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+
+        const res = await apiFetch(`/api/v1/access/profiles?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada profil hak akses yang terdaftar.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(p => {
+            const doors = (p.allowed_doors && p.allowed_doors.length) ? p.allowed_doors.join(', ') : 'Semua Pintu';
+            const schedule = `${p.schedule_type} (${p.start_time} - ${p.end_time})`;
+            const statusBadge = p.is_active ? '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">AKTIF</span>' : '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">NONAKTIF</span>';
+
+            return `
+                <tr>
+                    <td style="font-weight: 700; color: #fbbf24;">${escapeHtml(p.code)}</td>
+                    <td style="font-weight: 600; color: #fff;">${escapeHtml(p.name)}</td>
+                    <td>${escapeHtml(p.building_name || '-')}</td>
+                    <td style="font-size: 0.8rem;">${escapeHtml(schedule)}</td>
+                    <td style="font-size: 0.8rem; color: #38bdf8;">${escapeHtml(doors)}</td>
+                    <td>${statusBadge}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat profil: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadCredentials() {
+    const tbody = document.getElementById('credentialsTableBody');
+    if (!tbody) return;
+
+    try {
+        const search = document.getElementById('credentialSearch')?.value || '';
+        const type = document.getElementById('credentialTypeFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (type) params.append('credential_type', type);
+
+        const res = await apiFetch(`/api/v1/access/credentials?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada data kredensial terdaftar.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(c => {
+            const empName = c.employee?.name || (c.internship ? `[Intern] ${c.internship.intern_id}` : '-');
+            const bioBadge = `<span class="badge" style="background: rgba(56,189,248,0.15); color: #38bdf8;">${escapeHtml(c.biometric_status || 'NOT_ENROLLED')}</span>`;
+            const statusBadge = c.status === 'ACTIVE'
+                ? '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">ACTIVE</span>'
+                : '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">REVOKED</span>';
+            const issuedAt = c.issued_at ? c.issued_at.substring(0, 10) : '-';
+
+            let actions = '';
+            if (c.status === 'ACTIVE') {
+                actions = `<button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" onclick="openRevokeCredentialModal(${c.id})">Cabut</button>`;
+            } else {
+                actions = `<span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(c.revocation_reason || 'Dicabut')}</span>`;
+            }
+
+            return `
+                <tr>
+                    <td style="font-weight: 700; color: #38bdf8;">${escapeHtml(c.credential_number)}</td>
+                    <td style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</td>
+                    <td>${escapeHtml(c.credential_type)}</td>
+                    <td style="font-family: monospace; font-size: 0.85rem; color: #fbbf24;">${escapeHtml(c.masked_identifier)}</td>
+                    <td>${bioBadge}</td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(issuedAt)}</td>
+                    <td style="text-align: right;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat kredensial: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadDeviceSyncs() {
+    const tbody = document.getElementById('deviceSyncsTableBody');
+    if (!tbody) return;
+
+    try {
+        const status = document.getElementById('deviceSyncStatusFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (status) params.append('status', status);
+
+        const res = await apiFetch(`/api/v1/access/device-syncs?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Antrean sinkronisasi perangkat kosong. Semua terminal dalam status tersinkron.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(s => {
+            const doorName = s.door ? `${s.door.door_id} - ${s.door.name || s.door.door_name}` : `Door #${s.door_id}`;
+            const crdRef = s.credential_record?.credential_number || `CRD #${s.credential_record_id}`;
+            const syncTime = s.completed_at ? s.completed_at.substring(0, 19).replace('T', ' ') : (s.last_attempt_at ? s.last_attempt_at.substring(0, 19).replace('T', ' ') : '-');
+
+            let statusBadge = '';
+            if (s.status === 'SUCCESS') statusBadge = '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">SUCCESS</span>';
+            else if (s.status === 'QUEUED') statusBadge = '<span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8;">QUEUED</span>';
+            else if (s.status === 'FAILED') statusBadge = '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">FAILED</span>';
+            else statusBadge = `<span class="badge">${escapeHtml(s.status)}</span>`;
+
+            let actions = '';
+            if (s.status === 'FAILED' || s.status === 'QUEUED') {
+                actions = `<button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="retryDeviceSyncItem(${s.id})">🔄 Sync Ulang</button>`;
+            } else {
+                actions = `<span style="font-size: 0.75rem; color: #10b981;">✓ Synced</span>`;
+            }
+
+            return `
+                <tr>
+                    <td style="font-weight: 600; color: #fff;">${escapeHtml(doorName)}</td>
+                    <td><span class="badge" style="background: rgba(245,158,11,0.2); color: #fbbf24;">${escapeHtml(s.operation)}</span></td>
+                    <td style="color: #38bdf8;">${escapeHtml(crdRef)}</td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size: 0.85rem; text-align: center;">${s.attempt_count}</td>
+                    <td style="font-family: monospace; font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(s.idempotency_key)}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(syncTime)}</td>
+                    <td style="text-align: right;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat antrean sync: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function loadEmoneyCards() {
+    const tbody = document.getElementById('emoneyTableBody');
+    if (!tbody) return;
+
+    try {
+        const search = document.getElementById('emoneySearch')?.value || '';
+        const provider = document.getElementById('emoneyProviderFilter')?.value || '';
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (provider) params.append('provider', provider);
+
+        const res = await apiFetch(`/api/v1/access/emoney?${params.toString()}`);
+        if (!res || !res.success || !res.data.length) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada instrumen kartu E-Money yang terdaftar.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(m => {
+            const empName = m.employee?.name || '<span style="color: var(--text-muted); font-style: italic;">Tersedia (Stok)</span>';
+            const statusBadge = getEmoneyStatusBadge(m.status);
+            const issuedAt = m.issued_at ? m.issued_at.substring(0, 10) : '-';
+
+            let actions = '';
+            if (m.status === 'AVAILABLE' || m.status === 'ACTIVE' || m.status === 'ASSIGNED') {
+                actions = `
+                    <select onchange="onEmoneyStatusSelectChanged(${m.id}, this.value)" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; border-radius: 0.4rem;">
+                        <option value="">Aksi Status...</option>
+                        <option value="ACTIVE">Aktifkan</option>
+                        <option value="SUSPENDED">Tangguhkan (Suspend)</option>
+                        <option value="RETURNED">Kembalikan (Return)</option>
+                        <option value="LOST">Laporkan Hilang (Lost)</option>
+                        <option value="REVOKED">Cabut Permanen</option>
+                    </select>
+                `;
+            } else {
+                actions = `<span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(m.status)}</span>`;
+            }
+
+            return `
+                <tr>
+                    <td style="font-weight: 700; color: #a855f7;">${escapeHtml(m.card_uuid)}</td>
+                    <td style="font-weight: 600; color: #fff;">${escapeHtml(m.provider)}</td>
+                    <td style="font-family: monospace; color: #fbbf24;">${escapeHtml(m.masked_card_number)}</td>
+                    <td>${empName}</td>
+                    <td>${statusBadge}</td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(issuedAt)}</td>
+                    <td style="text-align: right;">${actions}</td>
+                </tr>
+            `;
+        }).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat registri E-Money: ${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+function getAccessStatusBadge(status) {
+    switch (status) {
+        case 'PENDING_APPROVAL': return '<span class="badge" style="background: rgba(245,158,11,0.2); color: #fbbf24;">MENUNGGU PERSETUJUAN</span>';
+        case 'APPROVED': return '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">DISETUJUI</span>';
+        case 'PROVISIONING': return '<span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8;">PROVISIONING SYNC</span>';
+        case 'ACTIVE': return '<span class="badge" style="background: rgba(16,185,129,0.25); color: #10b981;">AKTIF</span>';
+        case 'REJECTED': return '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">DITOLAK</span>';
+        case 'REVOKED': return '<span class="badge" style="background: rgba(156,163,175,0.2); color: #9ca3af;">DICABUT</span>';
+        default: return `<span class="badge">${escapeHtml(status)}</span>`;
+    }
+}
+
+function getEmoneyStatusBadge(status) {
+    switch (status) {
+        case 'AVAILABLE': return '<span class="badge" style="background: rgba(56,189,248,0.2); color: #38bdf8;">TERSEDIA</span>';
+        case 'ASSIGNED': return '<span class="badge" style="background: rgba(245,158,11,0.2); color: #fbbf24;">DITETAPKAN</span>';
+        case 'ACTIVE': return '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">AKTIF</span>';
+        case 'SUSPENDED': return '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">DITANGGUHKAN</span>';
+        case 'LOST': return '<span class="badge" style="background: rgba(239,68,68,0.3); color: #f87171;">HILANG</span>';
+        case 'RETURNED': return '<span class="badge" style="background: rgba(156,163,175,0.2); color: #9ca3af;">DIKEMBALIKAN</span>';
+        case 'REVOKED': return '<span class="badge" style="background: rgba(156,163,175,0.3); color: #9ca3af;">DICABUT</span>';
+        default: return `<span class="badge">${escapeHtml(status)}</span>`;
+    }
+}
+
+// Populate Employee dropdown for access requests, credentials, and emoney
+async function populateAccessEmployees() {
+    try {
+        const res = await apiFetch('/api/v1/user-management/employees?per_page=100');
+        if (!res || !res.data) return;
+
+        const options = res.data.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id || e.nik || 'Staff')})</option>`).join('');
+
+        const reqSelect = document.getElementById('accessReqEmployeeId');
+        if (reqSelect) reqSelect.innerHTML = `<option value="">-- Pilih Karyawan Terdaftar --</option>` + options;
+
+        const crdSelect = document.getElementById('crdEmployeeId');
+        if (crdSelect) crdSelect.innerHTML = `<option value="">-- Pilih Karyawan --</option>` + options;
+
+        const emnSelect = document.getElementById('emnEmployeeId');
+        if (emnSelect) emnSelect.innerHTML = `<option value="">-- Tersedia / Belum Ditetapkan --</option>` + options;
+
+        // Also populate Profiles dropdown in Access Request modal
+        const profRes = await apiFetch('/api/v1/access/profiles');
+        if (profRes && profRes.success && profRes.data) {
+            const profOptions = profRes.data.map(p => `<option value="${p.id}">${escapeHtml(p.code)} - ${escapeHtml(p.name)}</option>`).join('');
+            const profSelect = document.getElementById('accessReqProfileId');
+            if (profSelect) profSelect.innerHTML = `<option value="">-- Pilih Profil Akses (Opsional) --</option>` + profOptions;
+        }
+    } catch (e) {
+        console.error('Failed to populate employees for access modules', e);
+    }
+}
+
+function openAddAccessRequestModal() {
+    const today = new Date().toISOString().split('T')[0];
+    const validFrom = document.getElementById('accessReqValidFrom');
+    if (validFrom) validFrom.value = today;
+    openModal('modalAddAccessRequest');
+}
+
+async function submitAccessRequest(e) {
+    e.preventDefault();
+    const payload = {
+        employee_id: document.getElementById('accessReqEmployeeId')?.value || null,
+        access_profile_id: document.getElementById('accessReqProfileId')?.value || null,
+        building_name: document.getElementById('accessReqBuilding')?.value || 'Kantor Pusat PKP',
+        valid_from: document.getElementById('accessReqValidFrom')?.value || null,
+        valid_until: document.getElementById('accessReqValidUntil')?.value || null,
+        business_reason: document.getElementById('accessReqReason')?.value || '',
+    };
+
+    try {
+        const res = await apiFetch('/api/v1/access/requests', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Permohonan hak akses berhasil diajukan', 'success');
+            closeModal('modalAddAccessRequest');
+            loadAccessData();
+        } else {
+            showToast(res?.message || 'Gagal mengajukan hak akses', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openApproveRequestModal(id) {
+    const input = document.getElementById('approveReqId');
+    if (input) input.value = id;
+    openModal('modalApproveAccessRequest');
+}
+
+async function submitApproveAccessRequest(e) {
+    e.preventDefault();
+    const id = document.getElementById('approveReqId')?.value;
+    const notes = document.getElementById('approveReqNotes')?.value || '';
+
+    try {
+        const res = await apiFetch(`/api/v1/access/requests/${id}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({ notes })
+        });
+
+        if (res && res.success) {
+            showToast('Permohonan hak akses disetujui & antrean sync telah dibuat', 'success');
+            closeModal('modalApproveAccessRequest');
+            loadAccessData();
+        } else {
+            showToast(res?.message || 'Gagal menyetujui permohonan', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openRejectRequestModal(id) {
+    const input = document.getElementById('rejectReqId');
+    if (input) input.value = id;
+    openModal('modalRejectAccessRequest');
+}
+
+async function submitRejectAccessRequest(e) {
+    e.preventDefault();
+    const id = document.getElementById('rejectReqId')?.value;
+    const reason = document.getElementById('rejectReqReason')?.value || '';
+
+    try {
+        const res = await apiFetch(`/api/v1/access/requests/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+
+        if (res && res.success) {
+            showToast('Permohonan hak akses ditolak', 'info');
+            closeModal('modalRejectAccessRequest');
+            loadAccessData();
+        } else {
+            showToast(res?.message || 'Gagal menolak permohonan', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openAddAccessProfileModal() {
+    openModal('modalAddAccessProfile');
+}
+
+async function submitAccessProfile(e) {
+    e.preventDefault();
+    const payload = {
+        code: document.getElementById('profCode')?.value || '',
+        name: document.getElementById('profName')?.value || '',
+        building_name: document.getElementById('profBuilding')?.value || 'Kantor Pusat PKP',
+        schedule_type: document.getElementById('profSchedule')?.value || 'BUSINESS_HOURS',
+        description: document.getElementById('profDescription')?.value || '',
+    };
+
+    try {
+        const res = await apiFetch('/api/v1/access/profiles', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Profil hak akses berhasil dibuat', 'success');
+            closeModal('modalAddAccessProfile');
+            loadAccessProfiles();
+            populateAccessEmployees();
+        } else {
+            showToast(res?.message || 'Gagal membuat profil hak akses', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openAddCredentialModal() {
+    openModal('modalAddCredential');
+}
+
+async function submitCredential(e) {
+    e.preventDefault();
+    const payload = {
+        employee_id: document.getElementById('crdEmployeeId')?.value || null,
+        credential_type: document.getElementById('crdType')?.value || 'CARD',
+        card_number: document.getElementById('crdCardNumber')?.value || null,
+        notes: document.getElementById('crdNotes')?.value || '',
+    };
+
+    try {
+        const res = await apiFetch('/api/v1/access/credentials', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Kredensial berhasil diterbitkan (Masked & Enkripsi Aman)', 'success');
+            closeModal('modalAddCredential');
+            loadCredentials();
+            loadAccessMetrics();
+        } else {
+            showToast(res?.message || 'Gagal menerbitkan kredensial', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openRevokeCredentialModal(id) {
+    const input = document.getElementById('revokeCrdId');
+    if (input) input.value = id;
+    openModal('modalRevokeCredential');
+}
+
+async function submitRevokeCredential(e) {
+    e.preventDefault();
+    const id = document.getElementById('revokeCrdId')?.value;
+    const reason = document.getElementById('revokeCrdReason')?.value || '';
+
+    try {
+        const res = await apiFetch(`/api/v1/access/credentials/${id}/revoke`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+
+        if (res && res.success) {
+            showToast('Kredensial dicabut & perintah pembatalan dijadwalkan ke terminal', 'info');
+            closeModal('modalRevokeCredential');
+            loadCredentials();
+            loadDeviceSyncs();
+            loadAccessMetrics();
+        } else {
+            showToast(res?.message || 'Gagal mencabut kredensial', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function retryDeviceSyncItem(id) {
+    try {
+        const res = await apiFetch(`/api/v1/access/device-syncs/${id}/retry`, {
+            method: 'POST'
+        });
+
+        if (res && res.success) {
+            showToast('Sinkronisasi perangkat berhasil diproses ulang', 'success');
+            loadDeviceSyncs();
+            loadAccessMetrics();
+        } else {
+            showToast(res?.message || 'Gagal memproses ulang sinkronisasi', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function openAddEmoneyModal() {
+    openModal('modalAddEmoney');
+}
+
+async function submitEmoneyCard(e) {
+    e.preventDefault();
+    const payload = {
+        employee_id: document.getElementById('emnEmployeeId')?.value || null,
+        provider: document.getElementById('emnProvider')?.value || 'MANDIRI_EMONEY',
+        card_number: document.getElementById('emnCardNumber')?.value || '',
+        notes: document.getElementById('emnNotes')?.value || '',
+    };
+
+    try {
+        const res = await apiFetch('/api/v1/access/emoney', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && res.success) {
+            showToast('Kartu E-Money berhasil didaftarkan dalam registri', 'success');
+            closeModal('modalAddEmoney');
+            loadEmoneyCards();
+            loadAccessMetrics();
+        } else {
+            showToast(res?.message || 'Gagal mendaftarkan kartu E-Money', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+async function onEmoneyStatusSelectChanged(id, newStatus) {
+    if (!newStatus) return;
+    if (!confirm(`Ubah status instrumen kartu E-Money ini menjadi ${newStatus}?`)) return;
+
+    try {
+        const res = await apiFetch(`/api/v1/access/emoney/${id}/status`, {
+            method: 'POST',
+            body: JSON.stringify({ status: newStatus })
+        });
+
+        if (res && res.success) {
+            showToast(`Status kartu E-Money diubah ke ${newStatus}`, 'success');
+            loadEmoneyCards();
+            loadAccessMetrics();
+        } else {
+            showToast(res?.message || 'Gagal memperbarui status', 'error');
+        }
+    } catch (err) {
+        showToast(err.message, 'error');
+    }
+}
+
+function debounceAccessRequestSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadAccessRequests, 350);
+}
+
+function debounceAccessProfileSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadAccessProfiles, 350);
+}
+
+function debounceCredentialSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadCredentials, 350);
+}
+
+function debounceEmoneySearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadEmoneyCards, 350);
 }

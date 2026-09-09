@@ -132,6 +132,40 @@ Route::prefix('v1')->group(function () {
             Route::post('/documents/{id}/acknowledge', [\App\Http\Controllers\Api\OnboardingController::class, 'acknowledgeDocument']);
         });
 
+        // Access Provisioning, Credential Center & E-Money (Sprint 6)
+        Route::prefix('access')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'metrics']);
+
+            // Profiles
+            Route::get('/profiles', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'profiles']);
+            Route::post('/profiles', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'storeProfile']);
+            Route::get('/profiles/{id}', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'showProfile']);
+            Route::put('/profiles/{id}', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'updateProfile']);
+
+            // Requests
+            Route::get('/requests', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'requests']);
+            Route::post('/requests', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'storeRequest']);
+            Route::get('/requests/{id}', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'showRequest']);
+            Route::post('/requests/{id}/approve', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'approveRequest']);
+            Route::post('/requests/{id}/reject', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'rejectRequest']);
+
+            // Credentials
+            Route::get('/credentials', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'credentials']);
+            Route::post('/credentials', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'storeCredential']);
+            Route::get('/credentials/{id}', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'showCredential']);
+            Route::post('/credentials/{id}/revoke', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'revokeCredential']);
+
+            // Device Sync Queue
+            Route::get('/device-syncs', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'deviceSyncs']);
+            Route::post('/device-syncs/{id}/retry', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'retryDeviceSync']);
+
+            // E-Money Cards (Admin-Only)
+            Route::get('/emoney', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'emoneyCards']);
+            Route::post('/emoney', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'storeEmoneyCard']);
+            Route::get('/emoney/{id}', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'showEmoneyCard']);
+            Route::post('/emoney/{id}/status', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'updateEmoneyStatus']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

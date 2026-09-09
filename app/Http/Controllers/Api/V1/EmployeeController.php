@@ -55,9 +55,50 @@ class EmployeeController extends Controller
     protected function findEmployeeByIdentifier($id): Employee { return Employee::where('id',$id)->orWhere('employee_id',$id)->firstOrFail(); }
     public function profile360(Request $request, $id)
     {
-        $employee = $this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position','supervisor','directReports','accessLogs']);
+        $employee = $this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position','supervisor','directReports','accessLogs','credentials.deviceSyncs.door','accessRequests.accessProfile','emoneyCards']);
         $this->authorize('view', $employee);
-        return response()->json(['status'=>'success','data'=>['employee'=>new EmployeeResource($employee),'overview'=>['employment_status'=>$employee->employment_status,'employment_type'=>$employee->employment_type,'hire_date'=>$employee->hire_date?->toDateString()],'organization'=>['building'=>$employee->building?->only(['id','code','name']),'division'=>$employee->division?->only(['id','code','name']),'position'=>$employee->position?->only(['id','code','name']),'supervisor'=>$employee->supervisor?->only(['id','employee_id','name'])],'direct_reports'=>$employee->directReports->map(fn($report)=>$report->only(['id','employee_id','name','employment_status'])),'access'=>['assigned_doors'=>$employee->doors->map(fn($door)=>['door_id'=>$door->door_id,'name'=>$door->name])],'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]]]);
+
+        $actor = $request->user();
+        $isTechOnly = in_array(strtolower((string)$actor?->role), ['developer', 'devops', 'infra_admin'], true) && !$actor?->isSuperAdmin();
+
+        $credentialsData = [];
+        if (!$isTechOnly) {
+            $credentialsData = $employee->credentials->map(fn($c) => [
+                'id' => $c->id,
+                'credential_number' => $c->credential_number,
+                'credential_type' => $c->credential_type,
+                'masked_identifier' => $c->masked_identifier,
+                'biometric_status' => $c->biometric_status,
+                'status' => $c->status,
+                'issued_at' => $c->issued_at?->toIso8601String(),
+                'sync_count' => $c->deviceSyncs->count(),
+            ]);
+        }
+
+        $emoneySummary = [];
+        if (!$isTechOnly && ($actor?->isSuperAdmin() || strtolower((string)$actor?->role) === 'hrd' || $actor?->id === $employee->id)) {
+            $emoneySummary = $employee->emoneyCards->map(fn($e) => [
+                'id' => $e->id,
+                'card_uuid' => $e->card_uuid,
+                'provider' => $e->provider,
+                'masked_card_number' => $e->masked_card_number,
+                'status' => $e->status,
+            ]);
+        }
+
+        return response()->json(['status'=>'success','data'=>[
+            'employee'=>new EmployeeResource($employee),
+            'overview'=>['employment_status'=>$employee->employment_status,'employment_type'=>$employee->employment_type,'hire_date'=>$employee->hire_date?->toDateString()],
+            'organization'=>['building'=>$employee->building?->only(['id','code','name']),'division'=>$employee->division?->only(['id','code','name']),'position'=>$employee->position?->only(['id','code','name']),'supervisor'=>$employee->supervisor?->only(['id','employee_id','name'])],
+            'direct_reports'=>$employee->directReports->map(fn($report)=>$report->only(['id','employee_id','name','employment_status'])),
+            'access'=>[
+                'assigned_doors'=>$employee->doors->map(fn($door)=>['door_id'=>$door->door_id,'name'=>$door->name]),
+                'access_requests'=>$employee->accessRequests->map(fn($req)=>['request_number'=>$req->request_number,'profile'=>$req->accessProfile?->name,'status'=>$req->status,'valid_from'=>$req->valid_from?->toDateString(),'valid_until'=>$req->valid_until?->toDateString()]),
+            ],
+            'credentials'=>$credentialsData,
+            'emoney_summary'=>$emoneySummary,
+            'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]
+        ]]);
     }
     public function show($id) { $employee=$this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position']); $this->authorize('view',$employee); return response()->json(['status'=>'success','data'=>new EmployeeResource($employee)]); }
 
@@ -66,11 +107,14 @@ class EmployeeController extends Controller
         $employee=$this->findEmployeeByIdentifier($id)->load('biometricStatus'); $this->authorize('update',$employee);
         $values=$request->safe()->only(self::EMPLOYEE_FIELDS); $employee->update($values);
         if ($employee->biometricStatus) { $employee->biometricStatus->update(['has_fingerprint'=>$request->has('fingerprint_enrolled')?(bool)$request->fingerprint_enrolled:$employee->biometricStatus->has_fingerprint,'fingerprint_enrolled'=>$request->has('fingerprint_enrolled')?(bool)$request->fingerprint_enrolled:$employee->biometricStatus->fingerprint_enrolled,'card_enrolled'=>$request->has('card_enrolled')?(bool)$request->card_enrolled:$employee->biometricStatus->card_enrolled]); }
+        if (in_array(strtoupper((string)$employee->employment_status), ['INACTIVE', 'RESIGNED', 'TERMINATED'], true)) {
+            app(\App\Services\AccessProvisioningService::class)->revokeEmployeeAccess($employee, 'Status karyawan diubah ke ' . $employee->employment_status, $request->user());
+        }
         $this->audit($request,'update_employee',$employee,'Updated employee master record');
         return response()->json(['status'=>'success','message'=>'Data karyawan berhasil diperbarui','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position']))]);
     }
 
-    public function destroy(Request $request, $id) { $employee=$this->findEmployeeByIdentifier($id); $this->authorize('delete',$employee); $employee->update(['employment_status'=>'INACTIVE']); $this->audit($request,'deactivate_employee',$employee,'Marked employee inactive; historical access logs preserved'); return response()->json(['status'=>'success','message'=>'Karyawan dinonaktifkan; riwayat akses tetap tersimpan.']); }
+    public function destroy(Request $request, $id) { $employee=$this->findEmployeeByIdentifier($id); $this->authorize('delete',$employee); $employee->update(['employment_status'=>'INACTIVE']); app(\App\Services\AccessProvisioningService::class)->revokeEmployeeAccess($employee, 'Karyawan dinonaktifkan', $request->user()); $this->audit($request,'deactivate_employee',$employee,'Marked employee inactive; historical access logs preserved'); return response()->json(['status'=>'success','message'=>'Karyawan dinonaktifkan; riwayat akses tetap tersimpan.']); }
 
     public function assignDoorAccess(AssignDoorAccessRequest $request, $id) { $employee=$this->findEmployeeByIdentifier($id); $door=Door::where('door_id',$request->door_id)->orWhere('id',$request->door_id)->firstOrFail(); $this->authorize('assignDoor',[$employee,$door]); $assignment=DoorAssignment::updateOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>0]); SyncDoorAccessJob::dispatch($assignment->id); $this->audit($request,'assign_door_access',$employee,"Assigned door {$door->door_id}"); return response()->json(['status'=>'success','message'=>"Hak akses {$door->door_name} berhasil diberikan. Sinkronisasi ke perangkat sedang diproses.",'data'=>['employee_id'=>$employee->employee_id,'door_id'=>$door->door_id,'sync_status'=>$assignment->sync_status]]); }
     public function revokeDoorAccess(Request $request,$id,$door_id) { $employee=$this->findEmployeeByIdentifier($id); $door=Door::where('door_id',$door_id)->orWhere('id',$door_id)->firstOrFail(); $this->authorize('assignDoor',[$employee,$door]); DoorAssignment::where('employee_id',$employee->id)->where('door_id',$door->id)->delete(); $this->audit($request,'revoke_door_access',$employee,"Revoked door {$door->door_id}"); return response()->json(['status'=>'success','message'=>"Hak akses {$door->door_name} berhasil dicabut."]); }

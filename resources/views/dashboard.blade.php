@@ -1386,6 +1386,9 @@
         @if(in_array('onboarding.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Onboarding & Kontrak" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding & Dokumen</span></button></li>
         @endif
+        @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Akses & Kredensial" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Akses & Kredensial</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -2547,6 +2550,246 @@
         </div>
     </section>
 
+    <!-- SECTION 10: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY REGISTRY (SPRINT 6) -->
+    <section class="tab-content" id="accessTab">
+        <!-- Header & Action -->
+        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+            <div class="toolbar-left">
+                <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
+                    <span>🔑</span> Provisi Hak Akses, Kredensial & Registri E-Money
+                </h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Pusat manajemen hak akses pintu fisik enterprise, registri kartu RFID, monitoring status biometrik terenkripsi, antrean sinkronisasi ISAPI, dan inventaris instrumen E-Money.
+                </div>
+            </div>
+            <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial disinkronkan', 'info');">
+                    🔄 Refresh
+                </button>
+                <button class="btn-primary" onclick="openAddAccessRequestModal()">
+                    + Ajukan Permintaan Akses
+                </button>
+                <button class="btn-secondary" onclick="openAddAccessProfileModal()">
+                    + Buat Profil Akses
+                </button>
+                <button class="btn-secondary" onclick="openAddEmoneyModal()">
+                    + Registrasi E-Money
+                </button>
+            </div>
+        </div>
+
+        <!-- 4 KPI Metrics -->
+        <div class="metrics-grid" style="margin-bottom: 2rem;">
+            <div class="metric-card">
+                <div class="metric-icon-box icon-yellow">⏳</div>
+                <div>
+                    <div class="metric-label">Permintaan Akses Menunggu</div>
+                    <div class="metric-value" id="metricPendingAccessRequests">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-green">🛡️</div>
+                <div>
+                    <div class="metric-label">Kredensial Aktif Terbit</div>
+                    <div class="metric-value" id="metricActiveCredentials">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-blue">⚡</div>
+                <div>
+                    <div class="metric-label">Antrean Sinkronisasi ISAPI</div>
+                    <div class="metric-value" id="metricPendingDeviceSyncs">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-purple">💳</div>
+                <div>
+                    <div class="metric-label">Kartu E-Money Terdaftar</div>
+                    <div class="metric-value" id="metricTotalEmoneyCards">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sub-Navigation Pills -->
+        <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; overflow-x: auto;">
+            <button class="subnav-btn active" onclick="switchAccessSubTab('requests', this)">🔑 Permintaan Hak Akses</button>
+            <button class="subnav-btn" onclick="switchAccessSubTab('profiles', this)">🛡️ Profil Akses Pintu</button>
+            <button class="subnav-btn" onclick="switchAccessSubTab('credentials', this)">💳 Credential Center</button>
+            <button class="subnav-btn" onclick="switchAccessSubTab('syncs', this)">⚡ Antrean Perangkat ISAPI</button>
+            <button class="subnav-btn" onclick="switchAccessSubTab('emoney', this)">🏧 Registri E-Money (Admin)</button>
+        </div>
+
+        <!-- SUB-TAB 1: PERMINTAAN HAK AKSES -->
+        <div id="accessSubRequests" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="accessRequestSearch" placeholder="Cari nomor permohonan / nama..." oninput="debounceAccessRequestSearch()" style="width: 250px;">
+                        <select id="accessRequestStatusFilter" onchange="loadAccessRequests()" style="width: 170px;">
+                            <option value="">Semua Status</option>
+                            <option value="PENDING_APPROVAL">PENDING_APPROVAL</option>
+                            <option value="PROVISIONING">PROVISIONING</option>
+                            <option value="APPROVED">APPROVED</option>
+                            <option value="ACTIVE">ACTIVE</option>
+                            <option value="REJECTED">REJECTED</option>
+                            <option value="REVOKED">REVOKED</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nomor Permohonan</th>
+                            <th>Pemohon / Karyawan</th>
+                            <th>Profil Hak Akses</th>
+                            <th>Gedung Operasional</th>
+                            <th>Masa Berlaku</th>
+                            <th>Status Approval</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accessRequestsTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat permohonan akses...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 2: PROFIL HAK AKSES -->
+        <div id="accessSubProfiles" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="accessProfileSearch" placeholder="Cari kode profil / nama..." oninput="debounceAccessProfileSearch()" style="width: 250px;">
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Kode Profil</th>
+                            <th>Nama Profil Akses</th>
+                            <th>Gedung</th>
+                            <th>Jadwal / Jam Kerja</th>
+                            <th>Pintu Terotorisasi</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="accessProfilesTableBody">
+                        <tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat profil hak akses...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 3: CREDENTIAL CENTER -->
+        <div id="accessSubCredentials" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="credentialSearch" placeholder="Cari nomor kredensial / identitas..." oninput="debounceCredentialSearch()" style="width: 260px;">
+                        <select id="credentialTypeFilter" onchange="loadCredentials()" style="width: 170px;">
+                            <option value="">Semua Tipe</option>
+                            <option value="CARD">RFID Smart Card</option>
+                            <option value="FINGERPRINT_STATUS">Status Sidik Jari</option>
+                            <option value="FACE_STATUS">Status Wajah Biometrik</option>
+                            <option value="QR">QR Code Dinamis</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openAddCredentialModal()">+ Terbitkan Kredensial Baru</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Kredensial</th>
+                            <th>Pemilik Identitas</th>
+                            <th>Tipe Instrumen</th>
+                            <th>Pengenal Terenkripsi (Masked)</th>
+                            <th>Status Biometrik</th>
+                            <th>Status Kredensial</th>
+                            <th>Tgl Terbit</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="credentialsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat data kredensial...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 4: ANTREAN PERANGKAT ISAPI -->
+        <div id="accessSubSyncs" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <select id="deviceSyncStatusFilter" onchange="loadDeviceSyncs()" style="width: 180px;">
+                            <option value="">Semua Status Antrean</option>
+                            <option value="QUEUED">QUEUED</option>
+                            <option value="PROCESSING">PROCESSING</option>
+                            <option value="SUCCESS">SUCCESS</option>
+                            <option value="FAILED">FAILED</option>
+                            <option value="RETRY_PENDING">RETRY_PENDING</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Terminal Pintu</th>
+                            <th>Operasi Hardware</th>
+                            <th>Kredensial Terkait</th>
+                            <th>Status Job</th>
+                            <th>Percobaan</th>
+                            <th>Idempotency Key</th>
+                            <th>Waktu Sinkron</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="deviceSyncsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat antrean sinkronisasi perangkat...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 5: REGISTRI E-MONEY (ADMIN-ONLY) -->
+        <div id="accessSubEmoney" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="emoneySearch" placeholder="Cari UUID / nomor kartu..." oninput="debounceEmoneySearch()" style="width: 250px;">
+                        <select id="emoneyProviderFilter" onchange="loadEmoneyCards()" style="width: 180px;">
+                            <option value="">Semua Provider</option>
+                            <option value="MANDIRI_EMONEY">Mandiri e-Money</option>
+                            <option value="BCA_FLAZZ">BCA Flazz</option>
+                            <option value="BNI_TAPCASH">BNI TapCash</option>
+                            <option value="BRI_BRIZZI">BRI Brizzi</option>
+                            <option value="JAKCARD">JakCard</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>UUID Kartu</th>
+                            <th>Penerbit / Provider</th>
+                            <th>Nomor Kartu (Masked)</th>
+                            <th>Pemegang Kartu</th>
+                            <th>Status Instrumen</th>
+                            <th>Tgl Penerbitan</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="emoneyTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data registri E-Money...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
 <!-- MODAL 1: DOOR ASSIGNMENT MODAL -->
 <div class="modal-overlay" id="doorAssignModal">
     <div class="modal-card">
@@ -3692,7 +3935,255 @@
             </div>
         </form>
     </div>
+<!-- SPRINT 6 MODALS: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY -->
+
+<!-- MODAL: AJUKAN PERMINTAAN HAK AKSES -->
+<div class="modal-overlay" id="modalAddAccessRequest">
+    <div class="modal-card" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🔑 Pengajuan Hak Akses Pintu Fisik</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddAccessRequest')">✖</button>
+        </div>
+        <form id="formAddAccessRequest" onsubmit="submitAccessRequest(event)">
+            <div class="form-row">
+                <label>Karyawan Pemohon / Penerima Hak Akses</label>
+                <select id="accessReqEmployeeId" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                    <option value="">-- Pilih Karyawan Terdaftar --</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Profil Hak Akses Reusable</label>
+                <select id="accessReqProfileId" onchange="onAccessProfileSelected()" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                    <option value="">-- Pilih Profil Akses (Opsional) --</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Gedung Operasional</label>
+                    <input type="text" id="accessReqBuilding" value="Kantor Pusat PKP" required>
+                </div>
+                <div class="form-row">
+                    <label>Berlaku Mulai</label>
+                    <input type="date" id="accessReqValidFrom" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Berlaku Hingga (Kosongkan jika Permanen)</label>
+                <input type="date" id="accessReqValidUntil">
+            </div>
+            <div class="form-row">
+                <label>Alasan Bisnis / Justifikasi Kebutuhan Akses</label>
+                <textarea id="accessReqReason" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Keperluan operasional harian..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddAccessRequest')">Batal</button>
+                <button type="submit" class="btn-primary">Kirim Permohonan Akses</button>
+            </div>
+        </form>
+    </div>
 </div>
+
+<!-- MODAL: APPROVE PERMINTAAN AKSES -->
+<div class="modal-overlay" id="modalApproveAccessRequest">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">✓ Setujui Permohonan Hak Akses</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalApproveAccessRequest')">✖</button>
+        </div>
+        <form id="formApproveAccessRequest" onsubmit="submitApproveAccessRequest(event)">
+            <input type="hidden" id="approveReqId">
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                Persetujuan akan memicu pembuatan kredensial otomatis dan menjadwalkan sinkronisasi hardware terminal secara asinkron.
+            </p>
+            <div class="form-row">
+                <label>Catatan Persetujuan (Opsional)</label>
+                <textarea id="approveReqNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Disetujui untuk penugasan operasional..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalApproveAccessRequest')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #10b981; border-color: #059669;">Setujui & Jadwalkan Sync</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: REJECT PERMINTAAN AKSES -->
+<div class="modal-overlay" id="modalRejectAccessRequest">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">✕ Tolak Permohonan Hak Akses</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalRejectAccessRequest')">✖</button>
+        </div>
+        <form id="formRejectAccessRequest" onsubmit="submitRejectAccessRequest(event)">
+            <input type="hidden" id="rejectReqId">
+            <div class="form-row">
+                <label>Alasan Penolakan</label>
+                <textarea id="rejectReqReason" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Alasan penolakan pengajuan..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalRejectAccessRequest')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Tolak Permohonan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: BUAT PROFIL AKSES BARU -->
+<div class="modal-overlay" id="modalAddAccessProfile">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🛡️ Tambah Profil Hak Akses</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddAccessProfile')">✖</button>
+        </div>
+        <form id="formAddAccessProfile" onsubmit="submitAccessProfile(event)">
+            <div class="form-row">
+                <label>Kode Profil (Singkat & Unik)</label>
+                <input type="text" id="profCode" placeholder="contoh: ENG_RND_ROOM" style="text-transform: uppercase;" required>
+            </div>
+            <div class="form-row">
+                <label>Nama Profil Akses</label>
+                <input type="text" id="profName" placeholder="Akses Lab R&D dan Hardware Engineering" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Gedung</label>
+                    <input type="text" id="profBuilding" value="Kantor Pusat PKP" required>
+                </div>
+                <div class="form-row">
+                    <label>Jadwal Akses</label>
+                    <select id="profSchedule">
+                        <option value="BUSINESS_HOURS">Jam Kerja Reguler (08:00 - 18:00)</option>
+                        <option value="ALL_DAY">24 Jam Penuh (All-Day)</option>
+                        <option value="CUSTOM_WINDOW">Jadwal Khusus</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Deskripsi</label>
+                <textarea id="profDescription" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Deskripsi peruntukan akses..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddAccessProfile')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Profil Akses</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: TERBITKAN KREDENSIAL BARU -->
+<div class="modal-overlay" id="modalAddCredential">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">💳 Terbitkan Kredensial Akses</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddCredential')">✖</button>
+        </div>
+        <form id="formAddCredential" onsubmit="submitCredential(event)">
+            <div style="background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; color: #38bdf8;">
+                🔒 <strong>Prinsip Keamanan:</strong> Sistem hanya menyimpan status pendaftaran & identifikasi aman terenkripsi (Masked). Tidak ada template mentah biometrik yang disimpan pada server.
+            </div>
+            <div class="form-row">
+                <label>Karyawan Terkait</label>
+                <select id="crdEmployeeId" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                    <option value="">-- Pilih Karyawan --</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tipe Kredensial</label>
+                    <select id="crdType" required>
+                        <option value="CARD">RFID Smart Card</option>
+                        <option value="FINGERPRINT_STATUS">Status Sidik Jari</option>
+                        <option value="FACE_STATUS">Status Wajah Biometrik</option>
+                        <option value="QR">QR Code Dinamis</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Nomor Fisik Kartu / ID</label>
+                    <input type="text" id="crdCardNumber" placeholder="contoh: 1234567890">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Catatan Tambahan</label>
+                <textarea id="crdNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Catatan penerbitan kredensial..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddCredential')">Batal</button>
+                <button type="submit" class="btn-primary">Terbitkan Kredensial</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: CABUT KREDENSIAL -->
+<div class="modal-overlay" id="modalRevokeCredential">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🚫 Cabut Kredensial Akses</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalRevokeCredential')">✖</button>
+        </div>
+        <form id="formRevokeCredential" onsubmit="submitRevokeCredential(event)">
+            <input type="hidden" id="revokeCrdId">
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                Pencabutan kredensial akan mengubah status menjadi REVOKED dan secara otomatis menjadwalkan pencabutan akses di seluruh terminal pintu ISAPI.
+            </p>
+            <div class="form-row">
+                <label>Alasan Pencabutan Kredensial</label>
+                <textarea id="revokeCrdReason" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Kartu hilang / karyawan nonaktif / pergantian kartu..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalRevokeCredential')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Cabut Kredensial</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: REGISTRASI E-MONEY -->
+<div class="modal-overlay" id="modalAddEmoney">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🏧 Registrasi Kartu E-Money (Admin)</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddEmoney')">✖</button>
+        </div>
+        <form id="formAddEmoney" onsubmit="submitEmoneyCard(event)">
+            <div style="background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 1rem; font-size: 0.8rem; color: #fbbf24;">
+                🛡️ <strong>Kerahasiaan Finansial:</strong> Hanya diperuntukkan untuk mencatat instrumen kartu fisik perusahaan. Dilarang menyimpan PIN, CVV, atau credential pembayaran perbankan.
+            </div>
+            <div class="form-row">
+                <label>Pemegang Kartu (Karyawan)</label>
+                <select id="emnEmployeeId" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                    <option value="">-- Tersedia / Belum Ditetapkan --</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Penerbit / Provider</label>
+                    <select id="emnProvider" required>
+                        <option value="MANDIRI_EMONEY">Mandiri e-Money</option>
+                        <option value="BCA_FLAZZ">BCA Flazz</option>
+                        <option value="BNI_TAPCASH">BNI TapCash</option>
+                        <option value="BRI_BRIZZI">BRI Brizzi</option>
+                        <option value="JAKCARD">JakCard</option>
+                        <option value="OTHER">Lainnya</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Nomor Kartu (Min 8 Digit)</label>
+                    <input type="text" id="emnCardNumber" placeholder="contoh: 603212345678" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Catatan Penggunaan</label>
+                <textarea id="emnNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Operasional dinas, tiket parkir kantor..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddEmoney')">Batal</button>
+                <button type="submit" class="btn-primary">Daftarkan Kartu</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {

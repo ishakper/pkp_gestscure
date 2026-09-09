@@ -103,4 +103,19 @@ class Employee extends Model
     {
         return $this->hasMany(DocumentAcknowledgement::class);
     }
+
+    public function accessRequests()
+    {
+        return $this->hasMany(AccessRequest::class);
+    }
+
+    public function credentials()
+    {
+        return $this->hasMany(CredentialRecord::class);
+    }
+
+    public function emoneyCards()
+    {
+        return $this->hasMany(EmoneyCard::class);
+    }
 }

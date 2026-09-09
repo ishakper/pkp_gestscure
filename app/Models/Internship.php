@@ -103,4 +103,19 @@ class Internship extends Model
     {
         return $this->hasMany(EmployeeDocument::class, 'internship_id');
     }
+
+    public function accessRequests(): HasMany
+    {
+        return $this->hasMany(AccessRequest::class, 'internship_id');
+    }
+
+    public function credentials(): HasMany
+    {
+        return $this->hasMany(CredentialRecord::class, 'internship_id');
+    }
+
+    public function emoneyCards(): HasMany
+    {
+        return $this->hasMany(EmoneyCard::class, 'internship_id');
+    }
 }
