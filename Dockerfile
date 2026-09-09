@@ -20,6 +20,7 @@ RUN apk add --no-cache \
     oniguruma-dev \
     sqlite-dev \
     sqlite \
+    postgresql-dev \
     bash \
     tzdata \
     && cp /usr/share/zoneinfo/${TZ} /etc/localtime \
@@ -29,6 +30,7 @@ RUN apk add --no-cache \
 RUN docker-php-ext-install \
     pdo \
     pdo_sqlite \
+    pdo_pgsql \
     bcmath \
     mbstring \
     xml \

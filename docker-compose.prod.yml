@@ -1,0 +1,98 @@
+# ==============================================================================
+# PKP SecureGate - Production Docker Compose Configuration
+# ==============================================================================
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Ensure .env or host environment provides all required credentials before running.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: pkp-securegate:production
+    container_name: pkp_securegate_prod
+    restart: always
+    ports:
+      - "${APP_PORT:-8080}:80"
+    environment:
+      - APP_NAME=${APP_NAME:-PKP Secure}
+      - APP_ENV=production
+      - APP_DEBUG=false
+      - APP_KEY=${APP_KEY}
+      - APP_URL=${APP_URL:-http://localhost:8080}
+      - APP_TIMEZONE=Asia/Jakarta
+      - HIKVISION_LISTENER_IP=${HIKVISION_LISTENER_IP:-192.168.90.64}
+      - HIKVISION_LISTENER_PORT=${HIKVISION_LISTENER_PORT:-8080}
+      - LOG_CHANNEL=stack
+      - LOG_LEVEL=info
+      - DB_CONNECTION=${DB_CONNECTION:-sqlite}
+      - DB_DATABASE=${DB_DATABASE:-/var/www/html/database/database.sqlite}
+      - DB_HOST=${DB_HOST:-}
+      - DB_PORT=${DB_PORT:-}
+      - DB_USERNAME=${DB_USERNAME:-}
+      - DB_PASSWORD=${DB_PASSWORD:-}
+      - BROADCAST_DRIVER=log
+      - CACHE_DRIVER=file
+      - FILESYSTEM_DISK=local
+      - QUEUE_CONNECTION=database
+      - SESSION_DRIVER=file
+      - SESSION_LIFETIME=120
+      - HIKVISION_MOCK_MODE=false
+      - HIKVISION_ISAPI_USE_MOCK=false
+      - DOOR_A_IP=${DOOR_A_IP:-}
+      - DOOR_A_GATEWAY=${DOOR_A_GATEWAY:-}
+      - DOOR_A_USER=${DOOR_A_USER:-}
+      - DOOR_A_PASS=${DOOR_A_PASS:-}
+      - DOOR_A_WEBHOOK_SECRET=${DOOR_A_WEBHOOK_SECRET:-}
+      - DOOR_B_IP=${DOOR_B_IP:-}
+      - DOOR_B_GATEWAY=${DOOR_B_GATEWAY:-}
+      - DOOR_B_USER=${DOOR_B_USER:-}
+      - DOOR_B_PASS=${DOOR_B_PASS:-}
+      - DOOR_B_WEBHOOK_SECRET=${DOOR_B_WEBHOOK_SECRET:-}
+      - DOOR_C_IP=${DOOR_C_IP:-}
+      - DOOR_C_GATEWAY=${DOOR_C_GATEWAY:-}
+      - DOOR_C_USER=${DOOR_C_USER:-}
+      - DOOR_C_PASS=${DOOR_C_PASS:-}
+      - DOOR_C_WEBHOOK_SECRET=${DOOR_C_WEBHOOK_SECRET:-}
+      - DOOR_D_IP=${DOOR_D_IP:-}
+      - DOOR_D_GATEWAY=${DOOR_D_GATEWAY:-}
+      - DOOR_D_USER=${DOOR_D_USER:-}
+      - DOOR_D_PASS=${DOOR_D_PASS:-}
+      - DOOR_D_WEBHOOK_SECRET=${DOOR_D_WEBHOOK_SECRET:-}
+      - ALLOWED_DEVICE_IPS=${ALLOWED_DEVICE_IPS:-192.168.90.15,172.25.0.1}
+      - HIKVISION_ISAPI_HOST=${HIKVISION_ISAPI_HOST:-192.168.90.11}
+      - HIKVISION_ISAPI_PORT=${HIKVISION_ISAPI_PORT:-80}
+      - HIKVISION_ISAPI_USERNAME=${HIKVISION_ISAPI_USERNAME:-admin}
+      - HIKVISION_ISAPI_PASSWORD=${HIKVISION_ISAPI_PASSWORD:-}
+      - HIKVISION_ISAPI_MOCK_BASE_URL=
+      - ISAPI_DEVICE_SECRET=${ISAPI_DEVICE_SECRET:-}
+      - ISAPI_CONNECT_TIMEOUT=${ISAPI_CONNECT_TIMEOUT:-5}
+      - ISAPI_REQUEST_TIMEOUT=${ISAPI_REQUEST_TIMEOUT:-10}
+    volumes:
+      # Persistent SQLite database folder (if using SQLite)
+      - securegate_database:/var/www/html/database
+      # Persistent logs & uploaded storage
+      - securegate_logs:/var/www/html/storage/logs
+      - securegate_app_storage:/var/www/html/storage/app
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - securegate-prod-net
+
+volumes:
+  securegate_database:
+    driver: local
+  securegate_logs:
+    driver: local
+  securegate_app_storage:
+    driver: local
+
+networks:
+  securegate-prod-net:
+    driver: bridge
