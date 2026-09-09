@@ -33,6 +33,19 @@
         <env name="DOOR_C_WEBHOOK_SECRET" value="secret_door_c_9983"/>
         <env name="DOOR_D_WEBHOOK_SECRET" value="secret_door_d_9984"/>
         <env name="ISAPI_DEVICE_SECRET" value="secret_simulator_key_2026"/>
+        <env name="HIKVISION_MOCK_MODE" value="true"/>
+        <env name="HIKVISION_ISAPI_USE_MOCK" value="true"/>
+        <env name="HIKVISION_ISAPI_MOCK_BASE_URL" value="http://localhost:8000/api/mock/isapi"/>
+        <env name="HIKVISION_ISAPI_USERNAME" value="test_admin"/>
+        <env name="HIKVISION_ISAPI_PASSWORD" value="test_password_isapi"/>
+        <env name="DOOR_A_USER" value="test_admin"/>
+        <env name="DOOR_A_PASS" value="test_password_door_a"/>
+        <env name="DOOR_B_USER" value="test_admin"/>
+        <env name="DOOR_B_PASS" value="test_password_door_b"/>
+        <env name="DOOR_C_USER" value="test_admin"/>
+        <env name="DOOR_C_PASS" value="test_password_door_c"/>
+        <env name="DOOR_D_USER" value="test_admin"/>
+        <env name="DOOR_D_PASS" value="test_password_door_d"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
     </php>
 </phpunit>
