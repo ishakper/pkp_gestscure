@@ -7,7 +7,7 @@ Status per 2026-09-09.
 | 0 | Repository, module, RBAC audit | PASS |
 | 1 | Role architecture and portal navigation foundation | PASS |
 | 2 | Organization, Employee Master, Employee 360 | PASS |
-| 3 | Recruitment / ATS | NOT_STARTED |
+| 3 | Recruitment / ATS | IN_PROGRESS |
 | 4 | Internship | NOT_STARTED |
 | 5 | Onboarding, contracts, documents | NOT_STARTED |
 | 6 | Access provisioning, credentials, e-money | NOT_STARTED |
@@ -20,6 +20,21 @@ Status per 2026-09-09.
 Sprint 1 maps legacy `super_admin` to ADMIN_PORTAL and `building_admin` to MANAGEMENT_PORTAL while preserving building scope. Future employee/intern identities require a first-class authenticated employee account before self-service access is enabled.
 
 Sprint 1 validation: portal mapping and legacy building scope regression passed (77 tests, 383 assertions). Commit SHA: `30c210082547ee705eca0c2abfa5fb62f5336622`.
-Next: Sprint 3 Recruitment / ATS.
 
-Sprint 2: Employee 360, reporting line, scoped authorization, and audit regression. Validation: 85 tests / 409 assertions. Limitation: SQLITE_REBUILD_BEFORE_COUNT = NOT_CAPTURED; future operational table migrations MUST record before_count and after_count.
+Sprint 2: Employee 360, reporting line, scoped authorization, and audit regression.
+- SPRINT_2: PASS
+- FINAL_COMMIT_SHA: `0c48f7f11c747344263bd53f4ac041f8f23176ee`
+- FINAL_PIPELINE_ID: 17717
+- FINAL_TEST_COUNT: 85 tests
+- FINAL_ASSERTION_COUNT: 409 assertions
+- GITLAB_VALIDATE: PASS
+- GITLAB_BUILD: PASS
+- GITLAB_TEST: PASS
+- GITLAB_SECURITY: PASS
+- DEPLOYMENT_STATUS: DEFERRED_WITH_EVIDENCE (Office target infrastructure 192.168.90.81 offline; manual job gated)
+- SECRET_HYGIENE: PASS
+- CREDENTIAL_ROTATION_RECOMMENDED: YES
+- REPOSITORY_SYNC: PASS
+- Known limitation: SQLITE_REBUILD_BEFORE_COUNT = NOT_CAPTURED; future operational table migrations MUST record before_count and after_count.
+
+Next: Sprint 3 Recruitment / ATS (In Progress).
