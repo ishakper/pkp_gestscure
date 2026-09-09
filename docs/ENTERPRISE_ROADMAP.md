@@ -9,7 +9,7 @@ Status per 2026-09-09.
 | 2 | Organization, Employee Master, Employee 360 | PASS |
 | 3 | Recruitment / ATS | PASS |
 | 4 | Internship | PASS |
-| 5 | Onboarding, contracts, documents | NOT_STARTED |
+| 5 | Onboarding, contracts, documents | PASS |
 | 6 | Access provisioning, credentials, e-money | NOT_STARTED |
 | 7 | Assets | NOT_STARTED |
 | 8-12 | Calendar, attendance, field attendance, requests, overtime | NOT_STARTED |
@@ -64,5 +64,20 @@ Sprint 4: Internship Management, Programs, Mentor Scoping, Daily Activity Worklo
 - REPOSITORY_SYNC: PASS
 - DATABASE_SAFETY: Row preservation verified (BEFORE_COUNT == AFTER_COUNT)
 
-Next: Sprint 5 Onboarding, Contracts, Documents.
+Sprint 5: Onboarding Cases, 10-Task Standard Checklist, Completion Gate, Contract Lifecycle, Private HR Document Storage, Strict Document RBAC/IDOR Prevention, Versioning, Acknowledgements, and Expiring Alerts.
+- SPRINT_5: PASS
+- FINAL_COMMIT_SHA: `a6445e4a`
+- FINAL_PIPELINE_ID: 17724
+- FINAL_TEST_COUNT: 108 tests (106 passed, 2 warnings)
+- FINAL_ASSERTION_COUNT: 576 assertions
+- GITLAB_VALIDATE: PASS (composer & php -l syntax validation)
+- GITLAB_BUILD: PASS (Docker container built & tagged)
+- GITLAB_TEST: PASS (PHPUnit suite in runner container)
+- GITLAB_SECURITY: PASS (Clean secret hygiene and config checks)
+- DEPLOYMENT_STATUS: DEFERRED_WITH_EVIDENCE (Office infrastructure 192.168.90.81 offline; manual rule maintained)
+- REPOSITORY_SYNC: PASS
+- DATABASE_SAFETY: Row preservation verified (BEFORE_COUNT == AFTER_COUNT)
+
+Next: Sprint 6 Access Provisioning + Credential Center.
+
 
