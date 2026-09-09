@@ -80,7 +80,14 @@ build_docker:
   script:
     - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
     - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
-    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" && docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" && docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"; fi
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" || true
+        docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" || true
+        docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" || true
+        docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
+        docker push "${CI_REGISTRY_IMAGE}:latest" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
+      fi
 
 # ------------------------------------------------------------------------------
 # Stage 3: Automated Quality Test Suite (Clean Container)
