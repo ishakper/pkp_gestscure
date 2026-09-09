@@ -91,6 +91,27 @@ Route::prefix('v1')->group(function () {
             Route::post('/applications/{id}/convert-to-employee', [\App\Http\Controllers\Api\RecruitmentController::class, 'convertToEmployee']);
         });
 
+        // Internship Management API (Sprint 4)
+        Route::prefix('internships')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\InternshipController::class, 'metrics']);
+            Route::get('/', [\App\Http\Controllers\Api\InternshipController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\InternshipController::class, 'store']);
+            Route::post('/convert-candidate', [\App\Http\Controllers\Api\InternshipController::class, 'convertCandidate']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\InternshipController::class, 'show']);
+            Route::put('/{id}', [\App\Http\Controllers\Api\InternshipController::class, 'update']);
+            Route::post('/{id}/assign-mentor', [\App\Http\Controllers\Api\InternshipController::class, 'assignMentor']);
+            Route::post('/{id}/activate', [\App\Http\Controllers\Api\InternshipController::class, 'activate']);
+            Route::post('/{id}/complete', [\App\Http\Controllers\Api\InternshipController::class, 'complete']);
+            Route::get('/{id}/activities', [\App\Http\Controllers\Api\InternshipController::class, 'activities']);
+            Route::post('/{id}/activities', [\App\Http\Controllers\Api\InternshipController::class, 'storeActivity']);
+            Route::put('/activities/{activityId}/review', [\App\Http\Controllers\Api\InternshipController::class, 'reviewActivity']);
+            Route::get('/{id}/reports', [\App\Http\Controllers\Api\InternshipController::class, 'reports']);
+            Route::post('/{id}/reports', [\App\Http\Controllers\Api\InternshipController::class, 'storeReport']);
+            Route::put('/reports/{reportId}/review', [\App\Http\Controllers\Api\InternshipController::class, 'reviewReport']);
+            Route::get('/{id}/evaluations', [\App\Http\Controllers\Api\InternshipController::class, 'evaluations']);
+            Route::post('/{id}/evaluations', [\App\Http\Controllers\Api\InternshipController::class, 'storeEvaluation']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

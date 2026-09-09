@@ -1116,6 +1116,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
+    if (tabId === 'internshipTab') loadInternshipData();
 }
 
 // ==========================================
@@ -2075,5 +2076,759 @@ async function submitConvertToEmployee(e) {
         }
     } catch (err) {
         showToast(`Gagal mengangkat karyawan: ${err.message}`, 'error');
+    }
+}
+
+// ==========================================
+// Section 8: Internship Management Controller
+// ==========================================
+state.internship = {
+    activePill: 'interns',
+    internships: [],
+    activities: [],
+    reports: [],
+    evaluations: [],
+    mentors: [],
+    candidates: [],
+    searchDebounce: null,
+};
+
+function switchInternPill(pillName, btn) {
+    document.querySelectorAll('#internshipTab .ats-nav-pill').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('#internshipTab .ats-sub-content').forEach(el => el.classList.remove('active'));
+
+    if (btn) {
+        btn.classList.add('active');
+    } else {
+        const defaultBtn = document.getElementById(`pillIntern${pillName.charAt(0).toUpperCase() + pillName.slice(1)}`);
+        if (defaultBtn) defaultBtn.classList.add('active');
+    }
+
+    const subTarget = document.getElementById(`internSub${pillName.charAt(0).toUpperCase() + pillName.slice(1)}`);
+    if (subTarget) subTarget.classList.add('active');
+
+    state.internship.activePill = pillName;
+
+    if (pillName === 'interns') loadInternships();
+    if (pillName === 'activities') loadInternActivities();
+    if (pillName === 'reports') loadInternReports();
+    if (pillName === 'evaluations') loadInternEvaluations();
+}
+
+async function loadInternshipData() {
+    await Promise.allSettled([
+        loadInternMetrics(),
+        loadInternLookups(),
+    ]);
+
+    if (state.internship.activePill === 'interns') loadInternships();
+    else if (state.internship.activePill === 'activities') loadInternActivities();
+    else if (state.internship.activePill === 'reports') loadInternReports();
+    else if (state.internship.activePill === 'evaluations') loadInternEvaluations();
+}
+
+async function loadInternLookups() {
+    try {
+        const [empRes, candRes] = await Promise.allSettled([
+            apiFetch('/user-management/users?per_page=100'),
+            apiFetch('/recruitment/candidates')
+        ]);
+
+        if (empRes.status === 'fulfilled' && empRes.value?.status === 'success') {
+            state.internship.mentors = (empRes.value.data || []).map(u => ({
+                id: u.id,
+                name: u.name,
+                role: u.role || u.role_jabatan || 'Employee'
+            }));
+        }
+
+        if (candRes.status === 'fulfilled' && candRes.value?.status === 'success') {
+            state.internship.candidates = candRes.value.data || [];
+        }
+    } catch (err) {
+        console.warn('Internship lookups error:', err);
+    }
+}
+
+async function loadInternMetrics() {
+    try {
+        const res = await apiFetch('/internships/metrics');
+        if (res.status === 'success' && res.data) {
+            const m = res.data;
+            const elActive = document.getElementById('internMetricActive');
+            const elPending = document.getElementById('internMetricPendingReports');
+            const elCompleted = document.getElementById('internMetricCompleted');
+            const elActivities = document.getElementById('internMetricTotalActivities');
+
+            if (elActive) elActive.textContent = m.active_interns ?? 0;
+            if (elPending) elPending.textContent = m.pending_reports ?? 0;
+            if (elCompleted) elCompleted.textContent = m.completed_interns ?? 0;
+            if (elActivities) elActivities.textContent = m.total_activities ?? 0;
+        }
+    } catch (err) {
+        console.warn('Gagal memuat metrik magang:', err);
+    }
+}
+
+// Sub-Tab 1: Daftar Pemagang
+async function loadInternships() {
+    const tbody = document.getElementById('internsTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('searchInternships')?.value.trim() || '';
+    const status = document.getElementById('filterInternshipStatus')?.value || '';
+
+    tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat daftar pemagang...</td></tr>`;
+
+    try {
+        let url = '/internships';
+        const params = [];
+        if (search) params.push(`search=${encodeURIComponent(search)}`);
+        if (status) params.push(`status=${encodeURIComponent(status)}`);
+        if (params.length > 0) url += `?${params.join('&')}`;
+
+        const res = await apiFetch(url);
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-td">Tidak ada data pemagang ditemukan. Klik "+ Tambah Pemagang" atau konversi dari pelamar.</td></tr>`;
+            return;
+        }
+
+        state.internship.internships = res.data;
+
+        tbody.innerHTML = res.data.map(intn => {
+            const emp = intn.employee || {};
+            const mentor = intn.mentor || {};
+            const internName = emp.name || intn.candidate?.full_name || 'Pemagang';
+            const statusClass = intn.status === 'ACTIVE' ? 'badge-active' : (intn.status === 'COMPLETED' ? 'badge-info' : 'badge-danger');
+
+            return `
+                <tr>
+                    <td>
+                        <span style="font-family: monospace; font-weight: 700; color: var(--primary);">${escapeHtml(intn.intern_id)}</span>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(internName)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(emp.email || intn.candidate?.email || '-')} ${emp.phone ? '• ' + escapeHtml(emp.phone) : ''}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #e2e8f0;">${escapeHtml(intn.institution)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(intn.major)} (${escapeHtml(intn.education_level || 'S1')})</div>
+                    </td>
+                    <td>
+                        <div style="color: #cbd5e1;">${escapeHtml(intn.position_title || 'Intern')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(intn.division?.name || 'Seluruh Divisi')}</div>
+                    </td>
+                    <td>
+                        <div style="color: #a5b4fc; font-weight: 600;">${escapeHtml(mentor.name || 'Belum Ditugaskan')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(mentor.role || '')}</div>
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        ${escapeHtml(intn.start_date || '')} s/d ${escapeHtml(intn.end_date || '')}
+                    </td>
+                    <td>
+                        <span class="badge ${statusClass}">${escapeHtml(intn.status)}</span>
+                    </td>
+                    <td style="text-align: right;">
+                        <div style="display: flex; gap: 0.4rem; justify-content: flex-end; flex-wrap: wrap;">
+                            <button class="btn-action" title="Catat Aktivitas Harian" onclick="openLogActivityModal(${intn.id}, '${escapeHtml(internName)}')">
+                                📝 Log
+                            </button>
+                            <button class="btn-action" title="Ajukan Laporan Magang" onclick="openSubmitReportModal(${intn.id}, '${escapeHtml(internName)}')">
+                                📑 Laporan
+                            </button>
+                            <button class="btn-action" title="Lembar Evaluasi" onclick="openSubmitEvaluationModal(${intn.id}, '${escapeHtml(internName)}')">
+                                ⭐ Nilai
+                            </button>
+                            ${intn.status === 'ACTIVE' ? `
+                            <button class="btn-action" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border-color: rgba(16, 185, 129, 0.4);" title="Selesaikan Magang & Cetak Sertifikat" onclick="openCompleteInternshipModal(${intn.id}, '${escapeHtml(internName)}')">
+                                ✓ Lulus
+                            </button>
+                            ` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat pemagang: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Sub-Tab 2: Logbook Aktivitas Harian
+async function loadInternActivities() {
+    const tbody = document.getElementById('internActivitiesTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat aktivitas harian...</td></tr>`;
+
+    try {
+        if (!state.internship.internships.length) {
+            const resInt = await apiFetch('/internships');
+            if (resInt.status === 'success') state.internship.internships = resInt.data || [];
+        }
+
+        const allActivities = [];
+        for (const intn of state.internship.internships.slice(0, 10)) {
+            const actRes = await apiFetch(`/internships/${intn.id}/activities`);
+            if (actRes.status === 'success' && Array.isArray(actRes.data)) {
+                actRes.data.forEach(a => {
+                    a.intern_name = intn.employee?.name || intn.candidate?.full_name || intn.intern_id;
+                    allActivities.push(a);
+                });
+            }
+        }
+
+        if (allActivities.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="empty-td">Belum ada aktivitas harian yang dicatat. Klik "+ Catat Aktivitas Harian".</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = allActivities.map(act => {
+            const statusClass = act.status === 'REVIEWED' ? 'badge-active' : (act.status === 'REJECTED' ? 'badge-danger' : 'badge-warning');
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(act.activity_date)}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(act.start_time || '08:30')} - ${escapeHtml(act.end_time || '17:00')}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #a5b4fc;">${escapeHtml(act.intern_name)}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 700; color: #ffffff;">${escapeHtml(act.title)}</div>
+                        <div style="font-size: 0.8rem; color: #cbd5e1; margin-top: 2px;">${escapeHtml(act.description)}</div>
+                    </td>
+                    <td>
+                        <span style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(act.project_task_ref || '-')}</span>
+                    </td>
+                    <td style="text-align: center; font-weight: 700; color: #38bdf8;">
+                        ${act.progress_percent}%
+                    </td>
+                    <td>
+                        <span class="badge ${statusClass}">${escapeHtml(act.status)}</span>
+                    </td>
+                    <td>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(act.mentor_notes || 'Belum diverifikasi')}</div>
+                    </td>
+                    <td style="text-align: right;">
+                        ${act.status === 'SUBMITTED' ? `
+                            <button class="btn-action" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.4);" onclick="openReviewActivityModal(${act.id})">
+                                🔍 Verifikasi
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat aktivitas: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Sub-Tab 3: Laporan Bulanan & Akhir
+async function loadInternReports() {
+    const tbody = document.getElementById('internReportsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat laporan magang...</td></tr>`;
+
+    try {
+        if (!state.internship.internships.length) {
+            const resInt = await apiFetch('/internships');
+            if (resInt.status === 'success') state.internship.internships = resInt.data || [];
+        }
+
+        const allReports = [];
+        for (const intn of state.internship.internships.slice(0, 10)) {
+            const repRes = await apiFetch(`/internships/${intn.id}/reports`);
+            if (repRes.status === 'success' && Array.isArray(repRes.data)) {
+                repRes.data.forEach(r => {
+                    r.intern_name = intn.employee?.name || intn.candidate?.full_name || intn.intern_id;
+                    allReports.push(r);
+                });
+            }
+        }
+
+        if (allReports.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="empty-td">Belum ada laporan magang yang diajukan.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = allReports.map(rep => {
+            const statusClass = rep.status === 'APPROVED' ? 'badge-active' : (rep.status === 'REVISION_REQUIRED' ? 'badge-danger' : 'badge-warning');
+
+            return `
+                <tr>
+                    <td>
+                        <span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; font-weight: 700;">${escapeHtml(rep.report_type)}</span>
+                        <div style="font-size: 0.775rem; color: var(--text-muted); margin-top: 3px;">Periode: ${escapeHtml(rep.period_month || '-')}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(rep.intern_name)}</div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 700; color: #ffffff;">${escapeHtml(rep.title)}</div>
+                    </td>
+                    <td>
+                        <div style="font-size: 0.8rem; color: #cbd5e1;">${escapeHtml(rep.summary)}</div>
+                    </td>
+                    <td>
+                        <span class="badge ${statusClass}">${escapeHtml(rep.status)}</span>
+                    </td>
+                    <td>
+                        <div style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(rep.mentor_notes || 'Menunggu peninjauan mentor')}</div>
+                    </td>
+                    <td style="text-align: right;">
+                        ${rep.status === 'SUBMITTED' ? `
+                            <button class="btn-action" style="background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border-color: rgba(99, 102, 241, 0.4);" onclick="openReviewReportModal(${rep.id})">
+                                🔍 Review
+                            </button>
+                        ` : ''}
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat laporan: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+// Sub-Tab 4: Evaluasi & Penilaian
+async function loadInternEvaluations() {
+    const tbody = document.getElementById('internEvaluationsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat evaluasi magang...</td></tr>`;
+
+    try {
+        if (!state.internship.internships.length) {
+            const resInt = await apiFetch('/internships');
+            if (resInt.status === 'success') state.internship.internships = resInt.data || [];
+        }
+
+        const allEvaluations = [];
+        for (const intn of state.internship.internships.slice(0, 10)) {
+            const evalRes = await apiFetch(`/internships/${intn.id}/evaluations`);
+            if (evalRes.status === 'success' && Array.isArray(evalRes.data)) {
+                evalRes.data.forEach(e => {
+                    e.intern_name = intn.employee?.name || intn.candidate?.full_name || intn.intern_id;
+                    allEvaluations.push(e);
+                });
+            }
+        }
+
+        if (allEvaluations.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" class="empty-td">Belum ada evaluasi nilai yang dicatat.</td></tr>`;
+            return;
+        }
+
+        tbody.innerHTML = allEvaluations.map(ev => {
+            const score = parseFloat(ev.average_score || 0);
+            const scoreBadge = score >= 85 ? 'badge-active' : (score >= 70 ? 'badge-info' : 'badge-warning');
+
+            return `
+                <tr>
+                    <td>
+                        <div style="font-weight: 600; color: #ffffff;">${escapeHtml(ev.intern_name)}</div>
+                    </td>
+                    <td>
+                        <span class="badge" style="background: rgba(168, 85, 247, 0.2); color: #c084fc;">${escapeHtml(ev.evaluation_type)}</span>
+                    </td>
+                    <td>
+                        <div style="color: #cbd5e1;">${escapeHtml(ev.evaluator_name || 'Pembimbing')}</div>
+                        <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(ev.evaluator_role || 'Mentor')}</div>
+                    </td>
+                    <td>
+                        <span class="badge ${scoreBadge}" style="font-size: 0.9rem; font-weight: 700;">${score}/100</span>
+                    </td>
+                    <td>
+                        <span style="font-weight: 700; color: ${ev.final_recommendation === 'HIRE_AS_EMPLOYEE' ? '#10b981' : '#fbbf24'};">
+                            ${escapeHtml(ev.final_recommendation)}
+                        </span>
+                    </td>
+                    <td style="font-size: 0.8rem; color: var(--text-muted);">
+                        ${escapeHtml(ev.evaluated_at || '')}
+                    </td>
+                    <td style="text-align: right;">
+                        <span style="color: var(--text-muted); font-size: 0.8rem;">Tercatat</span>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat evaluasi: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function debounceInternshipsSearch() {
+    clearTimeout(state.internship.searchDebounce);
+    state.internship.searchDebounce = setTimeout(loadInternships, 300);
+}
+
+// Modal 1: Tambah Pemagang Langsung
+function openAddInternshipModal() {
+    const divSelect = document.getElementById('intDivisionId');
+    const mentorSelect = document.getElementById('intMentorId');
+
+    if (divSelect && state.organization?.divisions) {
+        divSelect.innerHTML = '<option value="">Pilih Divisi</option>' +
+            state.organization.divisions.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    }
+
+    if (mentorSelect && state.internship.mentors) {
+        mentorSelect.innerHTML = '<option value="">Pilih Mentor</option>' +
+            state.internship.mentors.map(m => `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(m.role)})</option>`).join('');
+    }
+
+    const now = new Date();
+    const end = new Date();
+    end.setMonth(end.getMonth() + 3);
+
+    const sEl = document.getElementById('intStartDate');
+    const eEl = document.getElementById('intEndDate');
+    if (sEl) sEl.value = now.toISOString().slice(0, 10);
+    if (eEl) eEl.value = end.toISOString().slice(0, 10);
+
+    const modal = document.getElementById('modalAddInternship');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInternship(e) {
+    e.preventDefault();
+    const payload = {
+        institution: document.getElementById('intInstitution')?.value.trim(),
+        major: document.getElementById('intMajor')?.value.trim(),
+        education_level: document.getElementById('intEducationLevel')?.value,
+        semester: parseInt(document.getElementById('intSemester')?.value || 6),
+        position_title: document.getElementById('intPositionTitle')?.value.trim() || 'Intern',
+        start_date: document.getElementById('intStartDate')?.value,
+        end_date: document.getElementById('intEndDate')?.value,
+        division_id: document.getElementById('intDivisionId')?.value || null,
+        mentor_id: document.getElementById('intMentorId')?.value || null,
+        campus_supervisor_name: document.getElementById('intCampusSupervisor')?.value.trim() || null,
+        campus_supervisor_contact: document.getElementById('intCampusContact')?.value.trim() || null,
+        project_assignment: document.getElementById('intProjectAssignment')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/internships', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Program magang baru berhasil didaftarkan!', 'success');
+            closeModal('modalAddInternship');
+            document.getElementById('formAddInternship')?.reset();
+            await Promise.all([loadInternships(), loadInternMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mendaftarkan magang: ${err.message}`, 'error');
+    }
+}
+
+// Modal 2: Konversi Kandidat ke Magang
+async function openConvertCandidateModal() {
+    await loadInternLookups();
+
+    const candSelect = document.getElementById('convCandidateId');
+    const divSelect = document.getElementById('convDivisionId');
+    const mentorSelect = document.getElementById('convMentorId');
+
+    if (candSelect && state.internship.candidates) {
+        candSelect.innerHTML = '<option value="">-- Pilih Pelamar/Kandidat --</option>' +
+            state.internship.candidates.map(c => {
+                const name = `${c.first_name || ''} ${c.last_name || ''}`.trim();
+                return `<option value="${c.id}">${escapeHtml(name)} (${escapeHtml(c.candidate_no || '')})</option>`;
+            }).join('');
+    }
+
+    if (divSelect && state.organization?.divisions) {
+        divSelect.innerHTML = '<option value="">Pilih Divisi</option>' +
+            state.organization.divisions.map(d => `<option value="${d.id}">${escapeHtml(d.name)}</option>`).join('');
+    }
+
+    if (mentorSelect && state.internship.mentors) {
+        mentorSelect.innerHTML = '<option value="">Pilih Mentor</option>' +
+            state.internship.mentors.map(m => `<option value="${m.id}">${escapeHtml(m.name)} (${escapeHtml(m.role)})</option>`).join('');
+    }
+
+    const now = new Date();
+    const end = new Date();
+    end.setMonth(end.getMonth() + 3);
+
+    const sEl = document.getElementById('convStartDate');
+    const eEl = document.getElementById('convEndDate');
+    if (sEl) sEl.value = now.toISOString().slice(0, 10);
+    if (eEl) eEl.value = end.toISOString().slice(0, 10);
+
+    const modal = document.getElementById('modalConvertCandidateToIntern');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitConvertCandidateToIntern(e) {
+    e.preventDefault();
+    const payload = {
+        candidate_id: document.getElementById('convCandidateId')?.value,
+        institution: document.getElementById('convInstitution')?.value.trim(),
+        major: document.getElementById('convMajor')?.value.trim(),
+        start_date: document.getElementById('convStartDate')?.value,
+        end_date: document.getElementById('convEndDate')?.value,
+        division_id: document.getElementById('convDivisionId')?.value || null,
+        mentor_id: document.getElementById('convMentorId')?.value || null,
+        position_title: document.getElementById('convPositionTitle')?.value.trim() || 'Intern',
+    };
+
+    try {
+        const res = await apiFetch('/internships/convert-candidate', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Kandidat berhasil dikonversi menjadi Pemagang resmi!', 'success');
+            closeModal('modalConvertCandidateToIntern');
+            document.getElementById('formConvertCandidateToIntern')?.reset();
+            await Promise.all([loadInternships(), loadInternMetrics(), loadEmployees()]);
+        }
+    } catch (err) {
+        showToast(`Gagal konversi magang: ${err.message}`, 'error');
+    }
+}
+
+// Modal 3: Catat Logbook Aktivitas
+function openLogActivityModal(internshipId, internName) {
+    if (!internshipId && state.internship.internships.length) {
+        internshipId = state.internship.internships[0].id;
+        internName = state.internship.internships[0].employee?.name || 'Pemagang';
+    }
+
+    document.getElementById('actInternshipId').value = internshipId || '';
+    const nameEl = document.getElementById('actInternName');
+    if (nameEl) nameEl.textContent = internName || 'Pemagang';
+
+    const dEl = document.getElementById('actDate');
+    if (dEl) dEl.value = new Date().toISOString().slice(0, 10);
+
+    const modal = document.getElementById('modalLogInternActivity');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInternActivity(e) {
+    e.preventDefault();
+    const intId = document.getElementById('actInternshipId')?.value;
+    const payload = {
+        activity_date: document.getElementById('actDate')?.value,
+        start_time: document.getElementById('actStartTime')?.value || '08:30',
+        end_time: document.getElementById('actEndTime')?.value || '17:00',
+        title: document.getElementById('actTitle')?.value.trim(),
+        description: document.getElementById('actDescription')?.value.trim(),
+        project_task_ref: document.getElementById('actProjectRef')?.value.trim() || null,
+        progress_percent: parseInt(document.getElementById('actProgress')?.value || 100),
+    };
+
+    try {
+        const res = await apiFetch(`/internships/${intId}/activities`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Logbook aktivitas harian berhasil dicatat!', 'success');
+            closeModal('modalLogInternActivity');
+            document.getElementById('formLogInternActivity')?.reset();
+            await Promise.all([loadInternActivities(), loadInternMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mencatat logbook: ${err.message}`, 'error');
+    }
+}
+
+// Modal 4: Review Logbook
+function openReviewActivityModal(activityId) {
+    document.getElementById('revActivityId').value = activityId;
+    const modal = document.getElementById('modalReviewInternActivity');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitReviewInternActivity(e) {
+    e.preventDefault();
+    const actId = document.getElementById('revActivityId')?.value;
+    const payload = {
+        status: document.getElementById('revActivityStatus')?.value,
+        mentor_notes: document.getElementById('revActivityNotes')?.value.trim(),
+    };
+
+    try {
+        const res = await apiFetch(`/internships/activities/${actId}/review`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Verifikasi aktivitas harian berhasil disimpan!', 'success');
+            closeModal('modalReviewInternActivity');
+            document.getElementById('formReviewInternActivity')?.reset();
+            await loadInternActivities();
+        }
+    } catch (err) {
+        showToast(`Gagal verifikasi aktivitas: ${err.message}`, 'error');
+    }
+}
+
+// Modal 5: Ajukan Laporan
+function openSubmitReportModal(internshipId, internName) {
+    if (!internshipId && state.internship.internships.length) {
+        internshipId = state.internship.internships[0].id;
+        internName = state.internship.internships[0].employee?.name || 'Pemagang';
+    }
+
+    document.getElementById('repInternshipId').value = internshipId || '';
+    const nameEl = document.getElementById('repInternName');
+    if (nameEl) nameEl.textContent = internName || 'Pemagang';
+
+    const pEl = document.getElementById('repPeriodMonth');
+    if (pEl) pEl.value = new Date().toISOString().slice(0, 7);
+
+    const modal = document.getElementById('modalSubmitInternReport');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInternReport(e) {
+    e.preventDefault();
+    const intId = document.getElementById('repInternshipId')?.value;
+    const payload = {
+        report_type: document.getElementById('repType')?.value,
+        period_month: document.getElementById('repPeriodMonth')?.value,
+        title: document.getElementById('repTitle')?.value.trim(),
+        summary: document.getElementById('repSummary')?.value.trim(),
+        achievements: document.getElementById('repAchievements')?.value.trim() || null,
+        issues_and_blockers: document.getElementById('repBlockers')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch(`/internships/${intId}/reports`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Laporan magang berhasil diajukan!', 'success');
+            closeModal('modalSubmitInternReport');
+            document.getElementById('formSubmitInternReport')?.reset();
+            await Promise.all([loadInternReports(), loadInternMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mengajukan laporan: ${err.message}`, 'error');
+    }
+}
+
+// Modal 6: Review Laporan
+function openReviewReportModal(reportId) {
+    document.getElementById('revReportId').value = reportId;
+    const modal = document.getElementById('modalReviewInternReport');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitReviewInternReport(e) {
+    e.preventDefault();
+    const repId = document.getElementById('revReportId')?.value;
+    const payload = {
+        status: document.getElementById('revReportStatus')?.value,
+        mentor_notes: document.getElementById('revReportNotes')?.value.trim(),
+    };
+
+    try {
+        const res = await apiFetch(`/internships/reports/${repId}/review`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Keputusan review laporan berhasil disimpan!', 'success');
+            closeModal('modalReviewInternReport');
+            document.getElementById('formReviewInternReport')?.reset();
+            await Promise.all([loadInternReports(), loadInternMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal mereview laporan: ${err.message}`, 'error');
+    }
+}
+
+// Modal 7: Evaluasi & Penilaian
+function openSubmitEvaluationModal(internshipId, internName) {
+    if (!internshipId && state.internship.internships.length) {
+        internshipId = state.internship.internships[0].id;
+        internName = state.internship.internships[0].employee?.name || 'Pemagang';
+    }
+
+    document.getElementById('evalInternshipId').value = internshipId || '';
+    const nameEl = document.getElementById('evalInternName');
+    if (nameEl) nameEl.textContent = internName || 'Pemagang';
+
+    const modal = document.getElementById('modalSubmitInternEvaluation');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveInternEvaluation(e) {
+    e.preventDefault();
+    const intId = document.getElementById('evalInternshipId')?.value;
+    const payload = {
+        evaluation_type: document.getElementById('evalType')?.value,
+        discipline_score: parseInt(document.getElementById('evalDiscipline')?.value || 80),
+        communication_score: parseInt(document.getElementById('evalCommunication')?.value || 80),
+        technical_score: parseInt(document.getElementById('evalTechnical')?.value || 80),
+        initiative_score: parseInt(document.getElementById('evalInitiative')?.value || 80),
+        teamwork_score: parseInt(document.getElementById('evalTeamwork')?.value || 80),
+        attendance_score: parseInt(document.getElementById('evalAttendance')?.value || 80),
+        task_completion_score: parseInt(document.getElementById('evalTaskCompletion')?.value || 80),
+        professionalism_score: parseInt(document.getElementById('evalProfessionalism')?.value || 80),
+        strengths: document.getElementById('evalStrengths')?.value.trim() || null,
+        improvements: document.getElementById('evalImprovements')?.value.trim() || null,
+        final_recommendation: document.getElementById('evalRecommendation')?.value,
+    };
+
+    try {
+        const res = await apiFetch(`/internships/${intId}/evaluations`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Lembar evaluasi magang berhasil disimpan!', 'success');
+            closeModal('modalSubmitInternEvaluation');
+            document.getElementById('formSubmitInternEvaluation')?.reset();
+            await loadInternEvaluations();
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan evaluasi: ${err.message}`, 'error');
+    }
+}
+
+// Modal 8: Selesaikan Magang
+function openCompleteInternshipModal(internshipId, internName) {
+    document.getElementById('compInternshipId').value = internshipId;
+    const nameEl = document.getElementById('compInternName');
+    if (nameEl) nameEl.textContent = internName;
+
+    const modal = document.getElementById('modalCompleteInternship');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitCompleteInternship(e) {
+    e.preventDefault();
+    const intId = document.getElementById('compInternshipId')?.value;
+    const payload = {
+        certificate_no: document.getElementById('compCertificateNo')?.value.trim() || null,
+        completion_notes: document.getElementById('compNotes')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch(`/internships/${intId}/complete`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+        if (res.status === 'success') {
+            showToast('Program magang berhasil diselesaikan dengan predikat kelulusan!', 'success');
+            closeModal('modalCompleteInternship');
+            document.getElementById('formCompleteInternship')?.reset();
+            await Promise.all([loadInternships(), loadInternMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal menyelesaikan magang: ${err.message}`, 'error');
     }
 }

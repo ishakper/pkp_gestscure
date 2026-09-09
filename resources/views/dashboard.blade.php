@@ -1380,6 +1380,9 @@
         @if(in_array('recruitment.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Recruitment & ATS" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment / ATS</span></button></li>
         @endif
+        @if(in_array('internship.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Internship & Mentorship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship / Magang</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -2123,6 +2126,210 @@
         </div>
     </section>
 
+    <!-- TAB: INTERNSHIP MANAGEMENT -->
+    <section id="internshipTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">🎓 Internship & Student Mentorship Management</h2>
+                <div class="section-desc">Pusat tata kelola program magang PKP SecureGate: penugasan mentor, verifikasi logbook harian, laporan bulanan, evaluasi berkala, dan sertifikasi kelulusan.</div>
+            </div>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadInternshipData(); showToast('Memperbarui data magang...', 'info');">
+                    🔄 Refresh Data
+                </button>
+                <button class="btn-primary" onclick="openAddInternshipModal()">
+                    + Tambah Pemagang
+                </button>
+                <button class="btn-action" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);" onclick="openConvertCandidateModal()">
+                    👥 Konversi dari Pelamar
+                </button>
+            </div>
+        </div>
+
+        <!-- Internship Metrics Grid -->
+        <div class="metrics-grid" style="margin-bottom: 2rem;">
+            <div class="metric-card">
+                <div class="metric-icon-box icon-blue">🎓</div>
+                <div>
+                    <div class="metric-label">Pemagang Aktif</div>
+                    <div class="metric-value" id="internMetricActive">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box" style="background: rgba(245, 158, 11, 0.15); color: #f59e0b;">📑</div>
+                <div>
+                    <div class="metric-label">Menunggu Review Laporan</div>
+                    <div class="metric-value" id="internMetricPendingReports">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-green">✓</div>
+                <div>
+                    <div class="metric-label">Program Selesai</div>
+                    <div class="metric-value" id="internMetricCompleted">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-indigo">📝</div>
+                <div>
+                    <div class="metric-label">Total Log Aktivitas</div>
+                    <div class="metric-value" id="internMetricTotalActivities">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Internship Sub-Navigation Pills -->
+        <div class="ats-nav-pills">
+            <button class="ats-nav-pill active" id="pillInterns" onclick="switchInternPill('interns', this)">
+                👥 Program & Daftar Pemagang
+            </button>
+            <button class="ats-nav-pill" id="pillInternActivities" onclick="switchInternPill('activities', this)">
+                📝 Logbook Aktivitas Harian
+            </button>
+            <button class="ats-nav-pill" id="pillInternReports" onclick="switchInternPill('reports', this)">
+                📑 Laporan Bulanan & Akhir
+            </button>
+            <button class="ats-nav-pill" id="pillInternEvaluations" onclick="switchInternPill('evaluations', this)">
+                ⭐ Evaluasi & Penilaian
+            </button>
+        </div>
+
+        <!-- SUB-TAB 1: DAFTAR PEMAGANG -->
+        <div id="internSubInterns" class="ats-sub-content active">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div class="search-box">
+                            <span>🔍</span>
+                            <input type="text" id="searchInternships" placeholder="Cari nama, institusi, jurusan..." onkeyup="debounceInternshipsSearch()">
+                        </div>
+                        <div class="search-box">
+                            <span>🏷️</span>
+                            <select id="filterInternshipStatus" onchange="loadInternships()">
+                                <option value="">Semua Status</option>
+                                <option value="ACTIVE" selected>Aktif (ACTIVE)</option>
+                                <option value="PENDING">Menunggu (PENDING)</option>
+                                <option value="COMPLETED">Selesai (COMPLETED)</option>
+                                <option value="SUSPENDED">Ditangguhkan (SUSPENDED)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openAddInternshipModal()">+ Tambah Pemagang</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Magang</th>
+                            <th>Nama & Kontak</th>
+                            <th>Institusi & Jurusan</th>
+                            <th>Divisi & Posisi</th>
+                            <th>Mentor Perusahaan</th>
+                            <th>Periode Magang</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="internsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat daftar pemagang...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 2: LOGBOOK AKTIVITAS HARIAN -->
+        <div id="internSubActivities" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: #ffffff;">📝 Logbook Aktivitas Pemagang</div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openLogActivityModal()">+ Catat Aktivitas Harian</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tanggal & Waktu</th>
+                            <th>Pemagang</th>
+                            <th>Judul Aktivitas & Deskripsi</th>
+                            <th>Tugas Proyek</th>
+                            <th>Progres</th>
+                            <th>Status</th>
+                            <th>Catatan Mentor</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="internActivitiesTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat aktivitas harian...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 3: LAPORAN BULANAN & AKHIR -->
+        <div id="internSubReports" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: #ffffff;">📑 Laporan Bulanan & Laporan Akhir Magang</div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openSubmitReportModal()">+ Ajukan Laporan</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Tipe & Periode</th>
+                            <th>Pemagang</th>
+                            <th>Judul Laporan</th>
+                            <th>Ringkasan & Capaian</th>
+                            <th>Status</th>
+                            <th>Catatan Mentor</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="internReportsTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat laporan magang...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 4: EVALUASI & PENILAIAN -->
+        <div id="internSubEvaluations" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div style="font-weight: 600; font-size: 0.9rem; color: #ffffff;">⭐ Evaluasi & Lembar Penilaian Magang</div>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openSubmitEvaluationModal()">+ Beri Evaluasi</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Pemagang</th>
+                            <th>Tipe Evaluasi</th>
+                            <th>Penilai & Role</th>
+                            <th>Nilai Rata-rata</th>
+                            <th>Rekomendasi</th>
+                            <th>Tanggal Evaluasi</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="internEvaluationsTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data evaluasi...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
 </main>
 
 <!-- MODAL 1: DOOR ASSIGNMENT MODAL -->
@@ -2578,6 +2785,417 @@
                 <button type="button" class="btn-secondary" onclick="closeModal('modalConvertToEmployee')">Batal</button>
                 <button type="submit" class="btn-primary" style="background: #10b981; border-color: #059669;">
                     ✓ Konfirmasi Pengangkatan Karyawan
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ========================================== -->
+<!-- INTERNSHIP MANAGEMENT MODALS (SPRINT 4)   -->
+<!-- ========================================== -->
+
+<!-- INTERNSHIP MODAL 1: TAMBAH PEMAGANG BARU -->
+<div class="modal-overlay" id="modalAddInternship">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🎓 Pendaftaran Program Magang Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddInternship')">✖</button>
+        </div>
+        <form id="formAddInternship" onsubmit="saveInternship(event)">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Institusi / Kampus / Sekolah</label>
+                    <input type="text" id="intInstitution" placeholder="Contoh: Institut Teknologi Bandung" required>
+                </div>
+                <div class="form-row">
+                    <label>Jurusan / Program Studi</label>
+                    <input type="text" id="intMajor" placeholder="Contoh: Teknik Informatika" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Jenjang Pendidikan</label>
+                    <select id="intEducationLevel">
+                        <option value="S1" selected>S1 / Sarjana</option>
+                        <option value="D3">D3 / Diploma</option>
+                        <option value="SMK">SMK</option>
+                        <option value="S2">S2 / Pascasarjana</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Semester</label>
+                    <input type="number" id="intSemester" value="6" min="1" max="14">
+                </div>
+                <div class="form-row">
+                    <label>Posisi / Peran Magang</label>
+                    <input type="text" id="intPositionTitle" value="Intern" placeholder="Full Stack Intern" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Mulai</label>
+                    <input type="date" id="intStartDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Tanggal Selesai</label>
+                    <input type="date" id="intEndDate" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Divisi Penempatan</label>
+                    <select id="intDivisionId"><option value="">Pilih Divisi</option></select>
+                </div>
+                <div class="form-row">
+                    <label>Mentor Perusahaan</label>
+                    <select id="intMentorId"><option value="">Pilih Mentor</option></select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Nama Dosen/Pembimbing Kampus</label>
+                    <input type="text" id="intCampusSupervisor" placeholder="Nama Dosen Pembimbing">
+                </div>
+                <div class="form-row">
+                    <label>Kontak Pembimbing Kampus</label>
+                    <input type="text" id="intCampusContact" placeholder="Email / WhatsApp Pembimbing">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Rencana Proyek & Tugas</label>
+                <textarea id="intProjectAssignment" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Penugasan proyek selama masa magang..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddInternship')">Batal</button>
+                <button type="submit" class="btn-primary">Daftarkan Program Magang</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 2: KONVERSI KANDIDAT KE MAGANG -->
+<div class="modal-overlay" id="modalConvertCandidateToIntern">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">👥 Konversi Pelamar Menjadi Pemagang Resmi</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalConvertCandidateToIntern')">✖</button>
+        </div>
+        <form id="formConvertCandidateToIntern" onsubmit="submitConvertCandidateToIntern(event)">
+            <div class="form-row">
+                <label>Pilih Kandidat / Pelamar</label>
+                <select id="convCandidateId" required></select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Institusi / Kampus</label>
+                    <input type="text" id="convInstitution" placeholder="Nama Kampus / Sekolah" required>
+                </div>
+                <div class="form-row">
+                    <label>Jurusan</label>
+                    <input type="text" id="convMajor" placeholder="Program Studi" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Mulai</label>
+                    <input type="date" id="convStartDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Tanggal Selesai</label>
+                    <input type="date" id="convEndDate" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Divisi Penempatan</label>
+                    <select id="convDivisionId"><option value="">Pilih Divisi</option></select>
+                </div>
+                <div class="form-row">
+                    <label>Mentor Perusahaan</label>
+                    <select id="convMentorId"><option value="">Pilih Mentor</option></select>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Posisi / Peran Magang</label>
+                <input type="text" id="convPositionTitle" value="Intern" placeholder="Full Stack Intern" required>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalConvertCandidateToIntern')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #10b981; border-color: #059669;">
+                    ✓ Konfirmasi Penerimaan Magang
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 3: CATAT AKTIVITAS HARIAN -->
+<div class="modal-overlay" id="modalLogInternActivity">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📝 Catat Logbook Aktivitas Harian</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalLogInternActivity')">✖</button>
+        </div>
+        <form id="formLogInternActivity" onsubmit="saveInternActivity(event)">
+            <input type="hidden" id="actInternshipId">
+            <div class="form-row">
+                <label>Pemagang</label>
+                <div id="actInternName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Aktivitas</label>
+                    <input type="date" id="actDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Jam Mulai</label>
+                    <input type="time" id="actStartTime" value="08:30" required>
+                </div>
+                <div class="form-row">
+                    <label>Jam Selesai</label>
+                    <input type="time" id="actEndTime" value="17:00" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Judul Aktivitas</label>
+                <input type="text" id="actTitle" placeholder="Contoh: Implementasi modul database and unit tests" required>
+            </div>
+            <div class="form-row">
+                <label>Deskripsi Rinci Pekerjaan</label>
+                <textarea id="actDescription" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Rincian hasil, problem yang diselesaikan, tools..." required></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Referensi Tiket / Proyek</label>
+                    <input type="text" id="actProjectRef" placeholder="SEC-104 / Dashboard UI">
+                </div>
+                <div class="form-row">
+                    <label>Capaian Progres (%)</label>
+                    <input type="number" id="actProgress" value="100" min="0" max="100" required>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalLogInternActivity')">Batal</button>
+                <button type="submit" class="btn-primary">Kirimkan Logbook</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 4: REVIEW AKTIVITAS HARIAN -->
+<div class="modal-overlay" id="modalReviewInternActivity">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🔍 Verifikasi & Catatan Mentor</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalReviewInternActivity')">✖</button>
+        </div>
+        <form id="formReviewInternActivity" onsubmit="submitReviewInternActivity(event)">
+            <input type="hidden" id="revActivityId">
+            <div class="form-row">
+                <label>Keputusan Verifikasi</label>
+                <select id="revActivityStatus" required>
+                    <option value="REVIEWED">REVIEWED (Disetujui & Diverifikasi)</option>
+                    <option value="REJECTED">REJECTED (Perlu Diperbaiki / Ditolak)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Catatan & Masukan Mentor</label>
+                <textarea id="revActivityNotes" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Berikan arahan, koreksi, atau apresiasi..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalReviewInternActivity')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Verifikasi</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 5: AJUKAN LAPORAN BULANAN / AKHIR -->
+<div class="modal-overlay" id="modalSubmitInternReport">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📑 Ajukan Laporan Magang</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalSubmitInternReport')">✖</button>
+        </div>
+        <form id="formSubmitInternReport" onsubmit="saveInternReport(event)">
+            <input type="hidden" id="repInternshipId">
+            <div class="form-row">
+                <label>Pemagang</label>
+                <div id="repInternName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Jenis Laporan</label>
+                    <select id="repType" required>
+                        <option value="MONTHLY">Laporan Bulanan (Monthly Report)</option>
+                        <option value="MID_TERM">Laporan Tengah Periode (Mid-term)</option>
+                        <option value="FINAL">Laporan Akhir Magang (Final Report)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Periode Bulan (YYYY-MM)</label>
+                    <input type="month" id="repPeriodMonth" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Judul Laporan</label>
+                <input type="text" id="repTitle" placeholder="Contoh: Laporan Kinerja dan Pencapaian Bulan September 2026" required>
+            </div>
+            <div class="form-row">
+                <label>Ringkasan Pekerjaan & Aktivitas</label>
+                <textarea id="repSummary" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Rangkuman kontribusi dan deliverables..." required></textarea>
+            </div>
+            <div class="form-row">
+                <label>Pencapaian Kunci (Achievements)</label>
+                <textarea id="repAchievements" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Modul yang selesai dibangun, target yang dicapai..."></textarea>
+            </div>
+            <div class="form-row">
+                <label>Kendala & Solusi (Issues & Blockers)</label>
+                <textarea id="repBlockers" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Tantangan teknis atau operasional yang dihadapi..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalSubmitInternReport')">Batal</button>
+                <button type="submit" class="btn-primary">Kirimkan Laporan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 6: REVIEW LAPORAN MAGANG -->
+<div class="modal-overlay" id="modalReviewInternReport">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🔍 Evaluasi & Persetujuan Laporan Magang</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalReviewInternReport')">✖</button>
+        </div>
+        <form id="formReviewInternReport" onsubmit="submitReviewInternReport(event)">
+            <input type="hidden" id="revReportId">
+            <div class="form-row">
+                <label>Status Keputusan</label>
+                <select id="revReportStatus" required>
+                    <option value="APPROVED">APPROVED (Laporan Disetujui)</option>
+                    <option value="REVISION_REQUIRED">REVISION_REQUIRED (Perlu Perbaikan / Revisi)</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Umpan Balik & Catatan Evaluasi Mentor / HR</label>
+                <textarea id="revReportNotes" rows="3" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Catatan dan rekomendasi atas laporan..." required></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalReviewInternReport')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Keputusan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 7: LEMBAR PENILAIAN & EVALUASI -->
+<div class="modal-overlay" id="modalSubmitInternEvaluation">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">⭐ Lembar Evaluasi & Penilaian Kinerja Magang</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalSubmitInternEvaluation')">✖</button>
+        </div>
+        <form id="formSubmitInternEvaluation" onsubmit="saveInternEvaluation(event)">
+            <input type="hidden" id="evalInternshipId">
+            <div class="form-row">
+                <label>Pemagang</label>
+                <div id="evalInternName" style="font-weight: 700; color: var(--primary); margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Jenis Evaluasi</label>
+                <select id="evalType" required>
+                    <option value="FINAL" selected>Evaluasi Akhir Magang (Final Evaluation)</option>
+                    <option value="MID_TERM">Evaluasi Tengah Periode (Mid-term Evaluation)</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kedisiplinan (1-100)</label>
+                    <input type="number" id="evalDiscipline" value="85" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Komunikasi (1-100)</label>
+                    <input type="number" id="evalCommunication" value="85" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Teknis/Skill (1-100)</label>
+                    <input type="number" id="evalTechnical" value="90" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Inisiatif (1-100)</label>
+                    <input type="number" id="evalInitiative" value="85" min="1" max="100" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kerjasama Tim (1-100)</label>
+                    <input type="number" id="evalTeamwork" value="85" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Kehadiran (1-100)</label>
+                    <input type="number" id="evalAttendance" value="90" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Ketepatan Tugas (1-100)</label>
+                    <input type="number" id="evalTaskCompletion" value="90" min="1" max="100" required>
+                </div>
+                <div class="form-row">
+                    <label>Profesionalisme (1-100)</label>
+                    <input type="number" id="evalProfessionalism" value="88" min="1" max="100" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Kekuatan & Keunggulan (Strengths)</label>
+                <textarea id="evalStrengths" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Kemampuan teknis menonjol, etos kerja..."></textarea>
+            </div>
+            <div class="form-row">
+                <label>Area Peningkatan (Areas of Improvement)</label>
+                <textarea id="evalImprovements" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Saran pengembangan diri dan profesional..."></textarea>
+            </div>
+            <div class="form-row">
+                <label>Rekomendasi Akhir Mentor / Perusahaan</label>
+                <select id="evalRecommendation" required>
+                    <option value="HIRE_AS_EMPLOYEE">Direkomendasikan Diangkat Sebagai Karyawan Resmi (Hire)</option>
+                    <option value="COMPLETE" selected>Menyelesaikan Program Magang dengan Baik (Complete)</option>
+                    <option value="EXTEND_INTERNSHIP">Perpanjang Masa Magang (Extend)</option>
+                    <option value="NOT_RECOMMENDED">Tidak Direkomendasikan (Not Recommended)</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalSubmitInternEvaluation')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Lembar Evaluasi</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- INTERNSHIP MODAL 8: SELESAIKAN PROGRAM MAGANG -->
+<div class="modal-overlay" id="modalCompleteInternship">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🎉 Penyelesaian & Kelulusan Program Magang</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalCompleteInternship')">✖</button>
+        </div>
+        <form id="formCompleteInternship" onsubmit="submitCompleteInternship(event)">
+            <input type="hidden" id="compInternshipId">
+            <div class="form-row">
+                <label>Pemagang</label>
+                <div id="compInternName" style="font-weight: 700; color: #10b981; font-size: 1.05rem; margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Nomor Sertifikat Kelulusan (Otomatis jika kosong)</label>
+                <input type="text" id="compCertificateNo" placeholder="CERT-INT-2026-XXXX">
+            </div>
+            <div class="form-row">
+                <label>Catatan Kelulusan / Penghargaan</label>
+                <textarea id="compNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Telah menyelesaikan seluruh program magang dengan predikat sangat memuaskan..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalCompleteInternship')">Batal</button>
+                <button type="submit" class="btn-primary" style="background: #10b981; border-color: #059669;">
+                    ✓ Konfirmasi Kelulusan Magang
                 </button>
             </div>
         </form>

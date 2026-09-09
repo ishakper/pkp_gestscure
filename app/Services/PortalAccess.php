@@ -31,6 +31,9 @@ class PortalAccess
             if ($admin->isSuperAdmin()) {
                 $perms[] = 'recruitment.view';
                 $perms[] = 'recruitment.manage';
+                $perms[] = 'internship.view';
+                $perms[] = 'internship.manage';
+                $perms[] = 'internship.mentor';
             }
             return $perms;
         }
@@ -39,11 +42,20 @@ class PortalAccess
             $perms = ['employee.view','employee.manage','organization.view','device.view','security.view'];
             if (in_array($role, ['hrd', 'management', 'supervisor'], true)) {
                 $perms[] = 'recruitment.view';
+                $perms[] = 'internship.view';
             }
             if (in_array($role, ['hrd'], true)) {
                 $perms[] = 'recruitment.manage';
+                $perms[] = 'internship.manage';
+            }
+            if (in_array($role, ['supervisor'], true)) {
+                $perms[] = 'internship.mentor';
             }
             return $perms;
+        }
+
+        if ($portal === self::EMPLOYEE_PORTAL) {
+            return ['internship.self'];
         }
 
         return [];
