@@ -17,12 +17,12 @@ use Illuminate\Http\Request;
 
 class EmployeeController extends Controller
 {
-    private const EMPLOYEE_FIELDS = ['employee_id','hikvision_employee_no','nik','name','email','phone','photo_path','card_no','department','role','role_jabatan','building_id','division_id','position_id','employment_type','employment_status','hire_date'];
+    private const EMPLOYEE_FIELDS = ['employee_id','hikvision_employee_no','nik','name','email','phone','photo_path','card_no','department','role','role_jabatan','building_id','division_id','position_id','employment_type','employment_status','hire_date','supervisor_id'];
 
     public function index(Request $request)
     {
         $admin = $request->user();
-        $query = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position']);
+        $query = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position', 'supervisor']);
         if ($request->filled('search')) { $search = $request->input('search'); $query->where(fn ($q) => $q->where('name','like',"%{$search}%")->orWhere('nik','like',"%{$search}%")->orWhere('employee_id','like',"%{$search}%")); }
         foreach (['building_id','division_id','position_id','employment_status'] as $filter) { if ($request->filled($filter)) $query->where($filter, $request->input($filter)); }
         if ($request->filled('door_id')) { $doorId=$request->input('door_id'); $query->whereHas('doors', fn($q) => $q->where('doors.door_id',$doorId)->orWhere('doors.id',$doorId)); }
@@ -53,6 +53,12 @@ class EmployeeController extends Controller
     }
 
     protected function findEmployeeByIdentifier($id): Employee { return Employee::where('id',$id)->orWhere('employee_id',$id)->firstOrFail(); }
+    public function profile360(Request $request, $id)
+    {
+        $employee = $this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position','supervisor','directReports','accessLogs']);
+        $this->authorize('view', $employee);
+        return response()->json(['status'=>'success','data'=>['employee'=>new EmployeeResource($employee),'overview'=>['employment_status'=>$employee->employment_status,'employment_type'=>$employee->employment_type,'hire_date'=>$employee->hire_date?->toDateString()],'organization'=>['building'=>$employee->building?->only(['id','code','name']),'division'=>$employee->division?->only(['id','code','name']),'position'=>$employee->position?->only(['id','code','name']),'supervisor'=>$employee->supervisor?->only(['id','employee_id','name'])],'direct_reports'=>$employee->directReports->map(fn($report)=>$report->only(['id','employee_id','name','employment_status'])),'access'=>['assigned_doors'=>$employee->doors->map(fn($door)=>['door_id'=>$door->door_id,'name'=>$door->name])],'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]]]);
+    }
     public function show($id) { $employee=$this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position']); $this->authorize('view',$employee); return response()->json(['status'=>'success','data'=>new EmployeeResource($employee)]); }
 
     public function update(UpdateEmployeeRequest $request, $id)

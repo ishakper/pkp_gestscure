@@ -1,0 +1,4 @@
+<?php
+namespace Tests\Feature;
+use App\Models\Admin; use App\Models\Employee; use Illuminate\Foundation\Testing\RefreshDatabase; use Laravel\Sanctum\Sanctum; use Tests\TestCase;
+class Employee360Test extends TestCase { use RefreshDatabase; public function test_super_admin_can_read_backed_employee_360_data(): void { $admin=Admin::create(['name'=>'A','email'=>'a@test.local','password'=>bcrypt('p'),'role'=>'super_admin']); Sanctum::actingAs($admin); $lead=Employee::create(['employee_id'=>'LEAD','nik'=>'N1','name'=>'Lead','department'=>'Ops']); $employee=Employee::create(['employee_id'=>'EMP','nik'=>'N2','name'=>'Emp','department'=>'Ops','supervisor_id'=>$lead->id]); $this->getJson('/api/v1/user-management/employees/'.$employee->id.'/360')->assertOk()->assertJsonPath('data.organization.supervisor.employee_id','LEAD')->assertJsonStructure(['data'=>['employee','overview','organization','direct_reports','access','audit_summary']]); } }

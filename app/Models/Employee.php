@@ -28,6 +28,7 @@ class Employee extends Model
         'employment_type',
         'employment_status',
         'hire_date',
+        'supervisor_id',
     ];
 
     protected $casts = ['hire_date' => 'date'];
@@ -53,6 +54,9 @@ class Employee extends Model
         $this->attributes['role_jabatan'] = $val;
         $this->attributes['role'] = $val;
     }
+
+    public function supervisor() { return $this->belongsTo(self::class, 'supervisor_id'); }
+    public function directReports() { return $this->hasMany(self::class, 'supervisor_id'); }
 
     public function building() { return $this->belongsTo(Building::class); }
     public function division() { return $this->belongsTo(Division::class); }

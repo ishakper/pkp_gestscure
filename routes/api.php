@@ -46,6 +46,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/employees', [EmployeeController::class, 'store']); // Spec alias
             Route::get('/users/{id}', [EmployeeController::class, 'show']);
             Route::get('/employees/{id}', [EmployeeController::class, 'show']);
+            Route::get('/employees/{id}/360', [EmployeeController::class, 'profile360']);
             Route::put('/users/{id}', [EmployeeController::class, 'update']);
             Route::put('/employees/{id}', [EmployeeController::class, 'update']);
             Route::delete('/users/{id}', [EmployeeController::class, 'destroy']);
