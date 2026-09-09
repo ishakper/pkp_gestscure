@@ -83,4 +83,24 @@ class Employee extends Model
     {
         return $this->hasMany(AccessLog::class);
     }
+
+    public function onboardingCases()
+    {
+        return $this->hasMany(OnboardingCase::class);
+    }
+
+    public function contracts()
+    {
+        return $this->hasMany(Contract::class);
+    }
+
+    public function documents()
+    {
+        return $this->hasMany(EmployeeDocument::class);
+    }
+
+    public function documentAcknowledgements()
+    {
+        return $this->hasMany(DocumentAcknowledgement::class);
+    }
 }

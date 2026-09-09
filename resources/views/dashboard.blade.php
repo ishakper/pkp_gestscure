@@ -1383,6 +1383,9 @@
         @if(in_array('internship.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Internship & Mentorship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship / Magang</span></button></li>
         @endif
+        @if(in_array('onboarding.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Onboarding & Kontrak" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding & Dokumen</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -2330,7 +2333,219 @@
         </div>
     </section>
 
-</main>
+    <!-- SECTION 9: ONBOARDING, CONTRACTS & HR DOCUMENTS -->
+    <section class="tab-content" id="onboardingTab">
+        <!-- Header & Action -->
+        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+            <div class="toolbar-left">
+                <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
+                    <span>📑</span> Onboarding, Kontrak & Dokumen HR
+                </h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Platform terpadu orientasi karyawan baru, manajemen kontrak kerja, verifikasi berkas privat, dan checklist kesiapan kerja.
+                </div>
+            </div>
+            <div class="toolbar-right" style="display: flex; gap: 0.75rem;">
+                <button class="btn-secondary" onclick="loadOnboardingData(); showToast('Data Onboarding disinkronkan', 'info');">
+                    🔄 Refresh Data
+                </button>
+                <button class="btn-primary" onclick="openAddOnboardingCaseModal()">
+                    + Buat Kasus Onboarding
+                </button>
+            </div>
+        </div>
+
+        <!-- 4 KPI Metrics -->
+        <div class="metrics-grid" style="margin-bottom: 2rem;">
+            <div class="metric-card">
+                <div class="metric-icon-box icon-blue">📋</div>
+                <div>
+                    <div class="metric-label">Kasus Onboarding Aktif</div>
+                    <div class="metric-value" id="metricActiveOnboardings">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-red">⚠️</div>
+                <div>
+                    <div class="metric-label">Tugas Terkendala (Blocked)</div>
+                    <div class="metric-value" id="metricBlockedTasks">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-green">📜</div>
+                <div>
+                    <div class="metric-label">Kontrak Kerja Aktif</div>
+                    <div class="metric-value" id="metricActiveContracts">-</div>
+                </div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-icon-box icon-yellow">🛡️</div>
+                <div>
+                    <div class="metric-label">Dokumen Menunggu Verifikasi</div>
+                    <div class="metric-value" id="metricPendingDocuments">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sub-Navigation Pills -->
+        <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem;">
+            <button class="subnav-btn active" onclick="switchOnboardingSubTab('cases', this)">📋 Kasus & Checklist Onboarding</button>
+            <button class="subnav-btn" onclick="switchOnboardingSubTab('contracts', this)">📜 Kontrak Kerja (PKWT/PKWTT)</button>
+            <button class="subnav-btn" onclick="switchOnboardingSubTab('documents', this)">📁 Repositori Dokumen HR</button>
+            <button class="subnav-btn" onclick="switchOnboardingSubTab('expiring', this)">⏰ Peringatan Jatuh Tempo</button>
+        </div>
+
+        <!-- SUB-TAB 1: KASUS ONBOARDING -->
+        <div id="onbSubCases" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="onbCaseSearch" placeholder="Cari nomor kasus / nama..." oninput="debounceOnboardingSearch()" style="width: 250px;">
+                        <select id="onbCaseStatusFilter" onchange="loadOnboardingCases()" style="width: 170px;">
+                            <option value="">Semua Status</option>
+                            <option value="PENDING">PENDING</option>
+                            <option value="IN_PROGRESS">IN_PROGRESS</option>
+                            <option value="BLOCKED">BLOCKED</option>
+                            <option value="COMPLETED">COMPLETED</option>
+                        </select>
+                        <select id="onbCaseTypeFilter" onchange="loadOnboardingCases()" style="width: 170px;">
+                            <option value="">Semua Tipe</option>
+                            <option value="PERMANENT">Karyawan Tetap</option>
+                            <option value="FIXED_TERM">Kontrak (PKWT)</option>
+                            <option value="PROBATION">Probation</option>
+                            <option value="INTERNSHIP">Magang / Intern</option>
+                        </select>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Kasus</th>
+                            <th>Karyawan / Pemagang</th>
+                            <th>Divisi & Jabatan</th>
+                            <th>Tipe & Lokasi</th>
+                            <th>Tgl Mulai</th>
+                            <th>Progres Checklist</th>
+                            <th>Status</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="onboardingCasesTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat kasus onboarding...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 2: KONTRAK KERJA -->
+        <div id="onbSubContracts" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center;">
+                        <input type="text" id="onbContractSearch" placeholder="Cari nomor kontrak / karyawan..." oninput="debounceContractSearch()" style="width: 260px;">
+                        <select id="onbContractTypeFilter" onchange="loadOnboardingContracts()" style="width: 180px;">
+                            <option value="">Semua Jenis Kontrak</option>
+                            <option value="PERMANENT">Tetap (PKWTT)</option>
+                            <option value="FIXED_TERM">Waktu Tertentu (PKWT)</option>
+                            <option value="PROBATION">Masa Percobaan</option>
+                            <option value="INTERNSHIP">Perjanjian Magang</option>
+                            <option value="NDA">Kerahasiaan (NDA)</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openAddContractModal()">+ Buat Kontrak Baru</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Kontrak</th>
+                            <th>Karyawan</th>
+                            <th>Jenis Kontrak & Judul</th>
+                            <th>Periode Efektif</th>
+                            <th>Penandatangan</th>
+                            <th>Status</th>
+                            <th>Status Perpanjangan</th>
+                            <th style="text-align: right;">Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody id="contractsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat data kontrak kerja...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 3: REPOSITORI DOKUMEN HR -->
+        <div id="onbSubDocuments" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center;">
+                        <input type="text" id="onbDocSearch" placeholder="Cari nomor berkas / nama dokumen..." oninput="debounceDocSearch()" style="width: 260px;">
+                        <select id="onbDocCategoryFilter" onchange="loadOnboardingDocuments()" style="width: 180px;">
+                            <option value="">Semua Kategori</option>
+                            <option value="IDENTITY">Identitas (KTP/KK)</option>
+                            <option value="CONTRACT">Kontrak Kerja</option>
+                            <option value="NDA">NDA & Kebijakan</option>
+                            <option value="EDUCATION">Ijazah / Pendidikan</option>
+                            <option value="CERTIFICATION">Sertifikasi Keahlian</option>
+                            <option value="ASSIGNMENT">Surat Tugas</option>
+                            <option value="MEDICAL">Kesehatan (Medical)</option>
+                            <option value="INTERNSHIP">Berkas Magang</option>
+                            <option value="OTHER">Lainnya</option>
+                        </select>
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn-primary" onclick="openUploadDocumentModal()">+ Unggah Dokumen Privat</button>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Dokumen</th>
+                            <th>Pemilik Berkas</th>
+                            <th>Kategori & Judul</th>
+                            <th>Versi & Ukuran</th>
+                            <th>Visibilitas</th>
+                            <th>Status Verifikasi</th>
+                            <th>Tgl Unggah</th>
+                            <th style="text-align: right;">Aksi Unduh / Cek</th>
+                        </tr>
+                    </thead>
+                    <tbody id="documentsTableBody">
+                        <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat repositori dokumen...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- SUB-TAB 4: PERINGATAN JATUH TEMPO -->
+        <div id="onbSubExpiring" class="ats-sub-content" style="display: none;">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <div style="font-weight: 600; font-size: 0.95rem; color: #f59e0b;">⚠️ Peringatan Kontrak Kerja Berakhir Dalam 30 Hari</div>
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>No. Kontrak</th>
+                            <th>Karyawan</th>
+                            <th>Jenis Kontrak</th>
+                            <th>Tanggal Berakhir</th>
+                            <th>Sisa Hari</th>
+                            <th>Status Perpanjangan</th>
+                            <th style="text-align: right;">Aksi Tindak Lanjut</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expiringContractsTableBody">
+                        <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memeriksa masa berlaku kontrak...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
 
 <!-- MODAL 1: DOOR ASSIGNMENT MODAL -->
 <div class="modal-overlay" id="doorAssignModal">
@@ -3200,7 +3415,285 @@
             </div>
         </form>
     </div>
-</div><!-- Configuration & Global Variables -->
+</div>
+
+<!-- ONBOARDING MODAL 1: BUAT KASUS ONBOARDING -->
+<div class="modal-overlay" id="modalAddOnboardingCase">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📋 Buat Kasus Onboarding Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddOnboardingCase')">✖</button>
+        </div>
+        <form id="formAddOnboardingCase" onsubmit="saveOnboardingCase(event)">
+            <div class="form-row">
+                <label>Pilih Karyawan yang Akan Di-onboard</label>
+                <select id="onbEmployeeSelect" required>
+                    <option value="">Memuat daftar karyawan...</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tipe Karyawan</label>
+                    <select id="onbEmploymentType" required>
+                        <option value="PERMANENT">Karyawan Tetap (PKWTT)</option>
+                        <option value="FIXED_TERM" selected>Kontrak (PKWT)</option>
+                        <option value="PROBATION">Masa Percobaan (Probation)</option>
+                        <option value="INTERNSHIP">Program Magang (Internship)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Lokasi Kerja</label>
+                    <input type="text" id="onbWorkLocation" value="Kantor Pusat PKP" required>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Mulai Kerja (Start Date)</label>
+                    <input type="date" id="onbStartDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Target Penyelesaian Onboarding</label>
+                    <input type="date" id="onbTargetDate" required>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Catatan / Instruksi Khusus Onboarding</label>
+                <textarea id="onbNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Prioritas pengurusan kartu akses lantai 3, laptop spec engineer..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddOnboardingCase')">Batal</button>
+                <button type="submit" class="btn-primary">Buat Kasus & Inisialisasi Checklist</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ONBOARDING MODAL 2: DETAIL CHECKLIST ONBOARDING -->
+<div class="modal-overlay" id="modalViewOnboardingCase">
+    <div class="modal-card" style="max-width: 800px; max-height: 90vh; overflow-y: auto;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="viewOnbCaseTitle">📋 Kasus Onboarding</h3>
+                <div style="font-size: 0.85rem; color: var(--primary);" id="viewOnbCaseSubtitle">Detail checklist tugas & kepatuhan</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('modalViewOnboardingCase')">✖</button>
+        </div>
+        <div style="margin-bottom: 1.25rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <span style="font-weight: 600; font-size: 0.9rem;">Progres Kesiapan Onboarding</span>
+                <span id="viewOnbProgressText" style="font-weight: 700; color: #38bdf8;">0%</span>
+            </div>
+            <div style="background: rgba(255,255,255,0.1); border-radius: 999px; height: 10px; overflow: hidden;">
+                <div id="viewOnbProgressBar" style="background: linear-gradient(90deg, #38bdf8, #10b981); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+            </div>
+        </div>
+        <div id="viewOnbTasksList" style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
+            <!-- Rendered by JS -->
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <button type="button" class="btn-secondary" onclick="closeModal('modalViewOnboardingCase')">Tutup</button>
+            <button type="button" class="btn-primary" id="btnCompleteCaseAction" onclick="submitCompleteCaseDirect()" style="background: #10b981; border-color: #059669;">
+                ✓ Selesaikan Kasus Onboarding
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- ONBOARDING MODAL 3: UPDATE TUGAS CHECKLIST -->
+<div class="modal-overlay" id="modalUpdateOnboardingTask">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">✏️ Perbarui Status Tugas Checklist</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalUpdateOnboardingTask')">✖</button>
+        </div>
+        <form id="formUpdateOnboardingTask" onsubmit="submitTaskUpdate(event)">
+            <input type="hidden" id="taskUpdateId">
+            <div class="form-row">
+                <label>Nama Tugas</label>
+                <div id="taskUpdateTitle" style="font-weight: 600; color: #fff; margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Status Tugas</label>
+                <select id="taskUpdateStatus" onchange="toggleBlockerReasonField(this.value)" required>
+                    <option value="PENDING">PENDING - Belum Dimulai</option>
+                    <option value="IN_PROGRESS">IN_PROGRESS - Sedang Dikerjakan</option>
+                    <option value="COMPLETED">COMPLETED - Selesai & Terverifikasi</option>
+                    <option value="BLOCKED">BLOCKED - Terkendala / Terblokir</option>
+                    <option value="NOT_REQUIRED">NOT_REQUIRED - Tidak Diperlukan</option>
+                </select>
+            </div>
+            <div class="form-row" id="taskBlockerReasonContainer" style="display: none;">
+                <label style="color: #f87171;">Alasan Kendala (Blocker Reason)</label>
+                <input type="text" id="taskBlockerReason" placeholder="Contoh: Menunggu KTP / tanda tangan pimpinan">
+            </div>
+            <div class="form-row">
+                <label>Catatan Tindak Lanjut</label>
+                <textarea id="taskUpdateNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Catatan progress..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalUpdateOnboardingTask')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Perubahan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ONBOARDING MODAL 4: BUAT KONTRAK KERJA BARU -->
+<div class="modal-overlay" id="modalAddContract">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📜 Buat Kontrak Kerja Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalAddContract')">✖</button>
+        </div>
+        <form id="formAddContract" onsubmit="saveContract(event)">
+            <div class="form-row">
+                <label>Karyawan Terkait</label>
+                <select id="contractEmployeeSelect" required>
+                    <option value="">Memuat daftar karyawan...</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Jenis Kontrak</label>
+                    <select id="contractTypeSelect" required>
+                        <option value="FIXED_TERM" selected>PKWT (Waktu Tertentu)</option>
+                        <option value="PERMANENT">PKWTT (Karyawan Tetap)</option>
+                        <option value="PROBATION">Masa Percobaan (Probation)</option>
+                        <option value="INTERNSHIP">Perjanjian Magang</option>
+                        <option value="NDA">Non-Disclosure Agreement (NDA)</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Nomor Kontrak (Otomatis jika kosong)</label>
+                    <input type="text" id="contractNumber" placeholder="CTR-2026-XXXX">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Judul Kontrak</label>
+                <input type="text" id="contractTitle" placeholder="Contoh: Perjanjian Kerja Waktu Tertentu (PKWT) Software Engineer" required>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Tanggal Mulai (Start Date)</label>
+                    <input type="date" id="contractStartDate" required>
+                </div>
+                <div class="form-row">
+                    <label>Tanggal Berakhir (End Date)</label>
+                    <input type="date" id="contractEndDate">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Penandatangan Karyawan</label>
+                    <input type="text" id="contractSigneeEmployee" placeholder="Nama Karyawan">
+                </div>
+                <div class="form-row">
+                    <label>Penandatangan Perusahaan</label>
+                    <input type="text" id="contractSigneeCompany" value="Direktur HR & Operasional PKP">
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Status Awal</label>
+                <select id="contractStatusSelect">
+                    <option value="DRAFT">DRAFT</option>
+                    <option value="PENDING_SIGNATURE">PENDING_SIGNATURE</option>
+                    <option value="ACTIVE" selected>ACTIVE - Berlaku</option>
+                </select>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalAddContract')">Batal</button>
+                <button type="submit" class="btn-primary">Terbitkan Kontrak</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ONBOARDING MODAL 5: UNGGAH DOKUMEN HR PRIVAT -->
+<div class="modal-overlay" id="modalUploadDocument">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">📁 Unggah Dokumen Privat & Terenkripsi</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalUploadDocument')">✖</button>
+        </div>
+        <form id="formUploadDocument" onsubmit="submitUploadDocument(event)">
+            <div class="form-row">
+                <label>Pilih Karyawan Pemilik Dokumen</label>
+                <select id="docEmployeeSelect" required>
+                    <option value="">Memuat daftar karyawan...</option>
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                <div class="form-row">
+                    <label>Kategori Dokumen</label>
+                    <select id="docCategorySelect" required>
+                        <option value="IDENTITY">Identitas (KTP, KK, NPWP)</option>
+                        <option value="CONTRACT" selected>Kontrak Kerja Resmi</option>
+                        <option value="NDA">NDA & Pakta Integritas</option>
+                        <option value="EDUCATION">Ijazah / Transkrip</option>
+                        <option value="CERTIFICATION">Sertifikasi Keahlian</option>
+                        <option value="ASSIGNMENT">Surat Perintah Kerja (SPK)</option>
+                        <option value="MEDICAL">Hasil Tes Kesehatan (MCU)</option>
+                        <option value="INTERNSHIP">Dokumen Magang</option>
+                        <option value="OTHER">Lainnya</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <label>Tingkat Visibilitas</label>
+                    <select id="docVisibilitySelect" required>
+                        <option value="CONFIDENTIAL_HR" selected>HRD Only (Kerahasiaan Tinggi)</option>
+                        <option value="SUPERVISOR_SHARED">Dibagikan ke Supervisor Tim</option>
+                        <option value="EMPLOYEE_VISIBLE">Dapat Dilihat Karyawan Sendiri</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <label>Judul / Keterangan Dokumen</label>
+                <input type="text" id="docTitle" placeholder="Contoh: KTP Asli Terverifikasi" required>
+            </div>
+            <div class="form-row">
+                <label>Berkas Fisik (PDF, JPG, PNG, DOC, DOCX - Maks 10MB)</label>
+                <input type="file" id="docFileInput" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx" required style="padding: 0.5rem; background: var(--card-bg); border: 1px dashed var(--border-color); border-radius: 0.6rem; width: 100%;">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalUploadDocument')">Batal</button>
+                <button type="submit" class="btn-primary">Unggah ke Private Storage</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ONBOARDING MODAL 6: VERIFIKASI DOKUMEN HR -->
+<div class="modal-overlay" id="modalVerifyDocument">
+    <div class="modal-card">
+        <div class="modal-header">
+            <h3 class="modal-title">🛡️ Verifikasi Dokumen Karyawan</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalVerifyDocument')">✖</button>
+        </div>
+        <form id="formVerifyDocument" onsubmit="submitVerifyDocument(event)">
+            <input type="hidden" id="verifyDocId">
+            <div class="form-row">
+                <label>Dokumen</label>
+                <div id="verifyDocTitle" style="font-weight: 600; color: #38bdf8; margin-bottom: 0.5rem;"></div>
+            </div>
+            <div class="form-row">
+                <label>Keputusan Verifikasi</label>
+                <select id="verifyDocDecision" required>
+                    <option value="VERIFIED">✓ SETUJUI (VERIFIED) - Dokumen Sah & Valid</option>
+                    <option value="REJECTED">✕ TOLAK (REJECTED) - Berkas Tidak Memenuhi Syarat</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <label>Catatan Verifikasi</label>
+                <textarea id="verifyDocNotes" rows="2" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;" placeholder="Catatan keabsahan dokumen..."></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('modalVerifyDocument')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Keputusan</button>
+            </div>
+        </form>
+    </div>
+</div>
+<!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),

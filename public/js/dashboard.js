@@ -23,6 +23,14 @@ let state = {
     selectedEmployeeForAssign: null,
     searchDebounceTimer: null,
     organization: { buildings: [], divisions: [], positions: [] },
+    onboarding: {
+        metrics: {},
+        cases: [],
+        contracts: [],
+        documents: [],
+        expiringContracts: [],
+        currentCase: null
+    },
 };
 
 // ==========================================
@@ -1117,6 +1125,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
     if (tabId === 'internshipTab') loadInternshipData();
+    if (tabId === 'onboardingTab') loadOnboardingData();
 }
 
 // ==========================================
@@ -2831,4 +2840,728 @@ async function submitCompleteInternship(e) {
     } catch (err) {
         showToast(`Gagal menyelesaikan magang: ${err.message}`, 'error');
     }
+}
+
+// ============================================================
+// SECTION 9: ONBOARDING, CONTRACTS & HR DOCUMENTS CONTROLLER
+// ============================================================
+
+async function loadOnboardingData() {
+    await Promise.all([
+        loadOnboardingMetrics(),
+        loadOnboardingCases(),
+        loadOnboardingContracts(),
+        loadOnboardingDocuments(),
+        loadExpiringContracts()
+    ]);
+}
+
+async function loadOnboardingMetrics() {
+    try {
+        const res = await apiFetch('/onboarding/metrics');
+        if (res.success && res.data) {
+            state.onboarding.metrics = res.data;
+            const m = res.data;
+            const elAct = document.getElementById('metricActiveOnboardings');
+            const elBlk = document.getElementById('metricBlockedTasks');
+            const elCtr = document.getElementById('metricActiveContracts');
+            const elDoc = document.getElementById('metricPendingDocuments');
+
+            if (elAct) elAct.textContent = m.active_onboardings ?? 0;
+            if (elBlk) elBlk.textContent = m.blocked_tasks ?? 0;
+            if (elCtr) elCtr.textContent = m.active_contracts ?? 0;
+            if (elDoc) elDoc.textContent = m.pending_documents ?? 0;
+        }
+    } catch (err) {
+        console.error('Failed to load onboarding metrics', err);
+    }
+}
+
+function switchOnboardingSubTab(subTab, btn) {
+    document.querySelectorAll('#onboardingTab .ats-sub-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('#onboardingTab .subnav-btn').forEach(el => el.classList.remove('active'));
+
+    if (btn) btn.classList.add('active');
+
+    if (subTab === 'cases') {
+        const el = document.getElementById('onbSubCases');
+        if (el) el.style.display = 'block';
+        loadOnboardingCases();
+    } else if (subTab === 'contracts') {
+        const el = document.getElementById('onbSubContracts');
+        if (el) el.style.display = 'block';
+        loadOnboardingContracts();
+    } else if (subTab === 'documents') {
+        const el = document.getElementById('onbSubDocuments');
+        if (el) el.style.display = 'block';
+        loadOnboardingDocuments();
+    } else if (subTab === 'expiring') {
+        const el = document.getElementById('onbSubExpiring');
+        if (el) el.style.display = 'block';
+        loadExpiringContracts();
+    }
+}
+
+async function loadOnboardingCases() {
+    const tbody = document.getElementById('onboardingCasesTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('onbCaseSearch')?.value.trim() || '';
+    const status = document.getElementById('onbCaseStatusFilter')?.value || '';
+    const empType = document.getElementById('onbCaseTypeFilter')?.value || '';
+
+    let url = `/onboarding/cases?search=${encodeURIComponent(search)}`;
+    if (status) url += `&status=${encodeURIComponent(status)}`;
+    if (empType) url += `&employment_type=${encodeURIComponent(empType)}`;
+
+    try {
+        const res = await apiFetch(url);
+        if (res.success && res.data) {
+            state.onboarding.cases = res.data;
+            renderOnboardingCasesTable(res.data);
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 2rem;">Gagal memuat kasus onboarding: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderOnboardingCasesTable(cases) {
+    const tbody = document.getElementById('onboardingCasesTableBody');
+    if (!tbody) return;
+
+    if (!cases || cases.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada kasus onboarding terdaftar.</td></tr>`;
+        return;
+    }
+
+    const statusBadge = (s) => {
+        if (s === 'COMPLETED') return `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">✓ SELESAI</span>`;
+        if (s === 'BLOCKED') return `<span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">⚠️ TERKENDALA</span>`;
+        if (s === 'IN_PROGRESS') return `<span style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">⏳ PROSES</span>`;
+        return `<span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">PENDING</span>`;
+    };
+
+    tbody.innerHTML = cases.map(c => {
+        const empName = c.employee?.name || c.internship?.intern_name || 'Karyawan Baru';
+        const empId = c.employee?.employee_id || c.internship?.intern_id || '-';
+        const divName = c.division?.name || c.employee?.department || '-';
+        const posName = c.position?.name || c.employee?.role || c.employment_type;
+
+        const totalTasks = c.tasks ? c.tasks.length : 0;
+        const completedTasks = c.tasks ? c.tasks.filter(t => t.status === 'COMPLETED' || t.status === 'NOT_REQUIRED').length : 0;
+        const progressPct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: #38bdf8;">${escapeHtml(c.case_number)}</td>
+                <td>
+                    <div style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(empId)}</div>
+                </td>
+                <td>
+                    <div>${escapeHtml(divName)}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(posName)}</div>
+                </td>
+                <td>
+                    <div><span style="font-size: 0.775rem; font-weight: 600; color: #f59e0b;">${escapeHtml(c.employment_type)}</span></div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(c.work_location || '-')}</div>
+                </td>
+                <td>${escapeHtml(c.start_date)}</td>
+                <td>
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <div style="flex: 1; background: rgba(255,255,255,0.1); height: 6px; border-radius: 999px; overflow: hidden; min-width: 60px;">
+                            <div style="width: ${progressPct}%; background: ${c.status === 'BLOCKED' ? '#ef4444' : '#10b981'}; height: 100%;"></div>
+                        </div>
+                        <span style="font-size: 0.75rem; font-weight: 700; color: #fff;">${progressPct}%</span>
+                    </div>
+                    <div style="font-size: 0.7rem; color: var(--text-muted);">${completedTasks}/${totalTasks} Tugas</div>
+                </td>
+                <td>${statusBadge(c.status)}</td>
+                <td style="text-align: right;">
+                    <button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="viewOnboardingCaseDetail(${c.id})">
+                        🔍 Detail & Checklist
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+async function viewOnboardingCaseDetail(caseId) {
+    try {
+        const res = await apiFetch(`/onboarding/cases/${caseId}`);
+        if (res.success && res.data) {
+            state.onboarding.currentCase = res.data;
+            const c = res.data;
+
+            const titleEl = document.getElementById('viewOnbCaseTitle');
+            const subEl = document.getElementById('viewOnbCaseSubtitle');
+            const barEl = document.getElementById('viewOnbProgressBar');
+            const txtEl = document.getElementById('viewOnbProgressText');
+            const listEl = document.getElementById('viewOnbTasksList');
+            const completeBtn = document.getElementById('btnCompleteCaseAction');
+
+            const empName = c.employee?.name || c.internship?.intern_name || 'Karyawan Baru';
+            if (titleEl) titleEl.textContent = `📋 Kasus Onboarding: ${c.case_number} (${empName})`;
+            if (subEl) subEl.textContent = `Mulai: ${c.start_date} | Target: ${c.target_completion_date || '-'} | Status: ${c.status}`;
+
+            const progress = res.progress ?? 0;
+            if (barEl) barEl.style.width = `${progress}%`;
+            if (txtEl) txtEl.textContent = `${progress}% (${c.status})`;
+
+            if (completeBtn) {
+                if (c.status === 'COMPLETED') {
+                    completeBtn.style.display = 'none';
+                } else {
+                    completeBtn.style.display = 'inline-block';
+                }
+            }
+
+            if (listEl) {
+                if (!c.tasks || c.tasks.length === 0) {
+                    listEl.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Tidak ada tugas checklist.</div>`;
+                } else {
+                    const taskBadge = (s) => {
+                        if (s === 'COMPLETED') return `<span style="color: #10b981; font-weight: 700; font-size: 0.75rem;">✓ SELESAI</span>`;
+                        if (s === 'BLOCKED') return `<span style="color: #ef4444; font-weight: 700; font-size: 0.75rem;">⚠️ TERBLOKIR</span>`;
+                        if (s === 'IN_PROGRESS') return `<span style="color: #38bdf8; font-weight: 700; font-size: 0.75rem;">⏳ PROSES</span>`;
+                        if (s === 'NOT_REQUIRED') return `<span style="color: #94a3b8; font-weight: 700; font-size: 0.75rem;">TIDAK PERLU</span>`;
+                        return `<span style="color: #fbbf24; font-weight: 700; font-size: 0.75rem;">PENDING</span>`;
+                    };
+
+                    listEl.innerHTML = c.tasks.map(t => `
+                        <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.75rem 1rem;">
+                            <div style="flex: 1;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="font-weight: 600; color: #fff; font-size: 0.85rem;">${t.order_index}. ${escapeHtml(t.title)}</span>
+                                    ${t.is_required ? '<span style="color: #ef4444; font-size: 0.7rem; font-weight: 700;">*WAJIB</span>' : '<span style="color: #94a3b8; font-size: 0.7rem;">(OPSIONAL)</span>'}
+                                </div>
+                                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;">
+                                    Kategori: <strong style="color: #38bdf8;">${escapeHtml(t.category)}</strong>
+                                    ${t.due_date ? ` | Tenggat: ${t.due_date}` : ''}
+                                    ${t.blocker_reason ? ` | <span style="color: #f87171; font-weight: 600;">Kendala: ${escapeHtml(t.blocker_reason)}</span>` : ''}
+                                </div>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                ${taskBadge(t.status)}
+                                ${c.status !== 'COMPLETED' ? `
+                                    <button class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.725rem;" onclick="openUpdateTaskModal(${t.id}, '${escapeHtml(t.title)}', '${t.status}', '${escapeHtml(t.blocker_reason || '')}')">
+                                        Ubah Status
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    `).join('');
+                }
+            }
+
+            const modal = document.getElementById('modalViewOnboardingCase');
+            if (modal) modal.classList.add('active');
+        }
+    } catch (err) {
+        showToast(`Gagal memuat detail checklist: ${err.message}`, 'error');
+    }
+}
+
+function openUpdateTaskModal(taskId, title, status, blocker) {
+    document.getElementById('taskUpdateId').value = taskId;
+    const titleEl = document.getElementById('taskUpdateTitle');
+    if (titleEl) titleEl.textContent = title;
+
+    const statusEl = document.getElementById('taskUpdateStatus');
+    if (statusEl) statusEl.value = status;
+
+    const blockerEl = document.getElementById('taskBlockerReason');
+    if (blockerEl) blockerEl.value = blocker || '';
+
+    toggleBlockerReasonField(status);
+
+    const modal = document.getElementById('modalUpdateOnboardingTask');
+    if (modal) modal.classList.add('active');
+}
+
+function toggleBlockerReasonField(status) {
+    const container = document.getElementById('taskBlockerReasonContainer');
+    if (container) {
+        container.style.display = status === 'BLOCKED' ? 'block' : 'none';
+    }
+}
+
+async function submitTaskUpdate(e) {
+    e.preventDefault();
+    const taskId = document.getElementById('taskUpdateId')?.value;
+    const status = document.getElementById('taskUpdateStatus')?.value;
+    const blocker = document.getElementById('taskBlockerReason')?.value.trim();
+    const notes = document.getElementById('taskUpdateNotes')?.value.trim();
+
+    try {
+        const res = await apiFetch(`/onboarding/tasks/${taskId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                status: status,
+                blocker_reason: blocker || null,
+                notes: notes || null
+            })
+        });
+
+        if (res.success) {
+            showToast('Status checklist berhasil diperbarui!', 'success');
+            closeModal('modalUpdateOnboardingTask');
+            if (state.onboarding.currentCase) {
+                await viewOnboardingCaseDetail(state.onboarding.currentCase.id);
+            }
+            await Promise.all([loadOnboardingCases(), loadOnboardingMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal memperbarui checklist: ${err.message}`, 'error');
+    }
+}
+
+async function submitCompleteCaseDirect() {
+    if (!state.onboarding.currentCase) return;
+    const caseId = state.onboarding.currentCase.id;
+
+    if (!confirm('Apakah Anda yakin seluruh checklist telah terpenuhi dan proses onboarding siap diselesaikan?')) {
+        return;
+    }
+
+    try {
+        const res = await apiFetch(`/onboarding/cases/${caseId}/complete`, {
+            method: 'POST'
+        });
+
+        if (res.success) {
+            showToast('✓ Selamat! Proses onboarding berhasil diselesaikan secara resmi.', 'success');
+            closeModal('modalViewOnboardingCase');
+            await Promise.all([loadOnboardingCases(), loadOnboardingMetrics()]);
+        }
+    } catch (err) {
+        showToast(`✕ Gagal menyelesaikan onboarding: ${err.message}`, 'error');
+    }
+}
+
+function openAddOnboardingCaseModal() {
+    const select = document.getElementById('onbEmployeeSelect');
+    if (select && state.employees) {
+        select.innerHTML = '<option value="">Pilih Karyawan</option>' +
+            state.employees.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id)})</option>`).join('');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const target = new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0];
+
+    const sEl = document.getElementById('onbStartDate');
+    const tEl = document.getElementById('onbTargetDate');
+    if (sEl) sEl.value = today;
+    if (tEl) tEl.value = target;
+
+    const modal = document.getElementById('modalAddOnboardingCase');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveOnboardingCase(e) {
+    e.preventDefault();
+    const payload = {
+        employee_id: parseInt(document.getElementById('onbEmployeeSelect')?.value) || null,
+        employment_type: document.getElementById('onbEmploymentType')?.value || 'PERMANENT',
+        work_location: document.getElementById('onbWorkLocation')?.value.trim() || 'Kantor Pusat PKP',
+        start_date: document.getElementById('onbStartDate')?.value,
+        target_completion_date: document.getElementById('onbTargetDate')?.value,
+        notes: document.getElementById('onbNotes')?.value.trim() || null,
+    };
+
+    try {
+        const res = await apiFetch('/onboarding/cases', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res.success) {
+            showToast('Kasus onboarding dan 10 checklist standar berhasil diinisialisasi!', 'success');
+            closeModal('modalAddOnboardingCase');
+            document.getElementById('formAddOnboardingCase')?.reset();
+            await Promise.all([loadOnboardingCases(), loadOnboardingMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal membuat kasus: ${err.message}`, 'error');
+    }
+}
+
+// ==========================================
+// Contracts Controller
+// ==========================================
+async function loadOnboardingContracts() {
+    const tbody = document.getElementById('contractsTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('onbContractSearch')?.value.trim() || '';
+    const type = document.getElementById('onbContractTypeFilter')?.value || '';
+
+    let url = `/onboarding/contracts?search=${encodeURIComponent(search)}`;
+    if (type) url += `&contract_type=${encodeURIComponent(type)}`;
+
+    try {
+        const res = await apiFetch(url);
+        if (res.success && res.data) {
+            state.onboarding.contracts = res.data;
+            renderContractsTable(res.data);
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 2rem;">Gagal memuat kontrak kerja: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderContractsTable(contracts) {
+    const tbody = document.getElementById('contractsTableBody');
+    if (!tbody) return;
+
+    if (!contracts || contracts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada kontrak kerja tersimpan.</td></tr>`;
+        return;
+    }
+
+    const statusBadge = (s) => {
+        if (s === 'ACTIVE') return `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">✓ AKTIF</span>`;
+        if (s === 'EXPIRED') return `<span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">KADALUARSA</span>`;
+        if (s === 'PENDING_SIGNATURE') return `<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">MENUNGGU TTD</span>`;
+        return `<span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">DRAFT</span>`;
+    };
+
+    tbody.innerHTML = contracts.map(c => {
+        const empName = c.employee?.name || c.internship?.intern_name || '-';
+        return `
+            <tr>
+                <td style="font-weight: 700; color: #38bdf8;">${escapeHtml(c.contract_number)}</td>
+                <td style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</td>
+                <td>
+                    <div style="font-weight: 600; color: #fff;">${escapeHtml(c.title)}</div>
+                    <div style="font-size: 0.75rem; color: #38bdf8;">${escapeHtml(c.contract_type)}</div>
+                </td>
+                <td>
+                    <div>Mulai: ${escapeHtml(c.start_date)}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${c.end_date ? `Selesai: ${c.end_date}` : 'Tanpa Batas Waktu'}</div>
+                </td>
+                <td>
+                    <div>${escapeHtml(c.signed_by_employee || '-')}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(c.signed_by_company || '-')}</div>
+                </td>
+                <td>${statusBadge(c.status)}</td>
+                <td><span style="font-size: 0.8rem; font-weight: 600; color: #fbbf24;">${escapeHtml(c.renewal_status)}</span></td>
+                <td style="text-align: right;">
+                    <span style="font-size: 0.75rem; color: var(--text-muted);">Tersimpan</span>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openAddContractModal() {
+    const select = document.getElementById('contractEmployeeSelect');
+    if (select && state.employees) {
+        select.innerHTML = '<option value="">Pilih Karyawan</option>' +
+            state.employees.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id)})</option>`).join('');
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    const sEl = document.getElementById('contractStartDate');
+    if (sEl) sEl.value = today;
+
+    const modal = document.getElementById('modalAddContract');
+    if (modal) modal.classList.add('active');
+}
+
+async function saveContract(e) {
+    e.preventDefault();
+    const payload = {
+        employee_id: parseInt(document.getElementById('contractEmployeeSelect')?.value) || null,
+        contract_type: document.getElementById('contractTypeSelect')?.value || 'FIXED_TERM',
+        contract_number: document.getElementById('contractNumber')?.value.trim() || null,
+        title: document.getElementById('contractTitle')?.value.trim(),
+        start_date: document.getElementById('contractStartDate')?.value,
+        end_date: document.getElementById('contractEndDate')?.value || null,
+        signed_by_employee: document.getElementById('contractSigneeEmployee')?.value.trim() || null,
+        signed_by_company: document.getElementById('contractSigneeCompany')?.value.trim() || 'Direktur HR PKP',
+        status: document.getElementById('contractStatusSelect')?.value || 'ACTIVE',
+    };
+
+    try {
+        const res = await apiFetch('/onboarding/contracts', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res.success) {
+            showToast('Kontrak kerja resmi berhasil diterbitkan!', 'success');
+            closeModal('modalAddContract');
+            document.getElementById('formAddContract')?.reset();
+            await Promise.all([loadOnboardingContracts(), loadOnboardingMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal membuat kontrak: ${err.message}`, 'error');
+    }
+}
+
+// ==========================================
+// Documents Controller (Private & Secure)
+// ==========================================
+async function loadOnboardingDocuments() {
+    const tbody = document.getElementById('documentsTableBody');
+    if (!tbody) return;
+
+    const search = document.getElementById('onbDocSearch')?.value.trim() || '';
+    const category = document.getElementById('onbDocCategoryFilter')?.value || '';
+
+    let url = `/onboarding/documents?search=${encodeURIComponent(search)}`;
+    if (category) url += `&category=${encodeURIComponent(category)}`;
+
+    try {
+        const res = await apiFetch(url);
+        if (res.success && res.data) {
+            state.onboarding.documents = res.data;
+            renderDocumentsTable(res.data);
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #f87171; padding: 2rem;">Gagal memuat berkas dokumen: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderDocumentsTable(docs) {
+    const tbody = document.getElementById('documentsTableBody');
+    if (!tbody) return;
+
+    if (!docs || docs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada dokumen privat terunggah.</td></tr>`;
+        return;
+    }
+
+    const statusBadge = (s) => {
+        if (s === 'VERIFIED') return `<span style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">✓ TERVERIFIKASI</span>`;
+        if (s === 'REJECTED') return `<span style="background: rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">✕ DITOLAK</span>`;
+        if (s === 'ARCHIVED') return `<span style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">ARSIP (LAMA)</span>`;
+        return `<span style="background: rgba(245, 158, 11, 0.2); color: #f59e0b; padding: 0.2rem 0.6rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;">MENUNGGU VERIFIKASI</span>`;
+    };
+
+    const sizeStr = (bytes) => {
+        if (!bytes) return '0 KB';
+        return `${Math.round(bytes / 1024)} KB`;
+    };
+
+    tbody.innerHTML = docs.map(d => {
+        const empName = d.employee?.name || d.internship?.intern_name || '-';
+        const isHR = (window.APP_CONFIG?.admin?.role === 'super_admin' || window.APP_CONFIG?.admin?.role === 'hrd');
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: #38bdf8;">${escapeHtml(d.document_number)}</td>
+                <td style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</td>
+                <td>
+                    <div style="font-weight: 600; color: #fff;">${escapeHtml(d.title)}</div>
+                    <div style="font-size: 0.75rem; color: #38bdf8;">${escapeHtml(d.category)} - ${escapeHtml(d.file_name)}</div>
+                </td>
+                <td>
+                    <div>v${d.version}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted);">${sizeStr(d.file_size)}</div>
+                </td>
+                <td><span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(d.visibility)}</span></td>
+                <td>${statusBadge(d.status)}</td>
+                <td>${d.created_at ? d.created_at.split('T')[0] : '-'}</td>
+                <td style="text-align: right; white-space: nowrap;">
+                    <button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="downloadSecureDocument(${d.id}, '${escapeHtml(d.file_name)}')">
+                        ⬇️ Unduh
+                    </button>
+                    ${isHR && d.status === 'PENDING_VERIFICATION' ? `
+                        <button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; margin-left: 0.35rem;" onclick="openVerifyDocumentModal(${d.id}, '${escapeHtml(d.title)}')">
+                            🛡️ Verifikasi
+                        </button>
+                    ` : ''}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function openUploadDocumentModal() {
+    const select = document.getElementById('docEmployeeSelect');
+    if (select && state.employees) {
+        select.innerHTML = '<option value="">Pilih Karyawan</option>' +
+            state.employees.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id)})</option>`).join('');
+    }
+
+    const modal = document.getElementById('modalUploadDocument');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitUploadDocument(e) {
+    e.preventDefault();
+    const fileInput = document.getElementById('docFileInput');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        showToast('Silakan pilih berkas dokumen untuk diunggah.', 'warning');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+    formData.append('employee_id', document.getElementById('docEmployeeSelect')?.value || '');
+    formData.append('category', document.getElementById('docCategorySelect')?.value || 'OTHER');
+    formData.append('visibility', document.getElementById('docVisibilitySelect')?.value || 'CONFIDENTIAL_HR');
+    formData.append('title', document.getElementById('docTitle')?.value.trim() || fileInput.files[0].name);
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+
+        const headers = {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken,
+        };
+        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+
+        const res = await fetch('/api/v1/onboarding/documents', {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast('Dokumen berhasil diunggah ke private storage!', 'success');
+            closeModal('modalUploadDocument');
+            document.getElementById('formUploadDocument')?.reset();
+            await Promise.all([loadOnboardingDocuments(), loadOnboardingMetrics()]);
+        } else {
+            showToast(`Gagal mengunggah: ${data.message || 'Error validasi'}`, 'error');
+        }
+    } catch (err) {
+        showToast(`Gagal mengunggah berkas: ${err.message}`, 'error');
+    }
+}
+
+function openVerifyDocumentModal(docId, title) {
+    document.getElementById('verifyDocId').value = docId;
+    const titleEl = document.getElementById('verifyDocTitle');
+    if (titleEl) titleEl.textContent = title;
+
+    const modal = document.getElementById('modalVerifyDocument');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitVerifyDocument(e) {
+    e.preventDefault();
+    const docId = document.getElementById('verifyDocId')?.value;
+    const status = document.getElementById('verifyDocDecision')?.value;
+    const notes = document.getElementById('verifyDocNotes')?.value.trim();
+
+    try {
+        const res = await apiFetch(`/onboarding/documents/${docId}/verify`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                status: status,
+                notes: notes || null
+            })
+        });
+
+        if (res.success) {
+            showToast(`Status dokumen berhasil diubah menjadi ${status}!`, 'success');
+            closeModal('modalVerifyDocument');
+            await Promise.all([loadOnboardingDocuments(), loadOnboardingMetrics()]);
+        }
+    } catch (err) {
+        showToast(`Gagal memverifikasi dokumen: ${err.message}`, 'error');
+    }
+}
+
+async function downloadSecureDocument(docId, fileName) {
+    try {
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const headers = {};
+        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+
+        const res = await fetch(`/api/v1/onboarding/documents/${docId}/download`, {
+            method: 'GET',
+            headers: headers
+        });
+
+        if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            showToast(`Gagal mengunduh: ${errJson.message || 'Akses ditolak'}`, 'error');
+            return;
+        }
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = fileName || `document_${docId}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showToast('Berkas dokumen berhasil diunduh.', 'info');
+    } catch (err) {
+        showToast(`Kesalahan jaringan: ${err.message}`, 'error');
+    }
+}
+
+// ==========================================
+// Expiring Contracts Warning Controller
+// ==========================================
+async function loadExpiringContracts() {
+    const tbody = document.getElementById('expiringContractsTableBody');
+    if (!tbody) return;
+
+    try {
+        const res = await apiFetch('/onboarding/contracts?expiring=true&days=30');
+        if (res.success && res.data) {
+            state.onboarding.expiringContracts = res.data;
+            renderExpiringContractsTable(res.data);
+        }
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #f87171; padding: 2rem;">Gagal memeriksa masa berlaku: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderExpiringContractsTable(contracts) {
+    const tbody = document.getElementById('expiringContractsTableBody');
+    if (!tbody) return;
+
+    if (!contracts || contracts.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #10b981; padding: 2rem;">✓ Aman: Tidak ada kontrak kerja yang akan berakhir dalam 30 hari ke depan.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = contracts.map(c => {
+        const empName = c.employee?.name || c.internship?.intern_name || '-';
+        const diffDays = Math.ceil((new Date(c.end_date) - new Date()) / (1000 * 60 * 60 * 24));
+
+        return `
+            <tr>
+                <td style="font-weight: 700; color: #f59e0b;">${escapeHtml(c.contract_number)}</td>
+                <td style="font-weight: 600; color: #fff;">${escapeHtml(empName)}</td>
+                <td>${escapeHtml(c.contract_type)}</td>
+                <td>${escapeHtml(c.end_date)}</td>
+                <td><span style="color: #ef4444; font-weight: 700;">${diffDays} Hari Lagi</span></td>
+                <td><span style="color: #fbbf24; font-weight: 600;">${escapeHtml(c.renewal_status)}</span></td>
+                <td style="text-align: right;">
+                    <button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="showToast('Silakan perpanjang kontrak melalui pembuatan addendum baru.', 'info')">
+                        Perpanjang / Evaluasi
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function debounceOnboardingSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadOnboardingCases, 350);
+}
+
+function debounceContractSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadOnboardingContracts, 350);
+}
+
+function debounceDocSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(loadOnboardingDocuments, 350);
 }

@@ -34,6 +34,14 @@ class PortalAccess
                 $perms[] = 'internship.view';
                 $perms[] = 'internship.manage';
                 $perms[] = 'internship.mentor';
+                $perms[] = 'onboarding.view';
+                $perms[] = 'onboarding.manage';
+                $perms[] = 'contract.view';
+                $perms[] = 'contract.manage';
+                $perms[] = 'document.view';
+                $perms[] = 'document.manage';
+                $perms[] = 'document.verify';
+                $perms[] = 'document.download';
             }
             return $perms;
         }
@@ -43,10 +51,20 @@ class PortalAccess
             if (in_array($role, ['hrd', 'management', 'supervisor'], true)) {
                 $perms[] = 'recruitment.view';
                 $perms[] = 'internship.view';
+                $perms[] = 'onboarding.view';
+                $perms[] = 'document.view';
+                $perms[] = 'document.download';
+            }
+            if (in_array($role, ['hrd', 'management'], true)) {
+                $perms[] = 'contract.view';
             }
             if (in_array($role, ['hrd'], true)) {
                 $perms[] = 'recruitment.manage';
                 $perms[] = 'internship.manage';
+                $perms[] = 'onboarding.manage';
+                $perms[] = 'contract.manage';
+                $perms[] = 'document.manage';
+                $perms[] = 'document.verify';
             }
             if (in_array($role, ['supervisor'], true)) {
                 $perms[] = 'internship.mentor';
@@ -55,7 +73,12 @@ class PortalAccess
         }
 
         if ($portal === self::EMPLOYEE_PORTAL) {
-            return ['internship.self'];
+            return [
+                'internship.self',
+                'onboarding.self',
+                'contract.self',
+                'document.self',
+            ];
         }
 
         return [];

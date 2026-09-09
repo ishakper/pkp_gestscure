@@ -112,6 +112,26 @@ Route::prefix('v1')->group(function () {
             Route::post('/{id}/evaluations', [\App\Http\Controllers\Api\InternshipController::class, 'storeEvaluation']);
         });
 
+        // Onboarding, Contracts & Document Management API (Sprint 5)
+        Route::prefix('onboarding')->group(function () {
+            Route::get('/metrics', [\App\Http\Controllers\Api\OnboardingController::class, 'metrics']);
+            Route::get('/cases', [\App\Http\Controllers\Api\OnboardingController::class, 'cases']);
+            Route::post('/cases', [\App\Http\Controllers\Api\OnboardingController::class, 'storeCase']);
+            Route::get('/cases/{id}', [\App\Http\Controllers\Api\OnboardingController::class, 'showCase']);
+            Route::put('/tasks/{id}', [\App\Http\Controllers\Api\OnboardingController::class, 'updateTask']);
+            Route::post('/cases/{id}/complete', [\App\Http\Controllers\Api\OnboardingController::class, 'completeCase']);
+
+            Route::get('/contracts', [\App\Http\Controllers\Api\OnboardingController::class, 'contracts']);
+            Route::post('/contracts', [\App\Http\Controllers\Api\OnboardingController::class, 'storeContract']);
+            Route::put('/contracts/{id}', [\App\Http\Controllers\Api\OnboardingController::class, 'updateContract']);
+
+            Route::get('/documents', [\App\Http\Controllers\Api\OnboardingController::class, 'documents']);
+            Route::post('/documents', [\App\Http\Controllers\Api\OnboardingController::class, 'uploadDocument']);
+            Route::put('/documents/{id}/verify', [\App\Http\Controllers\Api\OnboardingController::class, 'verifyDocument']);
+            Route::get('/documents/{id}/download', [\App\Http\Controllers\Api\OnboardingController::class, 'downloadDocument']);
+            Route::post('/documents/{id}/acknowledge', [\App\Http\Controllers\Api\OnboardingController::class, 'acknowledgeDocument']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
     });
 

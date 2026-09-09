@@ -88,4 +88,19 @@ class Internship extends Model
     {
         return $this->hasMany(InternshipEvaluation::class, 'internship_id');
     }
+
+    public function onboardingCases(): HasMany
+    {
+        return $this->hasMany(OnboardingCase::class, 'internship_id');
+    }
+
+    public function contracts(): HasMany
+    {
+        return $this->hasMany(Contract::class, 'internship_id');
+    }
+
+    public function documents(): HasMany
+    {
+        return $this->hasMany(EmployeeDocument::class, 'internship_id');
+    }
 }
