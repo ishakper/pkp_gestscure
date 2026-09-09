@@ -27,7 +27,7 @@ variables:
 # ------------------------------------------------------------------------------
 # Stage 1: Validation
 # ------------------------------------------------------------------------------
-validate:composer:
+validate_composer:
   stage: validate
   image: composer:2
   tags:
@@ -38,7 +38,7 @@ validate:composer:
     - echo "Validating composer configuration and lockfile..."
     - composer validate --strict --no-check-publish
 
-validate:syntax:
+validate_syntax:
   stage: validate
   image: php:8.2-cli-alpine
   tags:
@@ -52,7 +52,7 @@ validate:syntax:
 # ------------------------------------------------------------------------------
 # Stage 2: Automated Quality Test Suite
 # ------------------------------------------------------------------------------
-test:automated-suite:
+test_suite:
   stage: test
   image: php:8.2-cli-alpine
   tags:
@@ -71,7 +71,7 @@ test:automated-suite:
     - cp .env.example .env
     - composer install --no-interaction --prefer-dist --optimize-autoloader
     - php artisan key:generate --force
-    - echo "Executing full automated feature & regression test suite (Baseline: 68 tests)..."
+    - echo "Executing full automated feature & regression test suite..."
     - php artisan test --colors=never
   artifacts:
     when: on_failure
@@ -82,7 +82,7 @@ test:automated-suite:
 # ------------------------------------------------------------------------------
 # Stage 3: Security & Secret Hygiene
 # ------------------------------------------------------------------------------
-security:hygiene:
+security_hygiene:
   stage: security
   image: alpine:latest
   tags:
@@ -119,7 +119,7 @@ security:hygiene:
 # ------------------------------------------------------------------------------
 # Stage 4: Container Build
 # ------------------------------------------------------------------------------
-build:docker:
+build_docker:
   stage: build
   image: docker:latest
   tags:
@@ -127,10 +127,10 @@ build:docker:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   needs:
-    - validate:composer
-    - validate:syntax
-    - test:automated-suite
-    - security:hygiene
+    - validate_composer
+    - validate_syntax
+    - test_suite
+    - security_hygiene
   script:
     - echo "Building reproducible Docker image: pkp-securegate:${IMAGE_TAG}..."
     - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
@@ -150,7 +150,7 @@ build:docker:
 # ------------------------------------------------------------------------------
 # Stage 5: Gated Production Deployment
 # ------------------------------------------------------------------------------
-deploy:production:
+deploy_production:
   stage: deploy
   image: docker:latest
   tags:
@@ -161,7 +161,7 @@ deploy:production:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   needs:
-    - build:docker
+    - build_docker
   script:
     - echo "Deploying to production target..."
     - mkdir -p database storage/logs storage/app storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
@@ -173,7 +173,7 @@ deploy:production:
 # ------------------------------------------------------------------------------
 # Stage 6: Post-Deployment Verification
 # ------------------------------------------------------------------------------
-verify:healthcheck:
+verify_healthcheck:
   stage: verify
   image: curlimages/curl:latest
   tags:
@@ -181,7 +181,7 @@ verify:healthcheck:
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   needs:
-    - deploy:production
+    - deploy_production
   script:
     - echo "Verifying container endpoint health..."
     - |
