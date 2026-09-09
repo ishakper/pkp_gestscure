@@ -2,19 +2,19 @@
 # GitLab CI/CD Pipeline - PKP SecureGate
 # ==============================================================================
 # Pipeline Architecture:
-#   .pre -> validate -> test -> security -> build -> deploy -> verify
+#   .pre -> validate -> build -> test -> security -> deploy -> verify
 #
 # Quality Gate Rule:
-#   Deployment is strictly prohibited until validate, test, security, and build
+#   Deployment is strictly prohibited until validate, build, test, and security
 #   stages complete with 100% success on the protected default branch.
 # ==============================================================================
 
 stages:
   - .pre
   - validate
+  - build
   - test
   - security
-  - build
   - deploy
   - verify
 
@@ -47,62 +47,56 @@ fix_runner_workspace:
 # ------------------------------------------------------------------------------
 validate_composer:
   stage: validate
-  image: composer:2
   tags:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
   script:
     - echo "Validating composer configuration and lockfile..."
-    - |
-      if command -v composer >/dev/null 2>&1; then
-        composer validate --strict --no-check-publish
-      else
-        docker run --rm -v "$(pwd):/app" -w /app composer:2 composer validate --strict --no-check-publish
-      fi
+    - docker run --rm -v "$(pwd):/app" -w /app composer:2 composer validate --strict --no-check-publish
 
 validate_syntax:
   stage: validate
-  image: php:8.2-cli-alpine
   tags:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
   script:
     - echo "Checking PHP syntax across application source..."
-    - |
-      if command -v php >/dev/null 2>&1; then
-        find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true
-      else
-        docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true'
-      fi
+    - docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true'
 
 # ------------------------------------------------------------------------------
-# Stage 2: Automated Quality Test Suite
+# Stage 2: Container Build
 # ------------------------------------------------------------------------------
-test_suite:
-  stage: test
-  image: php:8.2-cli-alpine
+build_docker:
+  stage: build
   tags:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
-  cache:
-    key: composer-${CI_COMMIT_REF_SLUG}
-    paths:
-      - vendor/
+  needs:
+    - validate_composer
+    - validate_syntax
   script:
-    - echo "Executing full automated feature & regression test suite..."
-    - |
-      if command -v php >/dev/null 2>&1 && command -v composer >/dev/null 2>&1; then
-        cp -n .env.example .env || true
-        composer install --no-interaction --prefer-dist --optimize-autoloader
-        php artisan key:generate --force
-        php artisan test --colors=never
-      else
-        docker compose run --rm -e APP_ENV=testing app php artisan test --colors=never
-        docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
-      fi
+    - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
+    - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
+    - if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" && docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" && docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"; fi
+
+# ------------------------------------------------------------------------------
+# Stage 3: Automated Quality Test Suite (Clean Container)
+# ------------------------------------------------------------------------------
+test_suite:
+  stage: test
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - build_docker
+  script:
+    - echo "Executing full automated feature & regression test suite in clean container..."
+    - docker run --rm --entrypoint /bin/sh -v "$(pwd):/var/www/html" -w /var/www/html -e APP_ENV=testing pkp-securegate:${IMAGE_TAG} -c "composer install --prefer-dist --no-interaction && php artisan test --colors=never"
+    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
   artifacts:
     when: on_failure
     expire_in: 3 days
@@ -110,15 +104,16 @@ test_suite:
       - storage/logs/laravel.log
 
 # ------------------------------------------------------------------------------
-# Stage 3: Security & Secret Hygiene
+# Stage 4: Security & Secret Hygiene
 # ------------------------------------------------------------------------------
 security_hygiene:
   stage: security
-  image: alpine:latest
   tags:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
+  needs:
+    - test_suite
   script:
     - echo "Checking that .env is NOT tracked in Git..."
     - test -z "$(git ls-files .env)"
@@ -131,31 +126,10 @@ security_hygiene:
     - echo "Security hygiene checks passed cleanly."
 
 # ------------------------------------------------------------------------------
-# Stage 4: Container Build
-# ------------------------------------------------------------------------------
-build_docker:
-  stage: build
-  image: docker:latest
-  tags:
-    - Sandbox
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-  needs:
-    - validate_composer
-    - validate_syntax
-    - test_suite
-    - security_hygiene
-  script:
-    - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
-    - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
-    - if [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" && docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" && docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"; fi
-
-# ------------------------------------------------------------------------------
-# Stage 5: Gated Production Deployment
+# Stage 5: Gated Production Deployment (Deferred)
 # ------------------------------------------------------------------------------
 deploy_production:
   stage: deploy
-  image: docker:latest
   tags:
     - Sandbox
   environment:
@@ -163,10 +137,13 @@ deploy_production:
     url: $APP_URL
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
   needs:
-    - build_docker
+    - security_hygiene
   script:
-    - echo "Deploying to production target..."
+    - echo "Production deployment is currently deferred due to offline target infrastructure (192.168.90.81)."
+    - echo "Triggering container recreation on runner host..."
     - mkdir -p database storage/logs storage/app storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
     - touch database/database.sqlite
     - chmod -R 777 storage bootstrap/cache database
@@ -175,15 +152,16 @@ deploy_production:
     - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# Stage 6: Post-Deployment Verification
+# Stage 6: Post-Deployment Verification (Deferred)
 # ------------------------------------------------------------------------------
 verify_healthcheck:
   stage: verify
-  image: curlimages/curl:latest
   tags:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
   needs:
     - deploy_production
   script:
