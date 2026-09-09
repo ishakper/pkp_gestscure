@@ -29,6 +29,9 @@ class Admin extends Authenticatable
         return $this->hasMany(ActivityLog::class);
     }
 
+    public function portal(): string { return app(\App\Services\PortalAccess::class)->portalFor($this); }
+    public function hasPermission(string $permission): bool { return app(\App\Services\PortalAccess::class)->can($this, $permission); }
+
     public function isSuperAdmin(): bool
     {
         return $this->role === 'super_admin';

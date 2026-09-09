@@ -1319,24 +1319,15 @@
                 <span class="nav-text">Dashboard Terpusat</span>
             </button>
         </li>
-        <li class="nav-item">
-            <button data-tooltip="4 Terminal Pintu (Doors)" onclick="switchTab('doorsTab', this)">
-                <span class="nav-icon">🌐</span>
-                <span class="nav-text">4 Terminal Pintu (Doors)</span>
-            </button>
-        </li>
-        <li class="nav-item">
-            <button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)">
-                <span class="nav-icon">👥</span>
-                <span class="nav-text">Hak Akses Karyawan</span>
-            </button>
-        </li>
-        <li class="nav-item">
-            <button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)">
-                <span class="nav-icon">📋</span>
-                <span class="nav-text">Security Access Logs</span>
-            </button>
-        </li>
+        @if(in_array('device.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="4 Terminal Pintu (Doors)" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Devices & Doors' : 'Pintu Gedung' }}</span></button></li>
+        @endif
+        @if(in_array('employee.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">{{ ($portal ?? '') === 'MANAGEMENT_PORTAL' ? 'People & Organization' : 'Hak Akses Karyawan' }}</span></button></li>
+        @endif
+        @if(in_array('security.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
+        @endif
         @if (app()->environment('local', 'testing'))
         <li class="nav-item">
             <button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)">

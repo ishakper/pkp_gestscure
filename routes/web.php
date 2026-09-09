@@ -59,8 +59,11 @@ Route::middleware(['auth'])->group(function () {
         }
         $doors = $doorsQuery->get();
 
+        $portalAccess = app(\App\Services\PortalAccess::class);
         return view('dashboard', [
             'admin' => $admin,
+            'portal' => $portalAccess->portalFor($admin),
+            'permissions' => $portalAccess->permissionsFor($admin),
             'apiToken' => $apiToken,
             'doors' => $doors,
         ]);
@@ -69,4 +72,3 @@ Route::middleware(['auth'])->group(function () {
     // Web routes
     Route::get('/live-stream', [\App\Http\Controllers\LiveAccessStreamController::class, 'stream']);
 });
-
