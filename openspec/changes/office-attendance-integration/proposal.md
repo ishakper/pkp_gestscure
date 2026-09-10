@@ -1,7 +1,7 @@
 # Office Attendance Integration
 
 ## Status
-Implemented; awaiting GitLab delivery gates.
+Complete (Pipeline #17730 PASSED, SHA 0e62d09118ff3a58e4d48b28bc1fb934542f9179).
 
 ## Purpose
 Link authorized Hikvision access events to derived office attendance while keeping physical security logs immutable.

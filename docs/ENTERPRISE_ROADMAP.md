@@ -152,7 +152,14 @@ Sprint 8: Work Calendar + Attendance Core.
 - FULL_REGRESSION: PASS (176 tests, 838 assertions at acceptance)
 
 Sprint 9: Office Attendance Integration.
-- SPRINT_9: IN_PROGRESS — local implementation and validation complete; GitLab delivery evidence pending.
+- SPRINT_9: PASS
+- PIPELINE_ID: 17730
+- PIPELINE_SHA: 0e62d09118ff3a58e4d48b28bc1fb934542f9179
+- PIPELINE_STATUS: PASSED
+- GITLAB_VALIDATE: PASS
+- GITLAB_BUILD: PASS
+- GITLAB_TEST: PASS
+- GITLAB_SECURITY: PASS
 - ACCESSLOG_IMMUTABLE: PASS
 - NORMALIZED_EVIDENCE / EVENT_DISPATCH / LISTENER_EXECUTION: PASS
 - ENTRY / EXIT / MULTIPLE_EVENT / UNKNOWN_DIRECTION / DENIED / UNMAPPED / DEDUPLICATION: PASS
@@ -160,6 +167,8 @@ Sprint 9: Office Attendance Integration.
 - OFFICE_ATTENDANCE_UI: PASS (processed data only; no raw device payload or device secret in browser config)
 - TARGETED_TESTS: PASS (57 tests, 185 assertions)
 - FULL_REGRESSION: PASS (183 tests, 884 assertions)
-- MIGRATION_SAFETY: additive `attendance_evidences` table; SPRINT9_PRE_MIGRATION_COUNT_EVIDENCE = NOT_CAPTURED.
+- MIGRATION_SAFETY: additive `attendance_evidences` table
 - PHYSICAL_CARD_E2E: DEFERRED_WITH_EVIDENCE
 - PHYSICAL_FINGERPRINT_E2E: DEFERRED_WITH_EVIDENCE
+
+Next: Sprint 10 Field Attendance + GPS + Photo + Geofence.

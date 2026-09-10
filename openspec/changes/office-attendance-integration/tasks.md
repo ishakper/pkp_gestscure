@@ -6,4 +6,4 @@
 - [x] Cover entry, exit, unknown direction, denied/unmapped, deduplication, lateness, and immutability.
 - [x] Add processed office-attendance dashboard context without raw payloads or device secrets.
 - [x] Run targeted and full regression.
-- [ ] Complete GitLab pipeline verification and record final delivery evidence.
+- [x] Complete GitLab pipeline verification and record final delivery evidence (Pipeline #17730, SHA 0e62d09118ff3a58e4d48b28bc1fb934542f9179, PASSED).
