@@ -200,6 +200,17 @@ XML;
             ]);
     }
 
+    public function test_admin_cannot_remote_unlock_offline_door(): void
+    {
+        Config::set('services.hikvision.use_mock', true);
+        $this->doorB->update(['connection_status' => 'offline', 'health_status' => 'offline']);
+
+        $this->actingAs($this->superAdmin)
+            ->postJson('/api/v1/admin/doors/DOOR-B/open')
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online.');
+    }
+
     /**
      * Test RBAC: Building admin cannot unlock a door in another building.
      */

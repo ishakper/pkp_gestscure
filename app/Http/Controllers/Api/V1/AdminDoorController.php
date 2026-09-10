@@ -122,6 +122,14 @@ class AdminDoorController extends Controller
             $this->authorize('open', $door);
         }
 
+        if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
+            return response()->json([
+                'status' => 'error',
+                'code' => 409,
+                'message' => 'Remote unlock diblokir: terminal belum terverifikasi online.',
+            ], 409);
+        }
+
         $result = $isapiService->remoteControlDoor($door, 'open');
 
         if (!($result['status'] ?? false)) {

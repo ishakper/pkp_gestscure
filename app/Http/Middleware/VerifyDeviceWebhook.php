@@ -41,8 +41,7 @@ class VerifyDeviceWebhook
         $clientIp = $request->ip();
         $isTrustedProxy = $clientIp === '127.0.0.1'
             || $clientIp === '::1'
-            || $this->inCidr($clientIp, '10.0.0.0/8')
-            || $this->inCidr($clientIp, '172.16.0.0/12');
+            || in_array($clientIp, $configuredAllowedIps, true);
 
         if (!$isTrustedProxy && !in_array($clientIp, $allowedIps, true)) {
             return response()->json([
@@ -77,7 +76,8 @@ class VerifyDeviceWebhook
                 $sanctumToken = PersonalAccessToken::findToken($bearerToken);
                 if ($sanctumToken
                     && in_array('device:push-log', $sanctumToken->abilities ?? [], true)
-                    && !in_array('*', $sanctumToken->abilities ?? [], true)) {
+                    && !in_array('*', $sanctumToken->abilities ?? [], true)
+                    && (!$claimedDoor || $sanctumToken->name === "device-token-{$claimedDoor->door_id}")) {
                     $isTokenValid = true;
                 }
             }
@@ -97,18 +97,5 @@ class VerifyDeviceWebhook
         }
 
         return $next($request);
-    }
-
-    private function inCidr(string $ip, string $cidr): bool
-    {
-        [$network, $prefix] = explode('/', $cidr);
-        $ipValue = ip2long($ip);
-        $networkValue = ip2long($network);
-        if ($ipValue === false || $networkValue === false) {
-            return false;
-        }
-
-        $mask = -1 << (32 - (int) $prefix);
-        return ($ipValue & $mask) === ($networkValue & $mask);
     }
 }

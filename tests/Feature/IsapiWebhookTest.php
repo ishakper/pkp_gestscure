@@ -213,7 +213,7 @@ class IsapiWebhookTest extends TestCase
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
-        $token = $admin->createToken('device', ['device:push-log'])->plainTextToken;
+        $token = $admin->createToken('device-token-DOOR-A', ['device:push-log'])->plainTextToken;
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->withToken($token)
@@ -222,6 +222,24 @@ class IsapiWebhookTest extends TestCase
                 'user' => 'NIK-882101',
                 'access_status' => 'Granted',
             ])->assertStatus(200);
+    }
+
+    public function test_device_scoped_token_cannot_submit_for_another_door(): void
+    {
+        $admin = Admin::create([
+            'name' => 'Super Admin',
+            'email' => 'bound-device@example.test',
+            'password' => bcrypt('password'),
+            'role' => 'super_admin',
+        ]);
+        $token = $admin->createToken('device-token-DOOR-B', ['device:push-log'])->plainTextToken;
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->withToken($token)
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+            ])->assertStatus(403);
     }
 
     public function test_door_secret_cannot_authorize_another_door(): void
@@ -386,6 +404,8 @@ XML;
      */
     public function test_trusted_proxy_with_door_id_parameter(): void
     {
+        config(['services.hikvision.allowed_device_ips' => '172.25.0.1']);
+
         $response = $this->withServerVariables(['REMOTE_ADDR' => '172.25.0.1'])
             ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
                 'user' => 'NIK-882101',

@@ -21,8 +21,8 @@ fi
 # 3. Fix Ownership and Permissions for SQLite & Storage
 echo "Setting storage & database permissions for www-data..."
 chown -R www-data:www-data /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod -R 777 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod 666 /var/www/html/database/database.sqlite
+chmod -R 775 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
+chmod 664 /var/www/html/database/database.sqlite
 
 # 4. Require a stable APP_KEY in production; generate only for non-production convenience
 if [ -z "$APP_KEY" ]; then

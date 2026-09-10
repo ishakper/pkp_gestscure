@@ -4,7 +4,7 @@
  */
 
 const API_BASE = '/api/v1';
-let APP_TOKEN = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+let APP_TOKEN = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
 
 // State Cache
 let state = {
@@ -815,7 +815,7 @@ async function deleteEmployee(id, name) {
 async function loadAccessLogs() {
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
-    const doorFilter = document.getElementById('logDoorFilter')?.value || 'DOOR-B';
+    const doorFilter = document.getElementById('logDoorFilter')?.value || '';
     const statusFilter = document.getElementById('logStatusFilter')?.value || '';
     const userSearch = document.getElementById('logUserSearch')?.value.trim() || '';
     const startDate = document.getElementById('logStartDate')?.value || '';
@@ -840,9 +840,9 @@ async function loadAccessLogs() {
             updateMetricCards();
         }
     } catch (err) {
-        if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${err.message}</td></tr>`;
-        }
+        const errorHtml = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${escapeHtml(err.message)}</td></tr>`;
+        if (tbody) tbody.innerHTML = errorHtml;
+        if (recentTbody) recentTbody.innerHTML = errorHtml;
     }
 }
 
@@ -1263,7 +1263,7 @@ function switchTab(tabId, btn) {
     state.activeTab = tabId;
 
     // Auto-close sidebar on mobile after tab selection
-    if (window.innerWidth < 768) {
+    if (window.innerWidth <= 768) {
         toggleSidebar(false);
     }
 
@@ -1288,7 +1288,7 @@ function switchTab(tabId, btn) {
 // Floating Logo & Sidebar Controller
 // ==========================================
 function initSidebar() {
-    const isMobile = () => window.innerWidth < 768;
+    const isMobile = () => window.innerWidth <= 768;
     const backdrop = document.getElementById('sidebarBackdrop');
     const floatingLogo = document.getElementById('floatingLogo');
     const closeBtn = document.getElementById('sidebarCloseBtn');
@@ -1376,7 +1376,7 @@ function initSidebar() {
 }
 
 function toggleSidebar(forceState) {
-    const isMobile = window.innerWidth < 768;
+    const isMobile = window.innerWidth <= 768;
     const backdrop = document.getElementById('sidebarBackdrop');
 
     const isCurrentlyOpen = document.body.classList.contains('sidebar-open') ||
@@ -3574,7 +3574,7 @@ async function submitUploadDocument(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
 
         const headers = {
             'Accept': 'application/json',
@@ -3638,7 +3638,7 @@ async function submitVerifyDocument(e) {
 
 async function downloadSecureDocument(docId, fileName) {
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
         const headers = {};
         if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
 
@@ -5753,7 +5753,7 @@ async function submitFieldAttendance(type) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
 
         const headers = {
             'Accept': 'application/json',
@@ -5807,7 +5807,7 @@ async function viewFieldPhoto(evidenceId) {
     modal.classList.add('active');
 
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
         const headers = appToken ? { 'Authorization': `Bearer ${appToken}` } : {};
 
         const res = await fetch(`/api/v1/field-attendance/records/${evidenceId}/photo`, { headers });
@@ -6062,7 +6062,7 @@ async function submitNewAttendanceRequest(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
 
         const headers = {
             'X-CSRF-TOKEN': csrfToken,
