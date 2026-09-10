@@ -59,6 +59,13 @@ class VerifyDeviceWebhook
         $claimedDoor = $claimedDoorId
             ? Door::where('door_id', $claimedDoorId)->first()
             : Door::where('device_ip', $clientIp)->first();
+        if (!$claimedDoor || (!$isTrustedProxy && $claimedDoor->device_ip !== $clientIp)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Akses ditolak: Identitas terminal tidak cocok dengan sumber webhook.',
+            ], 403);
+        }
         $validSecrets = array_filter([
             $claimedDoor ? config("services.doors.{$claimedDoor->door_id}.webhook_secret") : null,
             config('services.hikvision.device_secret'),
@@ -77,7 +84,7 @@ class VerifyDeviceWebhook
                 if ($sanctumToken
                     && in_array('device:push-log', $sanctumToken->abilities ?? [], true)
                     && !in_array('*', $sanctumToken->abilities ?? [], true)
-                    && (!$claimedDoor || $sanctumToken->name === "device-token-{$claimedDoor->door_id}")) {
+                    && $sanctumToken->name === "device-token-{$claimedDoor->door_id}") {
                     $isTokenValid = true;
                 }
             }

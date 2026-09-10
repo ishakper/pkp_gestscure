@@ -242,6 +242,24 @@ class IsapiWebhookTest extends TestCase
             ])->assertStatus(403);
     }
 
+    public function test_claimed_door_must_match_direct_source_ip(): void
+    {
+        Door::create([
+            'door_id' => 'DOOR-B',
+            'door_name' => 'Door B',
+            'location' => 'Gedung B',
+            'device_ip' => '192.168.90.15',
+        ]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-B',
+                'user' => 'NIK-882101',
+            ], [
+                'X-Device-Secret' => 'secret_door_b_9982',
+            ])->assertStatus(403);
+    }
+
     public function test_door_secret_cannot_authorize_another_door(): void
     {
         Door::create([

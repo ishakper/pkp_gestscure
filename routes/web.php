@@ -30,8 +30,11 @@ Route::post('/login', function (Request $request) {
     if ($admin && Hash::check($request->password, $admin->password)) {
         Auth::login($admin);
         $request->session()->regenerate();
-        $token = $admin->createToken('web-session-token')->plainTextToken;
-        session(['api_token' => $token]);
+        $token = $admin->createToken('web-session-token');
+        $request->session()->put([
+            'api_token' => $token->plainTextToken,
+            'api_token_id' => $token->accessToken->getKey(),
+        ]);
 
         return redirect('/');
     }
@@ -40,7 +43,10 @@ Route::post('/login', function (Request $request) {
 })->middleware('throttle:login');
 
 Route::post('/logout', function (Request $request) {
-    $request->user()?->tokens()->where('name', 'web-session-token')->delete();
+    $tokenId = $request->session()->get('api_token_id');
+    if ($tokenId) {
+        $request->user()?->tokens()->whereKey($tokenId)->where('name', 'web-session-token')->delete();
+    }
     Auth::logout();
     $request->session()->invalidate();
     $request->session()->regenerateToken();
@@ -50,10 +56,6 @@ Route::post('/logout', function (Request $request) {
 Route::middleware(['auth'])->group(function () {
     Route::get('/', function () {
         $apiToken = session('api_token');
-        if (!$apiToken && Auth::check()) {
-            $apiToken = Auth::user()->createToken('web-session-token')->plainTextToken;
-            session(['api_token' => $apiToken]);
-        }
         $admin = Auth::user();
         $doorsQuery = \App\Models\Door::withCount(['employees', 'doorAssignments']);
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
