@@ -323,12 +323,14 @@ Route::prefix('v1')->group(function () {
 | Mock ISAPI Routes (Hikvision DS-K1T804AMF Simulation & Integration)
 |--------------------------------------------------------------------------
 */
-Route::prefix('mock/isapi')->group(function () {
-    Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
-    Route::get('/System/deviceInfo', [HikvisionMockController::class, 'deviceStatus']);
-    Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
-    Route::put('/AccessControl/RemoteControl/door/{doorNo}', [HikvisionMockController::class, 'remoteControl']);
-    Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
-    Route::put('/AccessControl/UserInfo/SetUp', [HikvisionMockController::class, 'setupUserInfo']);
-    Route::put('/AccessControl/UserRightPlan/SetUp', [HikvisionMockController::class, 'setupUserRightPlan']);
-});
+if (app()->environment(['local', 'testing'])) {
+    Route::prefix('mock/isapi')->group(function () {
+        Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
+        Route::get('/System/deviceInfo', [HikvisionMockController::class, 'deviceStatus']);
+        Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
+        Route::put('/AccessControl/RemoteControl/door/{doorNo}', [HikvisionMockController::class, 'remoteControl']);
+        Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
+        Route::put('/AccessControl/UserInfo/SetUp', [HikvisionMockController::class, 'setupUserInfo']);
+        Route::put('/AccessControl/UserRightPlan/SetUp', [HikvisionMockController::class, 'setupUserRightPlan']);
+    });
+}

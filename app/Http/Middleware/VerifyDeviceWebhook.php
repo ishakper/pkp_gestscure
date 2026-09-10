@@ -39,7 +39,10 @@ class VerifyDeviceWebhook
 
         $allowedIps = array_unique(array_merge($defaultAllowedIps, $dbDoorIps, $configuredAllowedIps));
         $clientIp = $request->ip();
-        $isTrustedProxy = str_starts_with($clientIp, '172.') || str_starts_with($clientIp, '10.') || $clientIp === '127.0.0.1';
+        $isTrustedProxy = $clientIp === '127.0.0.1'
+            || $clientIp === '::1'
+            || $this->inCidr($clientIp, '10.0.0.0/8')
+            || $this->inCidr($clientIp, '172.16.0.0/12');
 
         if (!$isTrustedProxy && !in_array($clientIp, $allowedIps, true)) {
             return response()->json([
@@ -53,11 +56,12 @@ class VerifyDeviceWebhook
         $secretHeader = $request->header('X-Device-Secret');
         $authHeader = $request->header('Authorization');
 
+        $claimedDoorId = $request->query('door_id', $request->input('door_id'));
+        $claimedDoor = $claimedDoorId
+            ? Door::where('door_id', $claimedDoorId)->first()
+            : Door::where('device_ip', $clientIp)->first();
         $validSecrets = array_filter([
-            config('services.doors.DOOR-A.webhook_secret'),
-            config('services.doors.DOOR-B.webhook_secret'),
-            config('services.doors.DOOR-C.webhook_secret'),
-            config('services.doors.DOOR-D.webhook_secret'),
+            $claimedDoor ? config("services.doors.{$claimedDoor->door_id}.webhook_secret") : null,
             config('services.hikvision.device_secret'),
         ]);
 
@@ -71,53 +75,17 @@ class VerifyDeviceWebhook
                 $isTokenValid = true;
             } else {
                 $sanctumToken = PersonalAccessToken::findToken($bearerToken);
-                if ($sanctumToken && ($sanctumToken->can('device:push-log') || $sanctumToken->can('*'))) {
+                if ($sanctumToken
+                    && in_array('device:push-log', $sanctumToken->abilities ?? [], true)
+                    && !in_array('*', $sanctumToken->abilities ?? [], true)) {
                     $isTokenValid = true;
                 }
             }
         }
 
-        // If no secret provided, but the IP is confirmed as a physical registered door, allow it as a physical event fallback
         $hasSecretProvided = ($isSecretValid || $isTokenValid);
-        $isPhysicalHardwareEvent = false;
 
         if (!$hasSecretProvided) {
-            $rawContent = (string) $request->getContent();
-            $contentType = (string) $request->header('Content-Type', '');
-            
-            $parsedEvent = \App\Services\HikvisionPayloadParser::parse($rawContent, $contentType);
-
-            $isRegisteredDoorIp = false;
-            
-            // Check door_id query parameter first
-            $queryDoorId = $request->query('door_id');
-            if ($queryDoorId && $isTrustedProxy) {
-                // For proxy clients, if door_id is present, ensure it maps to a real door
-                $queryDoor = Door::where('door_id', $queryDoorId)->first();
-                if ($queryDoor && !empty($queryDoor->device_ip) && in_array($queryDoor->device_ip, $allowedIps, true)) {
-                    $isRegisteredDoorIp = true;
-                }
-            } else {
-                $isRegisteredDoorIp = in_array($clientIp, $allowedIps, true);
-            }
-
-            if ($parsedEvent && $parsedEvent['is_valid_event']) {
-                if (!$isRegisteredDoorIp) {
-                    $payloadIp = $parsedEvent['device_ip'];
-                    
-                    if ($isTrustedProxy && !empty($payloadIp) && in_array($payloadIp, $allowedIps, true)) {
-                        $isRegisteredDoorIp = true;
-                    }
-                }
-
-                if ($isRegisteredDoorIp) {
-                    $isPhysicalHardwareEvent = true;
-                    $request->attributes->set('hikvision_parsed_event', $parsedEvent);
-                }
-            }
-        }
-
-        if (!$hasSecretProvided && !$isPhysicalHardwareEvent) {
             \Illuminate\Support\Facades\Log::warning('[ISAPI Webhook] Unauthorized request or unrecognized device IP', [
                 'ip' => $clientIp,
             ]);
@@ -129,5 +97,18 @@ class VerifyDeviceWebhook
         }
 
         return $next($request);
+    }
+
+    private function inCidr(string $ip, string $cidr): bool
+    {
+        [$network, $prefix] = explode('/', $cidr);
+        $ipValue = ip2long($ip);
+        $networkValue = ip2long($network);
+        if ($ipValue === false || $networkValue === false) {
+            return false;
+        }
+
+        $mask = -1 << (32 - (int) $prefix);
+        return ($ipValue & $mask) === ($networkValue & $mask);
     }
 }

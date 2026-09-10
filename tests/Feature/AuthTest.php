@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Admin;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class AuthTest extends TestCase
@@ -56,5 +57,26 @@ class AuthTest extends TestCase
                 'status' => 'error',
                 'code' => 401,
             ]);
+    }
+
+    public function test_web_logout_revokes_web_session_tokens(): void
+    {
+        $admin = Admin::create([
+            'name' => 'Super Admin',
+            'email' => 'admin@accesscontrol.local',
+            'password' => Hash::make('password'),
+            'role' => 'super_admin',
+        ]);
+
+        $this->post('/login', [
+            'email' => $admin->email,
+            'password' => 'password',
+        ])->assertRedirect('/');
+
+        $this->assertSame(1, $admin->tokens()->where('name', 'web-session-token')->count());
+
+        $this->post('/logout')->assertRedirect('/login');
+
+        $this->assertSame(0, PersonalAccessToken::where('tokenable_id', $admin->id)->count());
     }
 }

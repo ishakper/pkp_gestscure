@@ -49,8 +49,11 @@ class OfficeAttendanceIntegrationTest extends TestCase
         if ($employeeNo !== null) $event['employeeNoString'] = $employeeNo;
 
         $this->postJson('/api/v1/isapi/event-notification', [
+            'door_id' => 'DOOR-TEST',
             'AccessControllerEvent' => $event,
             'dateTime' => $at->toIso8601String(), 'ipAddress' => '192.168.1.100',
+        ], [
+            'X-Device-Secret' => 'secret_simulator_key_2026',
         ])->assertOk();
     }
 

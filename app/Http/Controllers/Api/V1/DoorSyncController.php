@@ -5,14 +5,21 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Jobs\SyncDoorAccessJob;
 use App\Models\ActivityLog;
+use App\Models\Door;
 use App\Models\DoorAssignment;
+use App\Services\PortalAccess;
 use Illuminate\Http\Request;
 
 class DoorSyncController extends Controller
 {
+    public function __construct(private readonly PortalAccess $portalAccess)
+    {
+    }
+
     public function sync(Request $request)
     {
-        $query = DoorAssignment::query();
+        $this->authorizeDeviceManagement($request);
+        $query = DoorAssignment::with('door');
 
         // If door_id filter is provided in request
         if ($request->filled('door_id')) {
@@ -31,6 +38,7 @@ class DoorSyncController extends Controller
         }
 
         $assignments = $query->get();
+        $assignments->each(fn (DoorAssignment $assignment) => $this->authorize('physicalControl', $assignment->door));
         $dispatchedCount = 0;
 
         foreach ($assignments as $assignment) {
@@ -55,6 +63,7 @@ class DoorSyncController extends Controller
 
     public function assignDoors(Request $request)
     {
+        $this->authorizeDeviceManagement($request);
         $doorInputs = $request->input('door_ids') ?? $request->input('door_id');
         if (!$doorInputs) {
             return response()->json([
@@ -79,14 +88,13 @@ class DoorSyncController extends Controller
             ->firstOrFail();
 
         $doorArray = is_array($doorInputs) ? $doorInputs : [$doorInputs];
+        $doors = collect($doorArray)->map(function ($doorInput) {
+            return Door::where('door_id', $doorInput)->orWhere('id', $doorInput)->firstOrFail();
+        });
+        $doors->each(fn (Door $door) => $this->authorize('physicalControl', $door));
         $assignedDoors = [];
 
-        foreach ($doorArray as $dInput) {
-            $door = \App\Models\Door::where('door_id', $dInput)
-                ->orWhere('id', $dInput)
-                ->first();
-
-            if ($door) {
+        foreach ($doors as $door) {
                 $assignment = DoorAssignment::updateOrCreate(
                     ['employee_id' => $employee->id, 'door_id' => $door->id],
                     ['sync_status' => 'pending', 'sync_attempts' => 0]
@@ -103,7 +111,6 @@ class DoorSyncController extends Controller
                     'description' => "Assigned access to {$door->name} ({$door->door_id}) for employee {$employee->name}",
                     'timestamp' => now(),
                 ]);
-            }
         }
 
         return response()->json([
@@ -144,6 +151,7 @@ class DoorSyncController extends Controller
 
     public function revokeDoors(Request $request)
     {
+        $this->authorizeDeviceManagement($request);
         $empIdentifier = $request->input('employee_id') ?? $request->input('user_id') ?? $request->input('id');
         if (!$empIdentifier) {
             return response()->json([
@@ -160,7 +168,7 @@ class DoorSyncController extends Controller
 
         $doorInput = $request->input('door_id') ?? $request->input('door_ids');
 
-        $query = DoorAssignment::where('employee_id', $employee->id);
+        $query = DoorAssignment::with('door')->where('employee_id', $employee->id);
 
         if ($doorInput) {
             $doorArray = is_array($doorInput) ? $doorInput : [$doorInput];
@@ -170,7 +178,9 @@ class DoorSyncController extends Controller
             $query->whereIn('door_id', $doorDbIds);
         }
 
-        $deletedCount = $query->delete();
+        $assignments = $query->get();
+        $assignments->each(fn (DoorAssignment $assignment) => $this->authorize('physicalControl', $assignment->door));
+        $deletedCount = DoorAssignment::whereKey($assignments->modelKeys())->delete();
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
@@ -186,5 +196,10 @@ class DoorSyncController extends Controller
             'message' => "Hak akses pintu untuk {$employee->name} berhasil dicabut ({$deletedCount} izin pintu).",
             'revoked_count' => $deletedCount,
         ]);
+    }
+
+    private function authorizeDeviceManagement(Request $request): void
+    {
+        abort_unless($request->user() && $this->portalAccess->can($request->user(), 'device.manage'), 403);
     }
 }

@@ -29,6 +29,7 @@ Route::post('/login', function (Request $request) {
 
     if ($admin && Hash::check($request->password, $admin->password)) {
         Auth::login($admin);
+        $request->session()->regenerate();
         $token = $admin->createToken('web-session-token')->plainTextToken;
         session(['api_token' => $token]);
 
@@ -39,6 +40,7 @@ Route::post('/login', function (Request $request) {
 })->middleware('throttle:login');
 
 Route::post('/logout', function (Request $request) {
+    $request->user()?->tokens()->where('name', 'web-session-token')->delete();
     Auth::logout();
     $request->session()->invalidate();
     $request->session()->regenerateToken();

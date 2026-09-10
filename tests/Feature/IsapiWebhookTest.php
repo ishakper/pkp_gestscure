@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AccessLog;
 use App\Models\Door;
 use App\Models\Employee;
+use App\Models\Admin;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
 use Tests\TestCase;
@@ -151,6 +152,94 @@ class IsapiWebhookTest extends TestCase
                 'status' => 'error',
                 'code' => 403,
             ]);
+    }
+
+    public function test_public_172_address_is_not_trusted_as_proxy(): void
+    {
+        $this->withServerVariables(['REMOTE_ADDR' => '172.15.0.1'])
+            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+                'user' => 'NIK-882101',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ])->assertStatus(403);
+    }
+
+    public function test_forwarded_device_ip_from_untrusted_peer_is_rejected(): void
+    {
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
+            ->withHeader('X-Forwarded-For', '192.168.90.11')
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ])->assertStatus(403);
+    }
+
+    public function test_valid_hardware_event_with_invalid_secret_fails_closed(): void
+    {
+        $xml = '<EventNotificationAlert><ipAddress>192.168.90.11</ipAddress><majorEventType>1</majorEventType><subEventType>1</subEventType></EventNotificationAlert>';
+
+        $this->call('POST', '/api/v1/isapi/event-notification?door_id=DOOR-A', [], [], [], [
+            'REMOTE_ADDR' => '192.168.90.11',
+            'HTTP_X_DEVICE_SECRET' => 'invalid',
+            'CONTENT_TYPE' => 'application/xml',
+        ], $xml)->assertStatus(403);
+    }
+
+    public function test_wildcard_sanctum_token_cannot_submit_hardware_events(): void
+    {
+        $admin = Admin::create([
+            'name' => 'Super Admin',
+            'email' => 'web@example.test',
+            'password' => bcrypt('password'),
+            'role' => 'super_admin',
+        ]);
+        $token = $admin->createToken('web-session-token')->plainTextToken;
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->withToken($token)
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+            ])->assertStatus(403);
+    }
+
+    public function test_device_scoped_sanctum_token_can_submit_hardware_events(): void
+    {
+        $admin = Admin::create([
+            'name' => 'Super Admin',
+            'email' => 'device@example.test',
+            'password' => bcrypt('password'),
+            'role' => 'super_admin',
+        ]);
+        $token = $admin->createToken('device', ['device:push-log'])->plainTextToken;
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->withToken($token)
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+                'access_status' => 'Granted',
+            ])->assertStatus(200);
+    }
+
+    public function test_door_secret_cannot_authorize_another_door(): void
+    {
+        Door::create([
+            'door_id' => 'DOOR-B',
+            'door_name' => 'Door B',
+            'location' => 'Gedung B',
+            'device_ip' => '192.168.90.15',
+        ]);
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.15'])
+            ->postJson('/api/v1/isapi/event-notification', [
+                'door_id' => 'DOOR-B',
+                'user' => 'NIK-882101',
+            ], [
+                'X-Device-Secret' => 'secret_door_a_9981',
+            ])->assertStatus(403);
     }
 
     /**
