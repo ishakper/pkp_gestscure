@@ -181,5 +181,20 @@ Sprint 10: Field Attendance + GPS + Photo + Geofence.
 - TARGETED_TESTS: PASS (21 tests, 94 assertions in FieldAttendanceTest)
 - FULL_REGRESSION: PASS (204 tests, 978 assertions)
 - MIGRATION_PRESERVATION: PASS (row count check before and after additive migration)
+Sprint 6 Follow-Up: Biometric User Provisioning & Centralized Door Sync (HR Integration Hardening).
+- BIOMETRIC_PROVISIONING_SCOPE: SPRINT_6_FOLLOW_UP
+- BIOMETRIC_PROVISIONING: PASS
+- ISAPI_PAYLOAD_BUILDER: PASS (/ISAPI/AccessControl/UserInfo/SetUp?format=json specification)
+- MULTI_STEP_ORCHESTRATOR: PASS (device ping -> UserInfo setup -> CardInfo record -> UserRightPlan)
+- ASYNC_QUEUE_PROVISIONING: PASS (SyncDoorAccessJob with bounded retries and zero credential serialization)
+- RAW_BIOMETRIC_STORAGE: NONE
+- LAST_PAYLOAD_PRIVACY: PASS (dropped last_payload, zero raw biometric or ISAPI payload persistence)
+- PERSISTED_PROVISIONING_DATA: MINIMAL
+- RAW_CARD_LOGGING: NONE
+- RAW_DEVICE_PAYLOAD_LOGGING: NONE
+- PROVISIONING_IDEMPOTENCY: PASS (repeat sync deterministic, duplicate assignments prevented)
+- RBAC / IDOR / BUILDING_SCOPE: PASS (Super Admin & HRD allowed; Building Admin scoped; Employee/Intern self-provision denied; Developer/DevOps technical roles denied)
+- TARGETED_TESTS: PASS (22 tests, 94 assertions in BiometricUserProvisioningTest)
+- PHYSICAL_BIOMETRIC_PROVISIONING_E2E: DEFERRED_WITH_EVIDENCE
 
 Next: Sprint 11 WFH + Leave + Permission + Sick.

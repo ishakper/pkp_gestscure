@@ -19,7 +19,6 @@ class DoorAssignment extends Model
         'user_info_synced_at',
         'card_synced_at',
         'sync_type',
-        'last_payload',
     ];
 
     protected $casts = [
@@ -27,7 +26,6 @@ class DoorAssignment extends Model
         'user_info_synced_at' => 'datetime',
         'card_synced_at' => 'datetime',
         'sync_attempts' => 'integer',
-        'last_payload' => 'array',
     ];
 
     public function employee()

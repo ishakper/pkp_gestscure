@@ -15,11 +15,68 @@ use Illuminate\Http\Request;
 class BiometricProvisioningController extends Controller
 {
     /**
+     * Common authorization check for biometric provisioning.
+     */
+    private function authorizeProvisioning(Request $request, ?Door $door = null): ?JsonResponse
+    {
+        $actor = $request->user();
+        if (!$actor) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthenticated.'], 401);
+        }
+
+        $role = strtolower((string) $actor->role);
+
+        // 1. Technical roles (developer, devops, infra_admin) denied
+        if (in_array($role, ['developer', 'devops', 'infra_admin'], true) && !$actor->isSuperAdmin()) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Technical roles (Developer/DevOps) are denied biometric provisioning access.',
+            ], 403);
+        }
+
+        // 2. Employee and intern self-provisioning denied
+        if (in_array($role, ['employee', 'intern'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Employees and interns cannot self-provision biometric device credentials.',
+            ], 403);
+        }
+
+        // 3. Only super_admin, hrd, and building_admin permitted
+        if (!$actor->isSuperAdmin() && !in_array($role, ['hrd', 'building_admin'], true)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Unauthorized. Only HRD, Super Admin, or Building Admin can provision door access.',
+            ], 403);
+        }
+
+        // 4. Building Admin cross-building scoping check
+        if ($actor->isBuildingAdmin() && $actor->assigned_building && $door) {
+            if ($door->location !== $actor->assigned_building) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 403,
+                    'message' => 'Anda tidak memiliki akses ke perangkat di gedung ini.',
+                ], 403);
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Synchronize employee biometric profile, card credentials, and access rights
      * to selected or all assigned doors.
      */
     public function syncEmployeeBiometric(Request $request, $id, HikvisionIsapiService $isapiService): JsonResponse
     {
+        if ($authError = $this->authorizeProvisioning($request)) {
+            return $authError;
+        }
+
         $employee = Employee::where('id', $id)
             ->orWhere('employee_id', $id)
             ->orWhere('employee_id', 'USR-' . $id)
@@ -49,19 +106,26 @@ class BiometricProvisioningController extends Controller
             $doorsQuery->whereIn('id', $assignedDoorIds);
         }
 
-        // Scope check for building admin
-        if ($admin && method_exists($admin, 'isBuildingAdmin') && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $doorsQuery->where('location', $admin->assigned_building);
-        }
-
         $doors = $doorsQuery->get();
 
         if ($doors->isEmpty()) {
             return response()->json([
                 'status' => 'error',
                 'code' => 404,
-                'message' => 'Tidak ada pintu yang sesuai atau diizinkan untuk sinkronisasi.',
+                'message' => 'Tidak ada pintu yang sesuai untuk sinkronisasi.',
             ], 404);
+        }
+
+        // Strict cross-building check for building admin
+        if ($admin->isBuildingAdmin() && $admin->assigned_building) {
+            $crossBuildingDoors = $doors->filter(fn($d) => $d->location !== $admin->assigned_building);
+            if ($crossBuildingDoors->isNotEmpty()) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 403,
+                    'message' => 'Building admin cannot sync doors in other buildings.',
+                ], 403);
+            }
         }
 
         $mode = strtolower((string) $request->input('mode', 'sync'));
@@ -125,7 +189,7 @@ class BiometricProvisioningController extends Controller
             }
         }
 
-        // Audit Log
+        // Audit Log - zero raw payload, zero card credentials
         ActivityLog::create([
             'admin_id' => $admin?->id,
             'action' => 'biometric_user_provisioning',
@@ -165,23 +229,17 @@ class BiometricProvisioningController extends Controller
     public function syncDoorEmployee(Request $request, $door_id, $employee_id, HikvisionIsapiService $isapiService): JsonResponse
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+
+        if ($authError = $this->authorizeProvisioning($request, $door)) {
+            return $authError;
+        }
+
         $employee = Employee::where('id', $employee_id)
             ->orWhere('employee_id', $employee_id)
             ->orWhere('employee_id', 'USR-' . $employee_id)
             ->firstOrFail();
 
         $admin = $request->user();
-
-        // Scope check for building admin
-        if ($admin && method_exists($admin, 'isBuildingAdmin') && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            if ($door->location !== $admin->assigned_building) {
-                return response()->json([
-                    'status' => 'error',
-                    'code' => 403,
-                    'message' => 'Anda tidak memiliki akses ke perangkat di gedung ini.',
-                ], 403);
-            }
-        }
 
         $assignment = DoorAssignment::updateOrCreate(
             ['employee_id' => $employee->id, 'door_id' => $door->id],
@@ -248,10 +306,37 @@ class BiometricProvisioningController extends Controller
      */
     public function getEmployeeSyncStatus(Request $request, $id): JsonResponse
     {
+        $actor = $request->user();
+        if (!$actor) {
+            return response()->json(['status' => 'error', 'message' => 'Unauthenticated.'], 401);
+        }
+
+        $role = strtolower((string) $actor->role);
+
+        // Technical roles denied
+        if (in_array($role, ['developer', 'devops', 'infra_admin'], true) && !$actor->isSuperAdmin()) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Technical roles (Developer/DevOps) are denied biometric provisioning access.',
+            ], 403);
+        }
+
         $employee = Employee::where('id', $id)
             ->orWhere('employee_id', $id)
             ->orWhere('employee_id', 'USR-' . $id)
             ->firstOrFail();
+
+        // Employee / Intern can only view self
+        if (in_array($role, ['employee', 'intern'], true)) {
+            if ($actor->employee_id && $actor->employee_id !== $employee->id) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 403,
+                    'message' => 'Access denied. You may only view your own sync status.',
+                ], 403);
+            }
+        }
 
         $assignments = DoorAssignment::with('door')
             ->where('employee_id', $employee->id)
