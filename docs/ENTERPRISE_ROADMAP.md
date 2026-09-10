@@ -225,6 +225,12 @@ Sprint 11: WFH + Leave + Permission + Sick.
 - FULL_REGRESSION: PASS (256 tests, 1146 assertions)
 Sprint 12: Attendance Correction + Overtime.
 - SPRINT_12: PASS
+- FINAL_COMMIT_SHA: `bd924cf37b709cfbc062253f72546c8cc2e8988f`
+- FINAL_PIPELINE_ID: 17745
+- GITLAB_VALIDATE: PASS
+- GITLAB_BUILD: PASS
+- GITLAB_TEST: PASS
+- GITLAB_SECURITY: PASS
 - CORRECTION_REQUEST: PASS (check-in, check-out, status, attendance type corrections with reason and evidence note)
 - CORRECTION_APPROVAL: PASS (deterministic lifecycle SUBMITTED -> APPROVED / REJECTED / CANCELLED)
 - CORRECTION_HISTORY_IMMUTABLE: PASS (original_check_in/out/status snapshots preserved, corrected snapshots stored upon approval)
