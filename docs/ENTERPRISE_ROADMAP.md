@@ -12,8 +12,11 @@ Status per 2026-09-09.
 | 5 | Onboarding, contracts, documents | PASS |
 | 6 | Access provisioning, credentials, e-money | PASS |
 | 7 | Assets | PASS |
-| 8 | Work Calendar + Attendance Core | IN_PROGRESS |
-| 9-12 | Field attendance, requests, overtime | NOT_STARTED |
+| 8 | Work Calendar + Attendance Core | PASS |
+| 9 | Office Attendance Integration | PASS |
+| 10 | Field Attendance + GPS + Geofence | PASS |
+| 11 | WFH + Leave + Permission + Sick | PASS |
+| 12 | Attendance Correction + Overtime | IN_PROGRESS |
 | 13-18 | Skills, work, projects, approvals, training, performance | NOT_STARTED |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
 | 25-27 | Privacy/RBAC audit, backup readiness, full regression | NOT_STARTED |
@@ -198,6 +201,13 @@ Sprint 6 Follow-Up: Biometric User Provisioning & Centralized Door Sync (HR Inte
 - PHYSICAL_BIOMETRIC_PROVISIONING_E2E: DEFERRED_WITH_EVIDENCE
 
 Sprint 11: WFH + Leave + Permission + Sick.
+- SPRINT_11: PASS
+- FINAL_COMMIT_SHA: `ef3009b472cc625971691b95b5fc195301625a78`
+- FINAL_PIPELINE_ID: 17743
+- GITLAB_VALIDATE: PASS
+- GITLAB_BUILD: PASS
+- GITLAB_TEST: PASS
+- GITLAB_SECURITY: PASS
 - WFH_REQUEST: PASS (date range, work context, Attendance integration attendance_type = WFH)
 - LEAVE_REQUEST: PASS (date range, categories, status LEAVE, excludes from ABSENT generation)
 - PERMISSION_REQUEST: PASS (full-day & partial-day time boundaries, preserved physical logs)
@@ -213,5 +223,6 @@ Sprint 11: WFH + Leave + Permission + Sick.
 - TARGETED_TESTS: PASS (30 tests, 74 assertions in AttendanceRequestTest)
 - FULL_REGRESSION: PASS (256 tests, 1146 assertions)
 - MIGRATION_SAFETY: PASS (additive table attendance_requests, pre/post table counts verified preserved)
+- REPOSITORY_SYNC: PASS
 
-Next: Sprint 12 Attendance Correction + Overtime.
+Next: Sprint 12 Attendance Correction + Overtime (IN_PROGRESS).
