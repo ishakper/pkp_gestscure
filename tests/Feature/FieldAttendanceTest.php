@@ -133,7 +133,7 @@ class FieldAttendanceTest extends TestCase
         $lat = -6.195200;
         $lon = 106.823100;
 
-        $photo = UploadedFile::fake()->image('selfie.jpg', 640, 480);
+        $photo = UploadedFile::fake()->create('selfie.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -178,7 +178,7 @@ class FieldAttendanceTest extends TestCase
         $admin = $this->createAdminForEmployee($emp, 'employee');
         // No assignment created!
 
-        $photo = UploadedFile::fake()->image('selfie.jpg');
+        $photo = UploadedFile::fake()->create('selfie.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -207,7 +207,7 @@ class FieldAttendanceTest extends TestCase
         $lat = -6.175400;
         $lon = 106.827200;
 
-        $photo = UploadedFile::fake()->image('selfie.jpg');
+        $photo = UploadedFile::fake()->create('selfie.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -238,7 +238,7 @@ class FieldAttendanceTest extends TestCase
         $this->createAssignment($emp, $this->location);
 
         // Exact HI coordinates, but accuracy is poor: 85 meters (> 50m max)
-        $photo = UploadedFile::fake()->image('selfie.jpg');
+        $photo = UploadedFile::fake()->create('selfie.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -262,7 +262,7 @@ class FieldAttendanceTest extends TestCase
         $admin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
 
-        $photo = UploadedFile::fake()->image('selfie.jpg');
+        $photo = UploadedFile::fake()->create('selfie.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -284,8 +284,8 @@ class FieldAttendanceTest extends TestCase
         $admin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
 
-        $photo1 = UploadedFile::fake()->image('selfie1.jpg');
-        $photo2 = UploadedFile::fake()->image('selfie2.jpg');
+        $photo1 = UploadedFile::fake()->create('selfie1.jpg', 100, 'image/jpeg');
+        $photo2 = UploadedFile::fake()->create('selfie2.jpg', 100, 'image/jpeg');
 
         // First check-in
         $this->actingAs($admin)
@@ -324,7 +324,7 @@ class FieldAttendanceTest extends TestCase
         $admin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
 
-        $photo = UploadedFile::fake()->image('checkout.jpg');
+        $photo = UploadedFile::fake()->create('checkout.jpg', 100, 'image/jpeg');
 
         // Checkout without check-in -> 422
         $this->actingAs($admin)
@@ -337,7 +337,7 @@ class FieldAttendanceTest extends TestCase
 
         // Now check-in at 08:00
         Carbon::setTestNow('2026-09-10 08:00:00');
-        $photoIn = UploadedFile::fake()->image('checkin.jpg');
+        $photoIn = UploadedFile::fake()->create('checkin.jpg', 100, 'image/jpeg');
         $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
                 'latitude' => -6.195000,
@@ -348,7 +348,7 @@ class FieldAttendanceTest extends TestCase
 
         // Checkout at 17:00 (9 hours = 540 minutes)
         Carbon::setTestNow('2026-09-10 17:00:00');
-        $photoOut = UploadedFile::fake()->image('checkout.jpg');
+        $photoOut = UploadedFile::fake()->create('checkout.jpg', 100, 'image/jpeg');
         $resOut = $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-out', [
                 'latitude' => -6.195000,
@@ -379,7 +379,7 @@ class FieldAttendanceTest extends TestCase
         $admin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
 
-        $photo = UploadedFile::fake()->image('late.jpg');
+        $photo = UploadedFile::fake()->create('late.jpg', 100, 'image/jpeg');
         $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
                 'latitude' => -6.195000,
@@ -406,7 +406,7 @@ class FieldAttendanceTest extends TestCase
         $admin1 = $this->createAdminForEmployee($emp1, 'employee');
         $this->createAssignment($emp2, $this->location);
 
-        $photo = UploadedFile::fake()->image('idor.jpg');
+        $photo = UploadedFile::fake()->create('idor.jpg', 100, 'image/jpeg');
 
         $response = $this->actingAs($admin1)
             ->postJson('/api/v1/field-attendance/check-in', [
@@ -602,7 +602,7 @@ class FieldAttendanceTest extends TestCase
         $this->createAssignment($emp, $this->location);
 
         // Check in outside geofence (Monas ~800m away)
-        $photo = UploadedFile::fake()->image('outside.jpg');
+        $photo = UploadedFile::fake()->create('outside.jpg', 100, 'image/jpeg');
         $res = $this->actingAs($empAdmin)
             ->postJson('/api/v1/field-attendance/check-in', [
                 'latitude' => -6.175400,
@@ -765,7 +765,7 @@ class FieldAttendanceTest extends TestCase
         $empAdmin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
 
-        $photo = UploadedFile::fake()->image('drift.jpg');
+        $photo = UploadedFile::fake()->create('drift.jpg', 100, 'image/jpeg');
 
         // Client device captured_at is 2 hours (7200 seconds) in the past -> exceeds 900s max drift
         $res = $this->actingAs($empAdmin)
@@ -807,7 +807,7 @@ class FieldAttendanceTest extends TestCase
         ]);
 
         // Second check-in at Surabaya (-7.2575, 112.7521, ~700 km away) 15 minutes later (> 2000 km/h)
-        $photo = UploadedFile::fake()->image('surabaya.jpg');
+        $photo = UploadedFile::fake()->create('surabaya.jpg', 100, 'image/jpeg');
 
         // Create a location in Surabaya for the check-in
         $surabayaLocation = FieldLocation::create([
