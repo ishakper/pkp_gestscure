@@ -13,6 +13,7 @@ class AttendanceEvidence extends Model
 
     protected $fillable = [
         'access_log_id',
+        'attendance_id',
         'employee_id',
         'door_id',
         'event_timestamp',
@@ -29,6 +30,11 @@ class AttendanceEvidence extends Model
     public function accessLog()
     {
         return $this->belongsTo(AccessLog::class);
+    }
+
+    public function attendance()
+    {
+        return $this->belongsTo(Attendance::class);
     }
 
     public function employee()

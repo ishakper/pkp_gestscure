@@ -17,10 +17,13 @@ class SecureGateUiRefactorTest extends TestCase
 
         $response->assertOk()
             ->assertSee('ACCESS CONTROL')
-            ->assertSee('HR &amp; WORKFORCE', false)
             ->assertSee('ATTENDANCE')
             ->assertSee('SECURITY')
-            ->assertSeeInOrder(['Dashboard Terpusat', 'Devices &amp; Doors', 'Hak Akses Karyawan'], false);
+            ->assertSeeInOrder(['Dashboard Absensi', 'Terminal Gedung B', 'Data Karyawan'], false)
+            ->assertSee('ADVANCED / FUTURE MODULES', false);
+
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $this->assertStringContainsString('.advanced-nav { display: none !important; }', $blade);
     }
 
     public function test_remote_unlock_uses_safe_modal_and_admin_open_endpoint(): void

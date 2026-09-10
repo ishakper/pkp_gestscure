@@ -707,6 +707,13 @@ class AttendanceProcessor
             ->groupBy('status')
             ->pluck('cnt', 'status')
             ->toArray();
+        $activeEmployeeCount = Employee::query()
+            ->where(function ($query) {
+                $query->where('employment_status', 'ACTIVE')->orWhereNull('employment_status');
+            })->count();
+        $todayCheckoutCount = Attendance::where('attendance_date', $today)
+            ->whereNotNull('clock_out_at')
+            ->count();
 
         $latestDeviceEvent = AccessLog::query()
             ->with('door:id,door_id,door_name,name')
@@ -722,6 +729,8 @@ class AttendanceProcessor
                 'absent'  => $todayStats['ABSENT'] ?? 0,
                 'off'     => $todayStats['OFF'] ?? 0,
                 'leave'   => $todayStats['LEAVE'] ?? 0,
+                'checkout' => $todayCheckoutCount,
+                'total_employees' => $activeEmployeeCount,
             ],
             'month' => [
                 'from'    => $monthStart,

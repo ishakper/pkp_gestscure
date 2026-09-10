@@ -28,6 +28,13 @@ class AccessLogResource extends JsonResource
             'event_type' => $this->event_type ?? 'STANDARD_TAP',
             'verify_method' => $this->verify_method ?? $this->auth_method,
             'access_status' => $this->access_status ?? $this->status,
+            'source' => $this->source,
+            'attendance' => $this->attendanceEvidence ? [
+                'direction' => $this->attendanceEvidence->direction,
+                'evidence_status' => $this->attendanceEvidence->status,
+                'attendance_id' => $this->attendanceEvidence->attendance_id,
+                'result' => $this->attendanceEvidence->attendance?->status,
+            ] : null,
             'reason' => $this->reason,
             'timestamp' => $this->timestamp ? $this->timestamp->toIso8601String() : ($this->scanned_at ? $this->scanned_at->toIso8601String() : null),
         ];

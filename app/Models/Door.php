@@ -23,6 +23,7 @@ class Door extends Model
         'device_model',
         'status',
         'connection_status',
+        'health_status',
         'is_manual_override',
         'last_checked_at',
     ];

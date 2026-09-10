@@ -20,7 +20,7 @@ class AdminAccessLogController extends Controller
     public function index(Request $request)
     {
         abort_unless($this->portalAccess->can($request->user(), 'security.view'), 403);
-        $query = AccessLog::with(['door', 'employee']);
+        $query = AccessLog::with(['door', 'employee', 'attendanceEvidence.attendance']);
 
         $admin = $request->user();
 

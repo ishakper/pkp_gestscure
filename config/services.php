@@ -32,7 +32,7 @@ return [
     ],
 
     'hikvision' => [
-        'host' => env('HIKVISION_ISAPI_HOST', '192.168.90.11'),
+        'host' => env('HIKVISION_ISAPI_HOST', env('DOOR_B_IP', '192.168.90.15')),
         'port' => (int) env('HIKVISION_ISAPI_PORT', 80),
         'username' => env('HIKVISION_ISAPI_USERNAME'),
         'password' => env('HIKVISION_ISAPI_PASSWORD'),

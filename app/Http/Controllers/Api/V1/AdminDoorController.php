@@ -162,10 +162,12 @@ class AdminDoorController extends Controller
         $statusResult = $isapiService->getDeviceStatus($door);
         $isOnline = (bool) ($statusResult['status'] ?? false);
         $connStatus = $isOnline ? 'online' : 'offline';
+        $healthStatus = $isOnline ? 'online' : ((int) ($statusResult['statusCode'] ?? 0) === 401 ? 'auth_error' : 'offline');
 
         $door->update([
             'status' => $connStatus,
             'connection_status' => $connStatus,
+            'health_status' => $healthStatus,
             'is_manual_override' => false,
             'last_checked_at' => now(),
         ]);
@@ -185,6 +187,7 @@ class AdminDoorController extends Controller
                 ? "Terminal pintu {$door->door_id} ({$door->device_ip}) terhubung secara aktif." 
                 : "Terminal pintu {$door->door_id} offline: " . ($statusResult['error'] ?? 'Device unreachable'),
             'is_online' => $isOnline,
+            'health_status' => $healthStatus,
             'data' => new DoorResource($door->fresh()),
             'isapi_details' => $statusResult['data'] ?? null,
         ]);
@@ -211,10 +214,12 @@ class AdminDoorController extends Controller
             $statusResult = $isapiService->getDeviceStatus($door);
             $isOnline = (bool) ($statusResult['status'] ?? false);
             $connStatus = $isOnline ? 'online' : 'offline';
+            $healthStatus = $isOnline ? 'online' : ((int) ($statusResult['statusCode'] ?? 0) === 401 ? 'auth_error' : 'offline');
 
             $door->update([
                 'status' => $connStatus,
                 'connection_status' => $connStatus,
+                'health_status' => $healthStatus,
                 'is_manual_override' => false,
                 'last_checked_at' => now(),
             ]);
@@ -223,6 +228,7 @@ class AdminDoorController extends Controller
                 'door_id' => $door->door_id,
                 'is_online' => $isOnline,
                 'status' => $connStatus,
+                'health_status' => $healthStatus,
                 'last_checked_at' => $door->last_checked_at->toIso8601String(),
             ];
         }

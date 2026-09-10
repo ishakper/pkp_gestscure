@@ -109,4 +109,9 @@ class AccessLog extends Model
     {
         return $this->belongsTo(Employee::class);
     }
+
+    public function attendanceEvidence()
+    {
+        return $this->hasOne(AttendanceEvidence::class);
+    }
 }

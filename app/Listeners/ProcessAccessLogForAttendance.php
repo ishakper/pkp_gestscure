@@ -47,6 +47,9 @@ class ProcessAccessLogForAttendance
 
         try {
             $attendance = $this->processor->processEvidence($evidence);
+            if ($attendance && $evidence->attendance_id !== $attendance->id) {
+                $evidence->update(['attendance_id' => $attendance->id]);
+            }
         } catch (\Throwable $exception) {
             // The security record and normalized evidence survive processor failures
             // so a later reconciliation can retry without replaying the device event.

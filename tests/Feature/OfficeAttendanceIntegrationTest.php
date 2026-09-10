@@ -70,6 +70,10 @@ class OfficeAttendanceIntegrationTest extends TestCase
         ]);
         $this->assertDatabaseCount('attendances', 1);
         $attendance = Attendance::sole();
+        $this->assertDatabaseHas('attendance_evidences', [
+            'access_log_id' => $accessLog->id,
+            'attendance_id' => $attendance->id,
+        ]);
         $this->assertSame('2026-09-14', $attendance->attendance_date->toDateString());
         $this->assertSame('PRESENT', $attendance->status);
         $this->assertSame($time->toDateTimeString(), $attendance->clock_in_at->toDateTimeString());

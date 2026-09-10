@@ -2,6 +2,8 @@
 
 Status per 2026-09-09.
 
+Deployment scope revised 2026-09-10: Gedung B attendance and fingerprint monitoring is the active reference deployment. Sprint 15+ enterprise expansion is paused until this core is stable.
+
 | Sprint | Scope | Status |
 |---|---|---|
 | 0 | Repository, module, RBAC audit | PASS |
@@ -257,7 +259,7 @@ Sprint 12: Attendance Correction + Overtime.
 - MIGRATION_SAFETY: PASS (additive columns and tables; pre- and post-migration row counts verified 100% preserved)
 - REPOSITORY_SYNC: PASS
 
-Next: Sprint 14 Work, Projects, Approvals, Training, and Performance foundations.
+Next: Gedung B attendance stabilization; Sprint 15+ expansion is paused.
 
 Sprint 13: Job Description + Skill Matrix.
 - SPRINT_13: PASS
@@ -281,5 +283,16 @@ Sprint 14: Task + Worklog.
 - EMPLOYEE_360_INTEGRATION: PASS
 - DASHBOARD: PASS (task metrics, filters, pagination, loading/empty/error states, detail timeline)
 - TARGETED_TESTS: PASS (5 tests, 29 assertions)
-- FULL_REGRESSION: PASS (310 tests, 1361 assertions; 2 non-failing warnings)
+- FULL_REGRESSION: PASS (311 tests, 1368 assertions; 2 non-failing warnings)
 - MIGRATION_SAFETY: additive task and worklog tables; operational before/after row evidence is NOT_CAPTURED
+
+Gedung B Deployment Stabilization Gate:
+- PRIMARY_DEVICE: DOOR-B
+- DEVICE_IP: runtime `DOOR_B_IP` (template target `192.168.90.15`)
+- UI_SCOPE: PASS (attendance dashboard, fingerprint log, attendance recap, employee data, terminal, audit)
+- ADVANCED_MODULES: hidden from primary navigation; backend preserved
+- AUTH_ERROR_HANDLING: PASS (HTTP 401 classified as `auth_error`, no false online state)
+- EVENT_PIPELINE_TRACEABILITY: PASS (AccessLog -> AttendanceEvidence -> Attendance)
+- FOCUSED_CORE_TESTS: PASS (28 tests, 119 assertions)
+- FULL_REGRESSION: PASS (311 tests, 1368 assertions; 2 non-failing warnings)
+- SPRINT_15_PLUS: PAUSED_UNTIL_GEDUNG_B_STABLE

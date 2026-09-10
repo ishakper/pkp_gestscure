@@ -7,6 +7,7 @@ use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
@@ -82,6 +83,24 @@ class DashboardIntegrationTest extends TestCase
             'id' => $this->doorA->id,
             'connection_status' => 'online',
         ]);
+    }
+
+    public function test_terminal_auth_failure_is_classified_without_claiming_offline_only(): void
+    {
+        Sanctum::actingAs($this->admin, ['*']);
+        Config::set('services.hikvision.use_mock', false);
+
+        Http::fake([
+            '*System/deviceInfo*' => Http::response('<ResponseStatus><statusString>Unauthorized</statusString></ResponseStatus>', 401),
+        ]);
+
+        $this->postJson("/api/v1/admin/doors/{$this->doorA->door_id}/check-connection")
+            ->assertStatus(200)
+            ->assertJsonPath('is_online', false)
+            ->assertJsonPath('health_status', 'auth_error')
+            ->assertJsonPath('data.health_status', 'auth_error');
+
+        $this->assertDatabaseHas('doors', ['id' => $this->doorA->id, 'health_status' => 'auth_error']);
     }
 
     /**

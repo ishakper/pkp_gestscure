@@ -475,6 +475,8 @@
             box-shadow: inset 3px 0 0 var(--primary);
         }
 
+        .advanced-nav { display: none !important; }
+
         /* User Profile */
         .user-profile {
             margin-top: auto;
@@ -1409,31 +1411,31 @@
 
     <ul class="nav-list">
         <li class="nav-section-label" aria-hidden="true">ACCESS CONTROL</li>
-        <li class="nav-item"><button class="active" data-tooltip="Dashboard Terpusat" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard Terpusat</span></button></li>
+        <li class="nav-item"><button class="active" data-tooltip="Dashboard Absensi" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard Absensi</span></button></li>
         @if(in_array('device.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Devices & Doors" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Devices &amp; Doors</span></button></li>
+        <li class="nav-item"><button data-tooltip="Terminal Gedung B" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Terminal Gedung B</span></button></li>
         @endif
         @if(in_array('employee.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Hak Akses Karyawan</span></button></li>
+        <li class="nav-item"><button data-tooltip="Data Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Data Karyawan</span></button></li>
         @endif
 
         @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
-        <li class="nav-section-label" aria-hidden="true">HR &amp; WORKFORCE</li>
+        <li class="nav-section-label advanced-nav" aria-hidden="true">ADVANCED / FUTURE MODULES</li>
         @endif
         @if(in_array('recruitment.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Recruitment" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Recruitment" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment</span></button></li>
         @endif
         @if(in_array('internship.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Internship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Internship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship</span></button></li>
         @endif
         @if(in_array('onboarding.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Onboarding" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Onboarding" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding</span></button></li>
         @endif
         @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Access & Credentials" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Access & Credentials</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Access & Credentials" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Access & Credentials</span></button></li>
         @endif
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
         @endif
         <li class="nav-item"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
 
@@ -1441,28 +1443,28 @@
         <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
         @endif
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Kehadiran & Kalender" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Kehadiran & Kalender</span></button></li>
+        <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
         @endif
         @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Presensi Lapangan" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Presensi Lapangan" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
         @endif
         @if(in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Pengajuan Absensi" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Pengajuan Absensi" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
         @endif
         @if(in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Koreksi Presensi" onclick="switchTab('attendanceCorrectionsTab', this)"><span class="nav-icon">✏️</span><span class="nav-text">Koreksi Presensi</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Koreksi Presensi" onclick="switchTab('attendanceCorrectionsTab', this)"><span class="nav-icon">✏️</span><span class="nav-text">Koreksi Presensi</span></button></li>
         @endif
         @if(in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Pengajuan Lembur" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Pengajuan Lembur" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
         @endif
 
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-section-label" aria-hidden="true">SECURITY</li>
-        <li class="nav-item"><button data-tooltip="Security & Audit" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Security & Audit</span></button></li>
+        <li class="nav-item"><button data-tooltip="Log Fingerprint / Audit" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Log Fingerprint / Audit</span></button></li>
         @endif
         @if (app()->environment('local', 'testing'))
-        <li class="nav-item"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
-        <li class="nav-item"><button data-tooltip="cURL / Postman Specs" onclick="switchTab('apiDocsTab', this)"><span class="nav-icon">📖</span><span class="nav-text">cURL / Postman Specs</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="cURL / Postman Specs" onclick="switchTab('apiDocsTab', this)"><span class="nav-icon">📖</span><span class="nav-text">cURL / Postman Specs</span></button></li>
         @endif
     </ul>
 
@@ -1518,20 +1520,10 @@
                 <div class="metric-value" id="metricActiveDoors">-</div>
             </div>
         </div>
-        <div class="metric-card">
-            <div class="metric-icon-box icon-indigo">✓</div>
-            <div>
-                <div class="metric-label">Access Granted (Tap)</div>
-                <div class="metric-value" id="metricAccessGranted">-</div>
-            </div>
-        </div>
-        <div class="metric-card">
-            <div class="metric-icon-box icon-red">✕</div>
-            <div>
-                <div class="metric-label">Access Denied</div>
-                <div class="metric-value" id="metricAccessDenied">-</div>
-            </div>
-        </div>
+            <div class="metric-card"><div class="metric-icon-box icon-indigo">✓</div><div><div class="metric-label">Hadir Hari Ini</div><div class="metric-value" id="metricAttendancePresent">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-red">!</div><div><div class="metric-label">Terlambat</div><div class="metric-value" id="metricAttendanceLate">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-blue">○</div><div><div class="metric-label">Belum Hadir</div><div class="metric-value" id="metricAttendanceAbsent">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-green">↗</div><div><div class="metric-label">Check-out Hari Ini</div><div class="metric-value" id="metricAttendanceCheckout">-</div></div></div>
     </div>
 
     <!-- TAB 1: OVERVIEW (UNIFIED DASHBOARD) -->
@@ -1648,6 +1640,7 @@
                         <th>Pengguna / Kartu</th>
                         <th>Metode</th>
                         <th>Status Akses</th>
+                        <th>Attendance Result</th>
                         <th>Sumber</th>
                         <th>Waktu Tap (WIB)</th>
                     </tr>
@@ -1760,6 +1753,7 @@
                         <th>Pengguna / Kartu</th>
                         <th>Metode</th>
                         <th>Status Akses</th>
+                        <th>Attendance Result</th>
                         <th>Sumber</th>
                         <th>Waktu Tap (WIB)</th>
                     </tr>

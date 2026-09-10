@@ -135,20 +135,29 @@ async function apiFetch(endpoint, options = {}) {
 // ==========================================
 async function updateMetricCards() {
     try {
-        const res = await apiFetch('/admin/dashboard-metrics');
+        const [res, attendance] = await Promise.all([
+            apiFetch('/admin/dashboard-metrics'),
+            apiFetch('/attendance/metrics'),
+        ]);
         if (res.status === 'success') {
             const data = res.data;
             const userMetric = document.getElementById('metricTotalUsers');
             if (userMetric) userMetric.innerText = data.totalUsers;
-
             const doorMetric = document.getElementById('metricActiveDoors');
             if (doorMetric) doorMetric.innerText = `${data.activeDoors} / ${data.totalDoors}`;
-
-            const grantedMetric = document.getElementById('metricAccessGranted');
-            if (grantedMetric) grantedMetric.innerText = data.grantedLogs;
-
-            const deniedMetric = document.getElementById('metricAccessDenied');
-            if (deniedMetric) deniedMetric.innerText = data.deniedLogs;
+        }
+        if (attendance.success) {
+            const today = attendance.data?.today || {};
+            const values = {
+                metricAttendancePresent: Number(today.present || 0) + Number(today.late || 0),
+                metricAttendanceLate: Number(today.late || 0),
+                metricAttendanceAbsent: Number(today.absent || 0),
+                metricAttendanceCheckout: Number(today.checkout || 0),
+            };
+            Object.entries(values).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element) element.innerText = value;
+            });
         }
     } catch (err) {
         console.error('Failed to fetch dashboard metrics:', err);
@@ -205,11 +214,13 @@ function renderDoorCards(doors) {
 
     const canManageDevices = (window.APP_CONFIG?.permissions || []).includes('device.manage');
     const html = doors.map(door => {
-        const isOnline = door.connection_status === 'online' || door.status === 'online';
+        const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
+        const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
+        const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
         const unlockDisabled = !isOnline;
         const isMaintenance = Boolean(door.is_manual_override);
-        const badgeClass = isOnline ? 'status-online' : 'status-offline';
-        const statusLabel = isOnline ? 'ONLINE' : 'OFFLINE';
+        const badgeClass = isPrimaryDeploymentDoor && isOnline ? 'status-online' : 'status-offline';
+        const statusLabel = isPrimaryDeploymentDoor ? (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE')) : 'PLANNED / NOT ACTIVE';
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.door_name || door.name || 'Tanpa nama');
         const safeLocation = escapeHtml(door.building_name || door.location || '-');
@@ -227,6 +238,7 @@ function renderDoorCards(doors) {
                     <span class="status-badge ${badgeClass}"><span class="status-dot"></span> ${statusLabel}</span>
                 </div>
                 <div class="card-value door-name-title">${safeDoorName}</div>
+                ${!isPrimaryDeploymentDoor ? '<div class="maintenance-note">Gedung B deployment target hanya. Terminal ini planned / not active.</div>' : ''}
                 ${isMaintenance ? '<div class="maintenance-note">⚠ Maintenance override aktif — status koneksi tetap berasal dari terminal.</div>' : ''}
                 <div class="door-specs">
                     <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
@@ -799,14 +811,14 @@ async function deleteEmployee(id, name) {
 async function loadAccessLogs() {
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
-    const doorFilter = document.getElementById('logDoorFilter')?.value || '';
+    const doorFilter = document.getElementById('logDoorFilter')?.value || 'DOOR-B';
     const statusFilter = document.getElementById('logStatusFilter')?.value || '';
     const userSearch = document.getElementById('logUserSearch')?.value.trim() || '';
     const startDate = document.getElementById('logStartDate')?.value || '';
     const endDate = document.getElementById('logEndDate')?.value || '';
 
     if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
     }
 
     try {
@@ -825,7 +837,7 @@ async function loadAccessLogs() {
         }
     } catch (err) {
         if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat log akses: ${err.message}</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${err.message}</td></tr>`;
         }
     }
 }
@@ -973,7 +985,7 @@ function renderAccessLogsTable(logs) {
 
     if (logs.length === 0) {
         renderTargets.forEach(target => {
-            target.innerHTML = `<tr><td colspan="7" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
+            target.innerHTML = `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
         });
         return;
     }
@@ -1032,6 +1044,9 @@ function renderAccessLogsTable(logs) {
         const safeDeviceIp = escapeHtml(log.device_ip || '-');
         const safeTime = escapeHtml(timestampStr);
         const safeSource = escapeHtml(log.source || 'SEED');
+        const attendanceResult = log.attendance
+            ? `${escapeHtml(log.attendance.result || 'Evidence only')}${log.attendance.direction ? ` · ${escapeHtml(log.attendance.direction)}` : ''}`
+            : 'Not derived';
 
         let sourceBadge = `<span class="badge badge-dim">${safeSource}</span>`;
         if (safeSource === 'HIKVISION') {
@@ -1051,6 +1066,7 @@ function renderAccessLogsTable(logs) {
                 <td>${userHtml}</td>
                 <td>${methodBadge}</td>
                 <td>${statusBadge}</td>
+                <td>${attendanceResult}</td>
                 <td>${sourceBadge}</td>
                 <td>${safeTime}</td>
             </tr>
