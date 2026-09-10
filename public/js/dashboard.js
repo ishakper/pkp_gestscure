@@ -172,6 +172,10 @@ async function loadDoors() {
     const overviewGrid = document.getElementById('overviewDoorsGrid');
     if (!grid && !overviewGrid) return;
 
+    [grid, overviewGrid].filter(Boolean).forEach(target => {
+        target.innerHTML = '<div class="loading-td"><div class="spinner"></div> CHECKING terminal Gedung B...</div>';
+    });
+
     try {
         const res = await apiFetch('/admin/doors');
         if (res.status === 'success') {
@@ -1038,37 +1042,24 @@ function renderAccessLogsTable(logs) {
             ? new Date(log.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' })
             : '-';
 
-        const safeLogId = escapeHtml(log.log_id || 'N/A');
-        const safeDoorId = escapeHtml(log.door_id || '-');
-        const safeDoorName = escapeHtml(log.door_name || '');
-        const safeDeviceIp = escapeHtml(log.device_ip || '-');
         const safeTime = escapeHtml(timestampStr);
-        const safeSource = escapeHtml(log.source || 'SEED');
         const attendanceResult = log.attendance
             ? `${escapeHtml(log.attendance.result || 'Evidence only')}${log.attendance.direction ? ` · ${escapeHtml(log.attendance.direction)}` : ''}`
             : 'Not derived';
-
-        let sourceBadge = `<span class="badge badge-dim">${safeSource}</span>`;
-        if (safeSource === 'HIKVISION') {
-            sourceBadge = `<span class="badge badge-success">HIKVISION</span>`;
-        } else if (safeSource === 'SIMULATOR') {
-            sourceBadge = `<span class="badge badge-warning">SIMULATOR</span>`;
-        }
+        const safeNik = escapeHtml(log.user?.nik || log.nik || 'Employee belum terpetakan');
+        const safeName = escapeHtml(log.user?.name || 'Employee belum terpetakan');
+        const safeDoor = escapeHtml(log.door_id || '-');
 
         return `
             <tr>
-                <td><code>${safeLogId}</code></td>
-                <td>
-                    <strong>${safeDoorId}</strong>
-                    ${safeDoorName ? `<br><small class="text-muted">${safeDoorName}</small>` : ''}
-                </td>
-                <td><code class="ip-code">${safeDeviceIp}</code></td>
-                <td>${userHtml}</td>
+                <td>${safeTime}</td>
+                <td>${safeNik}</td>
+                <td>${safeName}</td>
                 <td>${methodBadge}</td>
+                <td>${safeDoor}</td>
+                <td>${escapeHtml(eventType)}</td>
                 <td>${statusBadge}</td>
                 <td>${attendanceResult}</td>
-                <td>${sourceBadge}</td>
-                <td>${safeTime}</td>
             </tr>
         `;
     }).join('');
@@ -1476,16 +1467,15 @@ function handleNewLiveEvent(data) {
 
     // 2. Reload tables automatically so we don't have to write full row injection logic
     // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
-    if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
-        loadAccessLogs();
-        updateMetricCards();
+    loadAccessLogs();
+    updateMetricCards();
+    if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab' || state.activeTab === 'attendanceTab') {
         loadActivityLogs();
+        if (state.activeTab === 'attendanceTab') loadAttendanceData();
     }
 
     // Also refresh door status
-    if (state.activeTab === 'doorsTab' || state.activeTab === 'overviewTab') {
-        loadDoors();
-    }
+    loadDoors();
 }
 
 // ==========================================
@@ -1506,13 +1496,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Auto-refresh doors and logs periodically every 60 seconds (fallback)
     setInterval(() => {
-        if (state.activeTab === 'doorsTab' || state.activeTab === 'overviewTab') {
-            loadDoors();
-        }
-        if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
-            loadAccessLogs();
-            updateMetricCards();
-        }
+        loadDoors();
+        loadAccessLogs();
+        updateMetricCards();
+        if (state.activeTab === 'attendanceTab') loadAttendanceData();
         if (state.activeTab === 'logsTab') {
             loadActivityLogs();
         }
@@ -5212,7 +5199,7 @@ async function loadAttendanceData() {
 
     tbody.innerHTML = '<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
     try {
-        const res = await apiFetch('/api/v1/attendance/records');
+        const res = await apiFetch('/attendance/records');
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
         
         const records = res.data.data || res.data;
@@ -5268,7 +5255,7 @@ async function loadAttendanceMetrics() {
     if (!container) return;
 
     try {
-        const res = await apiFetch('/api/v1/attendance/metrics');
+        const res = await apiFetch('/attendance/metrics');
         if (!res.success) return;
         
         const m = res.data;

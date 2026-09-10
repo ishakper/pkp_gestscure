@@ -1437,7 +1437,7 @@
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
         @endif
-        <li class="nav-item"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
+        <li class="nav-item advanced-nav"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
 
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []) || in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []) || in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []))
         <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
@@ -1460,7 +1460,8 @@
 
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-section-label" aria-hidden="true">SECURITY</li>
-        <li class="nav-item"><button data-tooltip="Log Fingerprint / Audit" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Log Fingerprint / Audit</span></button></li>
+        <li class="nav-item"><button data-tooltip="Log Fingerprint" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Fingerprint</span></button></li>
+        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
         @if (app()->environment('local', 'testing'))
         <li class="nav-item advanced-nav"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
@@ -1634,19 +1635,18 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Log ID</th>
-                        <th>Terminal Pintu</th>
-                        <th>IP Perangkat</th>
-                        <th>Pengguna / Kartu</th>
+                        <th>Waktu</th>
+                        <th>NIK</th>
+                        <th>Nama</th>
                         <th>Metode</th>
-                        <th>Status Akses</th>
+                        <th>Terminal</th>
+                        <th>Event</th>
+                        <th>Status</th>
                         <th>Attendance Result</th>
-                        <th>Sumber</th>
-                        <th>Waktu Tap (WIB)</th>
                     </tr>
                 </thead>
                 <tbody id="overviewLogsTableBody">
-                    <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat access logs...</td></tr>
+                    <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat fingerprint logs...</td></tr>
                 </tbody>
             </table>
         </div>
@@ -1747,19 +1747,18 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Log ID</th>
-                        <th>Terminal Pintu</th>
-                        <th>IP Perangkat</th>
-                        <th>Pengguna / Kartu</th>
+                        <th>Waktu</th>
+                        <th>NIK</th>
+                        <th>Nama</th>
                         <th>Metode</th>
-                        <th>Status Akses</th>
+                        <th>Terminal</th>
+                        <th>Event</th>
+                        <th>Status</th>
                         <th>Attendance Result</th>
-                        <th>Sumber</th>
-                        <th>Waktu Tap (WIB)</th>
                     </tr>
                 </thead>
                 <tbody id="logsTableBody">
-                    <!-- Populated via JS -->
+                    <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat fingerprint logs...</td></tr>
                 </tbody>
             </table>
         </div>

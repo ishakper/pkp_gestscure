@@ -19,11 +19,15 @@ class SecureGateUiRefactorTest extends TestCase
             ->assertSee('ACCESS CONTROL')
             ->assertSee('ATTENDANCE')
             ->assertSee('SECURITY')
-            ->assertSeeInOrder(['Dashboard Absensi', 'Terminal Gedung B', 'Data Karyawan'], false)
+            ->assertSeeInOrder(['Dashboard Absensi', 'Terminal Gedung B', 'Data Karyawan', 'Rekap Kehadiran', 'Log Fingerprint', 'Audit Log'], false)
             ->assertSee('ADVANCED / FUTURE MODULES', false);
 
         $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $script = file_get_contents(public_path('js/dashboard.js'));
         $this->assertStringContainsString('.advanced-nav { display: none !important; }', $blade);
+        $this->assertStringContainsString("CHECKING terminal Gedung B", $script);
+        $this->assertStringContainsString("apiFetch('/attendance/records')", $script);
+        $this->assertStringNotContainsString("apiFetch('/api/v1/attendance/records')", $script);
     }
 
     public function test_remote_unlock_uses_safe_modal_and_admin_open_endpoint(): void

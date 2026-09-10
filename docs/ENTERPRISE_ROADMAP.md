@@ -293,6 +293,6 @@ Gedung B Deployment Stabilization Gate:
 - ADVANCED_MODULES: hidden from primary navigation; backend preserved
 - AUTH_ERROR_HANDLING: PASS (HTTP 401 classified as `auth_error`, no false online state)
 - EVENT_PIPELINE_TRACEABILITY: PASS (AccessLog -> AttendanceEvidence -> Attendance)
-- FOCUSED_CORE_TESTS: PASS (28 tests, 119 assertions)
-- FULL_REGRESSION: PASS (311 tests, 1368 assertions; 2 non-failing warnings)
+- FOCUSED_CORE_TESTS: PASS (31 tests, 142 assertions)
+- FULL_REGRESSION: PASS (311 tests, 1371 assertions; 2 non-failing warnings)
 - SPRINT_15_PLUS: PAUSED_UNTIL_GEDUNG_B_STABLE
