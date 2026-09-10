@@ -549,6 +549,13 @@ class HikvisionIsapiService
     public function setUserAccessRight(Door $door, Employee $employee): array
     {
         if ($this->isMockMode()) {
+            if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Simulated Device Offline ({$door->device_ip})",
+                ];
+            }
             Log::info("[ISAPI MOCK] Assigning access right for employee {$employee->employee_id} on Door {$door->door_id}");
             return ['status' => true, 'statusCode' => 1, 'statusString' => 'OK'];
         }
@@ -574,5 +581,227 @@ class HikvisionIsapiService
             Log::error("ISAPI setUserAccessRight failed for Door {$door->door_id}: " . $e->getMessage());
             return ['status' => false, 'error' => "ISAPI Connection Error ({$door->device_ip}): " . $e->getMessage()];
         }
+    }
+
+    /**
+     * Build Hikvision ISAPI UserInfo payload for biometric/user profile provisioning.
+     * Compatible with /ISAPI/AccessControl/UserInfo/SetUp?format=json
+     */
+    public function buildUserInfoPayload(Employee $employee, ?Door $door = null, array $options = []): array
+    {
+        $employeeNo = (string) ($employee->employee_id ?? $employee->nik);
+        $doorNo = (int) ($door?->door_no ?? 1);
+
+        return [
+            'UserInfo' => [
+                'employeeNo' => $employeeNo,
+                'name' => (string) $employee->name,
+                'userType' => $options['userType'] ?? 'normal',
+                'closeDelay' => (int) ($options['closeDelay'] ?? 5),
+                'userVerifyMode' => $options['userVerifyMode'] ?? 'cardOrFaceOrFp',
+                'Valid' => [
+                    'enable' => true,
+                    'beginTime' => $options['beginTime'] ?? now()->subDay()->format('Y-m-d\TH:i:s'),
+                    'endTime' => $options['endTime'] ?? now()->addYears(5)->format('Y-m-d\TH:i:s'),
+                    'timeType' => 'local',
+                ],
+                'doorRight' => (string) ($options['doorRight'] ?? '1'),
+                'RightPlan' => [
+                    [
+                        'doorNo' => $doorNo,
+                        'planTemplateNo' => (string) ($options['planTemplateNo'] ?? '1'),
+                    ],
+                ],
+                'maxSwipeTime' => (int) ($options['maxSwipeTime'] ?? 0),
+                'normalScheduleNum' => (int) ($options['normalScheduleNum'] ?? 0),
+            ],
+        ];
+    }
+
+    /**
+     * Push employee user profile to physical Hikvision terminal via /AccessControl/UserInfo/SetUp.
+     */
+    public function setUserInfo(Door $door, Employee $employee, array $options = []): array
+    {
+        $payload = $this->buildUserInfoPayload($employee, $door, $options);
+        $employeeNo = $employee->employee_id ?? $employee->nik;
+
+        // 1. Mock Mode: Direct Internal Controller Invocation
+        if ($this->isMockMode()) {
+            if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "Simulated Device Offline ({$door->device_ip})",
+                ];
+            }
+
+            try {
+                $request = Request::create('/api/mock/isapi/AccessControl/UserInfo/SetUp?format=json', 'PUT', $payload);
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->setupUserInfo($request);
+                $data = $jsonResponse->getData(true) ?? [];
+                $httpStatus = $jsonResponse->getStatusCode();
+
+                if ($httpStatus >= 200 && $httpStatus < 300) {
+                    return [
+                        'status' => true,
+                        'statusCode' => $data['statusCode'] ?? 1,
+                        'data' => $data,
+                        'error' => null,
+                    ];
+                }
+
+                return [
+                    'status' => false,
+                    'statusCode' => $httpStatus,
+                    'data' => $data,
+                    'error' => $data['errorMsg'] ?? ($data['ResponseStatus']['errorMsg'] ?? 'User profile provisioning failed.'),
+                ];
+            } catch (\Throwable $e) {
+                Log::error("ISAPI mock setUserInfo error: " . $e->getMessage());
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        // 2. Real Physical Device Mode
+        $url = $this->buildUrl('/AccessControl/UserInfo/SetUp?format=json', $door);
+
+        try {
+            $response = $this->buildHttpClient($door)->put($url, $payload);
+            $json = $response->json() ?? [];
+
+            if ($response->successful()) {
+                $statusCode = $json['statusCode'] ?? ($json['ResponseStatus']['statusCode'] ?? 1);
+                $isOk = ($statusCode == 1) || (isset($json['statusString']) && strtoupper($json['statusString']) === 'OK');
+
+                return [
+                    'status' => $isOk,
+                    'statusCode' => $statusCode,
+                    'data' => $json,
+                    'error' => $isOk ? null : ($json['errorMsg'] ?? ($json['ResponseStatus']['errorMsg'] ?? 'User profile provisioning failed.')),
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'data' => $json,
+                'error' => $json['errorMsg'] ?? ($json['ResponseStatus']['errorMsg'] ?? ($json['statusString'] ?? "HTTP {$response->status()}: " . $response->body())),
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI setUserInfo failed for Employee {$employeeNo} ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'data' => null,
+                'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Orchestrate full biometric and access provisioning on target terminal:
+     * 1. Check device connectivity (pingDevice)
+     * 2. Provision User Profile (UserInfo SetUp)
+     * 3. Sync RFID Card / Biometric Credential (CardInfo Record)
+     * 4. Set Access Rights Plan (UserRightPlan SetUp)
+     */
+    public function provisionEmployeeAccess(Door $door, Employee $employee, array $options = []): array
+    {
+        // 1. Device online check
+        if (!$this->pingDevice($door)) {
+            return [
+                'status' => false,
+                'statusCode' => 503,
+                'message' => "Perangkat pintu {$door->door_id} ({$door->device_ip}) tidak dapat dijangkau / offline",
+                'error' => "Perangkat pintu {$door->door_id} offline",
+                'steps' => [
+                    'device_ping' => false,
+                    'user_info' => null,
+                    'card_sync' => null,
+                    'access_right' => null,
+                ],
+            ];
+        }
+
+        // 2. Step 1: UserInfo SetUp
+        $userInfoRes = $this->setUserInfo($door, $employee, $options);
+        if (!$userInfoRes['status']) {
+            return [
+                'status' => false,
+                'statusCode' => $userInfoRes['statusCode'] ?? 500,
+                'message' => "Gagal provisioning UserInfo di terminal {$door->door_id}",
+                'error' => $userInfoRes['error'] ?? 'UserInfo setup failed',
+                'steps' => [
+                    'device_ping' => true,
+                    'user_info' => $userInfoRes,
+                    'card_sync' => null,
+                    'access_right' => null,
+                ],
+            ];
+        }
+
+        // 3. Step 2: CardInfo Record (if card_no present)
+        $cardRes = null;
+        if (!empty($employee->card_no)) {
+            $cardRes = $this->syncCardUser(
+                $employee->employee_id ?? $employee->nik,
+                $employee->card_no,
+                $employee->name,
+                $door
+            );
+
+            if (!$cardRes['status']) {
+                return [
+                    'status' => false,
+                    'statusCode' => $cardRes['statusCode'] ?? 500,
+                    'message' => "Gagal provisioning kartu ({$employee->card_no}) di terminal {$door->door_id}",
+                    'error' => $cardRes['error'] ?? 'Card synchronization failed',
+                    'steps' => [
+                        'device_ping' => true,
+                        'user_info' => $userInfoRes,
+                        'card_sync' => $cardRes,
+                        'access_right' => null,
+                    ],
+                ];
+            }
+        }
+
+        // 4. Step 3: UserRightPlan SetUp
+        $rightRes = $this->setUserAccessRight($door, $employee);
+        if (!$rightRes['status']) {
+            return [
+                'status' => false,
+                'statusCode' => $rightRes['statusCode'] ?? 500,
+                'message' => "Gagal provisioning rencana hak akses pintu {$door->door_id}",
+                'error' => $rightRes['error'] ?? 'UserRightPlan setup failed',
+                'steps' => [
+                    'device_ping' => true,
+                    'user_info' => $userInfoRes,
+                    'card_sync' => $cardRes,
+                    'access_right' => $rightRes,
+                ],
+            ];
+        }
+
+        return [
+            'status' => true,
+            'statusCode' => 200,
+            'message' => "Berhasil mem-provisioning profil dan biometrik untuk {$employee->name} ke pintu {$door->door_id}",
+            'error' => null,
+            'steps' => [
+                'device_ping' => true,
+                'user_info' => $userInfoRes,
+                'card_sync' => $cardRes,
+                'access_right' => $rightRes,
+            ],
+        ];
     }
 }

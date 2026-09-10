@@ -55,6 +55,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/revoke-doors', [DoorSyncController::class, 'revokeDoors']);
             Route::post('/employees/{id}/door-access', [EmployeeController::class, 'assignDoorAccess']);
             Route::delete('/employees/{id}/door-access/{door_id}', [EmployeeController::class, 'revokeDoorAccess']);
+            Route::post('/employees/{id}/sync-biometric', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncEmployeeBiometric']);
+            Route::get('/employees/{id}/door-sync-status', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'getEmployeeSyncStatus']);
         });
 
         // Admin Pillar
@@ -70,6 +72,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/access-logs/sync-hardware', [AdminAccessLogController::class, 'syncHardware']);
             Route::get('/activity-logs', [ActivityLogController::class, 'index']);
             Route::post('/door-assignments/sync', [DoorSyncController::class, 'sync']);
+            Route::post('/doors/{door_id}/sync-employee/{employee_id}', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncDoorEmployee']);
         });
 
         // Recruitment & ATS Pillar
@@ -261,4 +264,6 @@ Route::prefix('mock/isapi')->group(function () {
     Route::put('/AccessControl/CardInfo/Record', [HikvisionMockController::class, 'syncCard']);
     Route::put('/AccessControl/RemoteControl/door/{doorNo}', [HikvisionMockController::class, 'remoteControl']);
     Route::post('/AccessControl/AcsEvent', [HikvisionMockController::class, 'fetchAccessLogs']);
+    Route::put('/AccessControl/UserInfo/SetUp', [HikvisionMockController::class, 'setupUserInfo']);
+    Route::put('/AccessControl/UserRightPlan/SetUp', [HikvisionMockController::class, 'setupUserRightPlan']);
 });

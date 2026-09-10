@@ -107,6 +107,68 @@ class HikvisionMockController extends Controller
     }
 
     /**
+     * Simulate ISAPI PUT /ISAPI/AccessControl/UserInfo/SetUp?format=json
+     * Simulates pushing employee user profile (ID, name, validity, permissions).
+     */
+    public function setupUserInfo(Request $request): JsonResponse
+    {
+        $employeeNo = $request->input('UserInfo.employeeNo')
+            ?? $request->input('employeeNo')
+            ?? $request->input('employee_no');
+
+        $name = $request->input('UserInfo.name')
+            ?? $request->input('name');
+
+        if (empty($employeeNo) || empty($name)) {
+            return response()->json([
+                'statusCode' => 4,
+                'statusString' => 'Invalid Operation',
+                'subStatusCode' => 'badParameters',
+                'errorMsg' => 'employeeNo and name are required.',
+                'ResponseStatus' => [
+                    'requestURL' => '/ISAPI/AccessControl/UserInfo/SetUp',
+                    'statusCode' => 4,
+                    'statusString' => 'Invalid Operation',
+                    'subStatusCode' => 'badParameters',
+                    'errorMsg' => 'employeeNo and name are required.',
+                ],
+            ], 400);
+        }
+
+        return response()->json([
+            'statusCode' => 1,
+            'statusString' => 'OK',
+            'subStatusCode' => 'ok',
+            'ResponseStatus' => [
+                'requestURL' => '/ISAPI/AccessControl/UserInfo/SetUp',
+                'statusCode' => 1,
+                'statusString' => 'OK',
+                'subStatusCode' => 'ok',
+            ],
+            'employeeNo' => (string) $employeeNo,
+            'name' => (string) $name,
+        ], 200);
+    }
+
+    /**
+     * Simulate ISAPI PUT /ISAPI/AccessControl/UserRightPlan/SetUp?format=json
+     */
+    public function setupUserRightPlan(Request $request): JsonResponse
+    {
+        return response()->json([
+            'statusCode' => 1,
+            'statusString' => 'OK',
+            'subStatusCode' => 'ok',
+            'ResponseStatus' => [
+                'requestURL' => '/ISAPI/AccessControl/UserRightPlan/SetUp',
+                'statusCode' => 1,
+                'statusString' => 'OK',
+                'subStatusCode' => 'ok',
+            ],
+        ], 200);
+    }
+
+    /**
      * Simulate ISAPI POST /ISAPI/AccessControl/AcsEvent
      * Simulates retrieving access tap logs (AcsEvent) with card and fingerprint history.
      */

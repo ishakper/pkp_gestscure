@@ -72,21 +72,10 @@ class SyncDoorAccessJob implements ShouldQueue
             return;
         }
 
-        // Push User info
-        $userResult = $isapiService->setUser($door, $employee);
-        if (!$userResult['status']) {
-            $errorMsg = "ISAPI setUser failed on {$door->door_id}: " . ($userResult['error'] ?? 'Unknown error');
-            $assignment->update([
-                'sync_status' => 'failed',
-                'last_sync_error' => $errorMsg,
-            ]);
-            throw new \Exception($errorMsg);
-        }
-
-        // Push User Access Right
-        $rightResult = $isapiService->setUserAccessRight($door, $employee);
-        if (!$rightResult['status']) {
-            $errorMsg = "ISAPI setUserAccessRight failed on {$door->door_id}: " . ($rightResult['error'] ?? 'Unknown error');
+        // Provision User Profile, Biometric/Card, and Access Rights
+        $provisionResult = $isapiService->provisionEmployeeAccess($door, $employee);
+        if (!$provisionResult['status']) {
+            $errorMsg = $provisionResult['error'] ?? 'Biometric user provisioning failed';
             $assignment->update([
                 'sync_status' => 'failed',
                 'last_sync_error' => $errorMsg,
@@ -99,6 +88,9 @@ class SyncDoorAccessJob implements ShouldQueue
             'sync_status' => 'synced',
             'last_sync_error' => null,
             'last_synced_at' => now(),
+            'user_info_synced_at' => now(),
+            'card_synced_at' => !empty($employee->card_no) ? now() : null,
+            'sync_type' => 'FULL',
         ]);
 
         ActivityLog::create([
@@ -106,7 +98,7 @@ class SyncDoorAccessJob implements ShouldQueue
             'action' => 'sync_door_success',
             'subject_type' => 'DoorAssignment',
             'subject_id' => $assignment->id,
-            'description' => "Successfully synced access for {$employee->name} ({$employee->employee_id}) to Door {$door->door_id}",
+            'description' => "Successfully provisioned biometric profile for {$employee->name} ({$employee->employee_id}) to Door {$door->door_id}",
             'timestamp' => now(),
         ]);
     }
