@@ -377,10 +377,53 @@
         }
 
         .nav-list {
-            list-style: none;
             display: flex;
             flex-direction: column;
-            gap: 0.4rem;
+            gap: 0.35rem;
+            padding: 0 0.75rem;
+            list-style: none;
+            overflow: visible;
+        }
+
+        .nav-section-label {
+            margin: 1rem 0.65rem 0.2rem;
+            color: #64748b;
+            font-size: 0.66rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            line-height: 1;
+        }
+
+        .nav-section-label:first-child { margin-top: 0.25rem; }
+        html:not(.sidebar-open) .nav-section-label { display: none; }
+
+        .door-card button:disabled {
+            cursor: not-allowed;
+            filter: grayscale(0.8);
+            opacity: 0.48;
+        }
+
+        .maintenance-note {
+            color: #f59e0b;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+
+        .audit-description {
+            max-width: 520px;
+            white-space: normal;
+            line-height: 1.45;
+        }
+
+        .physical-warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            border-radius: 0.75rem;
+            color: #fbbf24;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            margin: 1rem 0;
+            padding: 0.9rem;
         }
 
         .nav-item button {
@@ -1365,64 +1408,60 @@
     </div>
 
     <ul class="nav-list">
-        <li class="nav-item">
-            <button class="active" data-tooltip="Dashboard Terpusat" onclick="switchTab('overviewTab', this)">
-                <span class="nav-icon">📊</span>
-                <span class="nav-text">Dashboard Terpusat</span>
-            </button>
-        </li>
+        <li class="nav-section-label" aria-hidden="true">ACCESS CONTROL</li>
+        <li class="nav-item"><button class="active" data-tooltip="Dashboard Terpusat" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard Terpusat</span></button></li>
         @if(in_array('device.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="4 Terminal Pintu (Doors)" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Devices & Doors' : 'Pintu Gedung' }}</span></button></li>
+        <li class="nav-item"><button data-tooltip="Devices & Doors" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Devices &amp; Doors</span></button></li>
         @endif
         @if(in_array('employee.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">{{ ($portal ?? '') === 'MANAGEMENT_PORTAL' ? 'People & Organization' : 'Hak Akses Karyawan' }}</span></button></li>
+        <li class="nav-item"><button data-tooltip="Hak Akses Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Hak Akses Karyawan</span></button></li>
+        @endif
+
+        @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
+        <li class="nav-section-label" aria-hidden="true">HR &amp; WORKFORCE</li>
         @endif
         @if(in_array('recruitment.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Recruitment & ATS" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment / ATS</span></button></li>
+        <li class="nav-item"><button data-tooltip="Recruitment" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment</span></button></li>
         @endif
         @if(in_array('internship.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Internship & Mentorship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship / Magang</span></button></li>
+        <li class="nav-item"><button data-tooltip="Internship" onclick="switchTab('internshipTab', this)"><span class="nav-icon">🎓</span><span class="nav-text">Internship</span></button></li>
         @endif
         @if(in_array('onboarding.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Onboarding & Kontrak" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding & Dokumen</span></button></li>
+        <li class="nav-item"><button data-tooltip="Onboarding" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding</span></button></li>
         @endif
         @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Akses & Kredensial" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Akses & Kredensial</span></button></li>
+        <li class="nav-item"><button data-tooltip="Access & Credentials" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Access & Credentials</span></button></li>
         @endif
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Manajemen Aset & Inventaris" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Manajemen Aset</span></button></li>
+        <li class="nav-item"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
+        @endif
+
+        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []) || in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []) || in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []))
+        <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
         @endif
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Kehadiran & Kalender Kerja" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Kehadiran & Kalender</span></button></li>
+        <li class="nav-item"><button data-tooltip="Kehadiran & Kalender" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Kehadiran & Kalender</span></button></li>
         @endif
         @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Presensi Lapangan (GPS & Foto)" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
+        <li class="nav-item"><button data-tooltip="Presensi Lapangan" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
         @endif
         @if(in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Pengajuan Absensi (WFH, Cuti, Izin, Sakit)" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
+        <li class="nav-item"><button data-tooltip="Pengajuan Absensi" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
         @endif
         @if(in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Koreksi Presensi & Kehadiran" onclick="switchTab('attendanceCorrectionsTab', this)"><span class="nav-icon">✏️</span><span class="nav-text">Koreksi Presensi</span></button></li>
+        <li class="nav-item"><button data-tooltip="Koreksi Presensi" onclick="switchTab('attendanceCorrectionsTab', this)"><span class="nav-icon">✏️</span><span class="nav-text">Koreksi Presensi</span></button></li>
         @endif
         @if(in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Pengajuan Lembur (Overtime)" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
+        <li class="nav-item"><button data-tooltip="Pengajuan Lembur" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
         @endif
+
         @if(in_array('security.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
+        <li class="nav-section-label" aria-hidden="true">SECURITY</li>
+        <li class="nav-item"><button data-tooltip="Security & Audit" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Security & Audit</span></button></li>
         @endif
         @if (app()->environment('local', 'testing'))
-        <li class="nav-item">
-            <button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)">
-                <span class="nav-icon">🧪</span>
-                <span class="nav-text">Hardware Event Simulator</span>
-            </button>
-        </li>
-        <li class="nav-item">
-            <button data-tooltip="cURL / Postman Specs" onclick="switchTab('apiDocsTab', this)">
-                <span class="nav-icon">📖</span>
-                <span class="nav-text">cURL / Postman Specs</span>
-            </button>
-        </li>
+        <li class="nav-item"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
+        <li class="nav-item"><button data-tooltip="cURL / Postman Specs" onclick="switchTab('apiDocsTab', this)"><span class="nav-icon">📖</span><span class="nav-text">cURL / Postman Specs</span></button></li>
         @endif
     </ul>
 
@@ -1453,7 +1492,7 @@
             <div class="top-bar-logo-placeholder" aria-hidden="true"></div>
         </div>
         <div class="top-bar-actions">
-            <button class="btn-secondary" onclick="loadDoors(); loadEmployees(); loadAccessLogs(); showToast('Data dashboard disinkronkan', 'info');">
+            <button class="btn-secondary" onclick="refreshOperationalData(this)">
                 🔄 Refresh Live Data
             </button>
             <button class="btn-primary" onclick="openAddEmployeeModal()">
@@ -1507,64 +1546,11 @@
                 @if(in_array('device.manage', $permissions ?? []))
                 <button class="btn-primary" onclick="openFacilityModal()">＋ Tambah Gedung / Pintu</button>
                 @endif
-                <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">📡 Cek Semua Koneksi Terminal</button>
+                @if(in_array('device.manage', $permissions ?? []))<button class="btn-secondary" onclick="checkAllDoors(this)" title="Pemeriksaan fisik eksplisit ke seluruh terminal">📡 Cek Semua Koneksi Terminal (Diagnose)</button>@endif
+                <button class="btn-primary" onclick="refreshOperationalData(this)">↻ Refresh Live Data</button>
             </div>
         </div>
-        <div class="doors-grid" id="overviewDoorsGrid">
-            @if(isset($doors) && $doors->isNotEmpty())
-                @foreach($doors as $door)
-                    @php
-                        $isOnline = ($door->connection_status === 'online' || $door->status === 'online');
-                        $targetOverride = $isOnline ? 'offline' : 'online';
-                        $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
-                        $badgeClass = $isOnline ? 'badge-online' : 'badge-offline';
-                        $badgeText = $isOnline ? 'ONLINE' : 'OFFLINE';
-                    @endphp
-                    <div class="door-card">
-                        <div class="door-card-header">
-                            <div>
-                                <div class="door-code">{{ $door->door_id }}</div>
-                                <div class="door-name">{{ $door->door_name ?? $door->name }}</div>
-                            </div>
-                            <span class="badge {{ $badgeClass }}">{{ $badgeText }}</span>
-                        </div>
-                        <div class="door-specs">
-                            <div class="spec-item">
-                                <span class="spec-label">Lokasi Gedung:</span>
-                                <span class="spec-val">{{ $door->location }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">IP Terminal:</span>
-                                <span class="spec-val ip-tag">{{ $door->device_ip ?? $door->ip_address }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Model Hardware:</span>
-                                <span class="spec-val">{{ $door->device_model ?? $door->model ?? 'DS-K1T804AMF' }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Assigned Users:</span>
-                                <span class="spec-val highlight">{{ $door->employees_count ?? $door->door_assignments_count ?? 0 }} Pegawai</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Status Pintu:</span>
-                                <span class="spec-val">{{ $isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline' }}</span>
-                            </div>
-                        </div>
-                        <div class="door-actions">
-                            <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
-                                ⚡ {{ $overrideText }}
-                            </button>
-                            <button type="button" class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
-                            <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
-                                📡 Cek Koneksi
-                            </button>
-                        </div>
-                    </div>
-                @endforeach
-            @else
-                <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
-            @endif
-        </div>
+        <div class="doors-grid" id="overviewDoorsGrid"><div class="loading-td"><div class="spinner"></div> Memuat terminal terkonfigurasi...</div></div>
 
         <!-- SECTION 2: USER & ACCESS PRIVILEGE MANAGEMENT -->
         <div class="section-header">
@@ -1581,12 +1567,8 @@
                     </div>
                     <div class="search-box">
                         🚪
-                        <select id="employeeDoorFilter" onchange="loadEmployees()">
+                        <select id="employeeDoorFilter" onchange="loadEmployees(1)">
                             <option value="">Semua Hak Akses Pintu</option>
-                            <option value="DOOR-A">Akses DOOR-A</option>
-                            <option value="DOOR-B">Akses DOOR-B</option>
-                            <option value="DOOR-C">Akses DOOR-C</option>
-                            <option value="DOOR-D">Akses DOOR-D</option>
                         </select>
                     </div>
                 </div>
@@ -1610,6 +1592,7 @@
                     <tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data...</td></tr>
                 </tbody>
             </table>
+            <div class="employee-pagination" aria-live="polite"></div>
         </div>
 
         <!-- SECTION 3: SECURITY ACCESS LOGS & AUDIT TRAIL -->
@@ -1626,10 +1609,6 @@
                         🚪
                         <select id="logDoorFilter" onchange="loadAccessLogs()">
                             <option value="">Semua Pintu</option>
-                            <option value="DOOR-A">DOOR-A (Gedung A)</option>
-                            <option value="DOOR-B">DOOR-B (Gedung B)</option>
-                            <option value="DOOR-C">DOOR-C (Gedung C)</option>
-                            <option value="DOOR-D">DOOR-D (Gedung D)</option>
                         </select>
                     </div>
                     <div class="search-box">
@@ -1690,77 +1669,11 @@
                 @if(in_array('device.manage', $permissions ?? []))
                 <button class="btn-primary" onclick="openFacilityModal()">＋ Tambah Gedung / Pintu</button>
                 @endif
-                <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">📡 Cek Semua Koneksi Terminal</button>
+                @if(in_array('device.manage', $permissions ?? []))<button class="btn-secondary" onclick="checkAllDoors(this)" title="Pemeriksaan fisik eksplisit ke seluruh terminal">📡 Cek Semua Koneksi Terminal (Diagnose)</button>@endif
+                <button class="btn-primary" onclick="refreshOperationalData(this)">↻ Refresh Live Data</button>
             </div>
         </div>
-        <div class="doors-grid" id="doorsGrid">
-            @if(isset($doors) && $doors->isNotEmpty())
-                @foreach($doors as $door)
-                    @php
-                        $isOnline = ($door->connection_status === 'online' || $door->status === 'online');
-                        $isError = ($door->connection_status === 'error' || $door->status === 'error');
-                        $targetOverride = $isOnline ? 'offline' : 'online';
-                        $overrideText = $isOnline ? 'Set Offline' : 'Restore Online';
-
-                        $badgeClass = 'badge-offline';
-                        $badgeText = 'OFFLINE';
-                        $statusText = '🔴 Device Offline';
-
-                        if ($isOnline) {
-                            $badgeClass = 'badge-online';
-                            $badgeText = 'ONLINE';
-                            $statusText = '🟢 Closed (Normal)';
-                        } elseif ($isError) {
-                            $badgeClass = 'badge-error';
-                            $badgeText = 'AUTH ERROR';
-                            $statusText = '🟠 Network OK, ISAPI Auth Failed (401)';
-                        }
-                    @endphp
-                    <div class="door-card">
-                        <div class="door-card-header">
-                            <div>
-                                <div class="door-code">{{ $door->door_id }}</div>
-                                <div class="door-name">{{ $door->door_name ?? $door->name }}</div>
-                            </div>
-                            <span class="badge {{ $badgeClass }}">{{ $badgeText }}</span>
-                        </div>
-                        <div class="door-specs">
-                            <div class="spec-item">
-                                <span class="spec-label">Lokasi Gedung:</span>
-                                <span class="spec-val">{{ $door->location }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">IP Terminal:</span>
-                                <span class="spec-val ip-tag">{{ $door->device_ip ?? $door->ip_address }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Model Hardware:</span>
-                                <span class="spec-val">{{ $door->device_model ?? $door->model ?? 'DS-K1T804AMF' }}</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Assigned Users:</span>
-                                <span class="spec-val highlight">{{ $door->employees_count ?? $door->door_assignments_count ?? 0 }} Pegawai</span>
-                            </div>
-                            <div class="spec-item">
-                                <span class="spec-label">Status Pintu:</span>
-                                <span class="spec-val">{{ $statusText }}</span>
-                            </div>
-                        </div>
-                        <div class="door-actions">
-                            <button type="button" class="btn-action btn-override" onclick="toggleDoorStatus('{{ $door->door_id }}', '{{ $targetOverride }}')" title="Manual Override Maintenance Mode">
-                                ⚡ {{ $overrideText }}
-                            </button>
-                            <button type="button" class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('{{ $door->door_id }}', this)">🔓 Buka Pintu</button>
-                            <button type="button" class="btn-action btn-ping" onclick="pingSingleDoor('{{ $door->door_id }}', this)" title="Cek status ISAPI getDeviceStatus">
-                                📡 Cek Koneksi
-                            </button>
-                        </div>
-                    </div>
-                @endforeach
-            @else
-                <div class="loading-td"><div class="spinner"></div> Memuat status perangkat...</div>
-            @endif
-        </div>
+        <div class="doors-grid" id="doorsGrid"><div class="loading-td"><div class="spinner"></div> Memuat terminal terkonfigurasi...</div></div>
     </section>
 
     <!-- TAB 3: EMPLOYEES ONLY -->
@@ -1790,6 +1703,7 @@
                     <!-- Synced with employees list -->
                 </tbody>
             </table>
+            <div class="employee-pagination" aria-live="polite"></div>
         </div>
     </section>
 
@@ -1823,6 +1737,21 @@
                 </tbody>
             </table>
         </div>
+
+        @if(in_array('audit.view', $permissions ?? []))
+        <div class="section-header" style="margin-top:1.5rem;">
+            <div>
+                <h3 class="section-title" style="font-size:1rem;">Operational Audit Timeline</h3>
+                <p class="section-desc">Aktivitas administratif terstruktur; payload mentah dan kredensial tidak pernah ditampilkan.</p>
+            </div>
+        </div>
+        <div class="table-container">
+            <table aria-label="Operational audit timeline">
+                <thead><tr><th>Waktu</th><th>Aktor</th><th>Aksi</th><th>Objek</th><th>Ringkasan</th></tr></thead>
+                <tbody id="activityLogsTableBody"><tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat audit timeline...</td></tr></tbody>
+            </table>
+        </div>
+        @endif
     </section>
 
     <!-- TAB 5: ISAPI HARDWARE EVENT SIMULATOR -->
@@ -5574,6 +5503,25 @@
     </div>
 </div>
 
+<!-- MODAL: SAFE REMOTE DOOR UNLOCK -->
+<div class="modal-overlay" id="remoteUnlockModal" role="dialog" aria-modal="true" aria-labelledby="remoteUnlockTitle">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-header">
+            <div><h3 class="modal-title" id="remoteUnlockTitle">🔓 Konfirmasi Remote Unlock</h3><div class="section-desc" id="remoteUnlockDoorIdentity">Pilih terminal pintu.</div></div>
+            <button type="button" class="modal-close-btn" onclick="cancelRemoteUnlock()" aria-label="Tutup">✖</button>
+        </div>
+        <div class="physical-warning">Perintah ini mengaktifkan relay pintu fisik. Pastikan identitas pintu dan kondisi area sudah diverifikasi sebelum melanjutkan.</div>
+        <dl class="door-specs">
+            <div class="spec-item"><dt class="spec-label">Terminal</dt><dd class="spec-val" id="remoteUnlockDoorCode">-</dd></div>
+            <div class="spec-item"><dt class="spec-label">Lokasi</dt><dd class="spec-val" id="remoteUnlockDoorLocation">-</dd></div>
+            <div class="spec-item"><dt class="spec-label">Status</dt><dd class="spec-val" id="remoteUnlockDoorStatus">-</dd></div>
+        </dl>
+        <div style="display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem;">
+            <button type="button" class="btn-secondary" onclick="cancelRemoteUnlock()">Batal</button>
+            <button type="button" class="btn-primary" id="confirmRemoteUnlockButton" onclick="confirmRemoteUnlock()">Konfirmasi & Buka Pintu</button>
+        </div>
+    </div>
+</div>
 <!-- MODAL: DYNAMIC FACILITY CONFIGURATION -->
 <div class="modal-overlay" id="facilityModal">
     <div class="modal-card" style="max-width:720px;">
@@ -5602,72 +5550,6 @@
     }
 </script>
 <script src="/js/dashboard.js"></script>
-
-<script>
-/**
- * Remote Unlock Door Function
- * Sends POST request to /api/v1/doors/${doorId}/unlock with CSRF-Token
- */
-async function remoteUnlockDoor(doorId, btn) {
-    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin membuka relay pintu ${doorId} secara remote?`)) {
-        return;
-    }
-
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '⏳ Membuka...';
-    }
-
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content')
-        || '{{ csrf_token() }}';
-    const appToken = window.APP_CONFIG?.apiToken
-        || sessionStorage.getItem('api_token')
-        || localStorage.getItem('api_token')
-        || '';
-
-    const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': csrfToken,
-        'X-Requested-With': 'XMLHttpRequest'
-    };
-
-    if (appToken) {
-        headers['Authorization'] = `Bearer ${appToken}`;
-    }
-
-    try {
-        const response = await fetch(`/api/v1/doors/${doorId}/unlock`, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ command: 'open' })
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (response.ok && data.status === 'success') {
-            alert(`✓ Berhasil: ${data.message || 'Relay pintu berhasil dibuka!'}`);
-            if (typeof loadDoors === 'function') {
-                loadDoors();
-            }
-            if (typeof loadActivityLogs === 'function') {
-                loadActivityLogs();
-            }
-        } else {
-            alert(`✕ Gagal: ${data.message || 'Relay pintu gagal dibuka oleh hardware.'}`);
-        }
-    } catch (error) {
-        alert(`✕ Terjadi kesalahan koneksi: ${error.message}`);
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    }
-}
-window.remoteUnlockDoor = remoteUnlockDoor;
-</script>
 
 </body>
 </html>

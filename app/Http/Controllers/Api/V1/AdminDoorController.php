@@ -9,10 +9,12 @@ use App\Models\ActivityLog;
 use App\Models\Door;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
+use App\Services\PortalAccess;
 use Illuminate\Http\Request;
 
 class AdminDoorController extends Controller
 {
+    public function __construct(private readonly PortalAccess $portalAccess) {}
     public function metrics(Request $request)
     {
         $admin = $request->user();
@@ -86,14 +88,11 @@ class AdminDoorController extends Controller
         $this->authorize('overrideStatus', $door);
 
         $request->validate([
-            'connection_status' => 'required|in:online,offline',
-            'is_manual_override' => 'nullable|boolean',
+            'is_manual_override' => 'required|boolean',
         ]);
 
         $door->update([
-            'connection_status' => $request->connection_status,
-            'is_manual_override' => $request->has('is_manual_override') ? (bool) $request->is_manual_override : true,
-            'last_checked_at' => now(),
+            'is_manual_override' => (bool) $request->is_manual_override,
         ]);
 
         ActivityLog::create([
@@ -101,13 +100,13 @@ class AdminDoorController extends Controller
             'action' => 'override_door_status',
             'subject_type' => 'Door',
             'subject_id' => $door->id,
-            'description' => "Manual status override for {$door->door_id} ({$door->door_name}) set to {$request->connection_status}",
+            'description' => "Maintenance override for {$door->door_id} ({$door->door_name}) " . ($request->boolean('is_manual_override') ? 'enabled' : 'disabled'),
             'timestamp' => now(),
         ]);
 
         return response()->json([
             'status' => 'success',
-            'message' => "Status pintu {$door->door_id} berhasil diperbarui",
+            'message' => "Mode maintenance {$door->door_id} berhasil diperbarui tanpa mengubah status koneksi aktual",
             'data' => new DoorResource($door),
         ]);
     }
@@ -158,6 +157,8 @@ class AdminDoorController extends Controller
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
 
+        $this->authorize('physicalControl', $door);
+
         $statusResult = $isapiService->getDeviceStatus($door);
         $isOnline = (bool) ($statusResult['status'] ?? false);
         $connStatus = $isOnline ? 'online' : 'offline';
@@ -194,6 +195,8 @@ class AdminDoorController extends Controller
      */
     public function checkAllConnections(Request $request, HikvisionIsapiService $isapiService)
     {
+        abort_unless($this->portalAccess->can($request->user(), 'device.manage'), 403);
+
         $admin = $request->user();
         $query = Door::query();
 

@@ -12,6 +12,10 @@ let state = {
     doorsLookup: [],
     employees: [],
     accessLogs: [],
+    activityLogs: [],
+    pendingRemoteUnlockDoor: null,
+    employeePage: 1,
+    employeePagination: null,
     metrics: {
         totalUsers: 0,
         activeDoors: 0,
@@ -163,6 +167,7 @@ async function loadDoors() {
         if (res.status === 'success') {
             state.doors = res.data;
             renderDoorCards(state.doors);
+            refreshDoorFilters(state.doors);
             updateMetricCards();
         }
     } catch (err) {
@@ -171,145 +176,146 @@ async function loadDoors() {
     }
 }
 
-function renderDoorCards(doors) {
-    const renderTargets = [
-        document.getElementById('doorsGrid'),
-        document.getElementById('overviewDoorsGrid')
-    ].filter(Boolean);
+function refreshDoorFilters(doors) {
+    const filters = [
+        [document.getElementById('employeeDoorFilter'), 'Semua Hak Akses Pintu'],
+        [document.getElementById('logDoorFilter'), 'Semua Pintu'],
+    ];
+    filters.forEach(([select, label]) => {
+        if (!select) return;
+        const selected = select.value;
+        select.innerHTML = `<option value="">${label}</option>` + doors.map(door => {
+            const id = escapeHtml(door.door_id);
+            const location = escapeHtml(door.building_name || door.location || '-');
+            return `<option value="${id}">${id} (${location})</option>`;
+        }).join('');
+        if (Array.from(select.options).some(option => option.value === selected)) select.value = selected;
+    });
+}
 
+function renderDoorCards(doors) {
+    const renderTargets = [document.getElementById('doorsGrid'), document.getElementById('overviewDoorsGrid')].filter(Boolean);
     if (renderTargets.length === 0) return;
 
+    if (!Array.isArray(doors) || doors.length === 0) {
+        renderTargets.forEach(target => target.innerHTML = '<div class="empty-td">Belum ada terminal pintu terkonfigurasi.</div>');
+        return;
+    }
+
+    const canManageDevices = (window.APP_CONFIG?.permissions || []).includes('device.manage');
     const html = doors.map(door => {
-        const isOnline = (door.connection_status === 'online' || door.status === 'online');
+        const isOnline = door.connection_status === 'online' || door.status === 'online';
+        const unlockDisabled = !isOnline;
+        const isMaintenance = Boolean(door.is_manual_override);
         const badgeClass = isOnline ? 'status-online' : 'status-offline';
         const statusLabel = isOnline ? 'ONLINE' : 'OFFLINE';
-
         const safeDoorId = escapeHtml(door.door_id);
-        const safeDoorName = escapeHtml(door.door_name || door.name || '');
-        const safeLocation = escapeHtml(door.location || '');
+        const safeDoorName = escapeHtml(door.door_name || door.name || 'Tanpa nama');
+        const safeLocation = escapeHtml(door.building_name || door.location || '-');
         const safeDeviceIp = escapeHtml(door.device_ip || '-');
         const safeModel = escapeHtml(door.device_model || 'DS-K1T804AMF');
-        const safeTotalUsers = Number(door.total_assigned_users) || 0;
+        const safeTotalUsers = Number(door.total_assigned_users || door.employees_count || door.door_assignments_count) || 0;
         const lastCheckedStr = door.last_checked_at
-            ? new Date(door.last_checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : 'Belum dicek';
+            ? new Date(door.last_checked_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' })
+            : 'Belum pernah diperiksa';
 
         return `
-            <div class="card door-card" id="door-card-${safeDoorId}">
+            <article class="card door-card" id="door-card-${safeDoorId}" data-connection-state="${statusLabel.toLowerCase()}">
                 <div class="card-header">
-                    <div class="door-code-badge">
-                        <span class="door-chip">${safeDoorId}</span>
-                        <span class="door-loc">${safeLocation}</span>
-                    </div>
-                    <span class="status-badge ${badgeClass}">
-                        <span class="status-dot"></span> ${statusLabel}
-                    </span>
+                    <div class="door-code-badge"><span class="door-chip">${safeDoorId}</span><span class="door-loc">${safeLocation}</span></div>
+                    <span class="status-badge ${badgeClass}"><span class="status-dot"></span> ${statusLabel}</span>
                 </div>
                 <div class="card-value door-name-title">${safeDoorName}</div>
+                ${isMaintenance ? '<div class="maintenance-note">⚠ Maintenance override aktif — status koneksi tetap berasal dari terminal.</div>' : ''}
                 <div class="door-specs">
-                    <div class="spec-item">
-                        <span class="spec-label">IP Address:</span>
-                        <code class="spec-code">${safeDeviceIp}</code>
-                    </div>
-                    <div class="spec-item">
-                        <span class="spec-label">Hardware:</span>
-                        <span class="spec-val">${safeModel}</span>
-                    </div>
-                    <div class="spec-item">
-                        <span class="spec-label">Assigned Users:</span>
-                        <span class="spec-val highlight">${safeTotalUsers} Pegawai</span>
-                    </div>
-                    <div class="spec-item">
-                        <span class="spec-label">Status Pintu:</span>
-                        <span class="spec-val">${isOnline ? '🟢 Closed (Normal)' : '🔴 Device Offline'}</span>
-                    </div>
-                    <div class="spec-item">
-                        <span class="spec-label">Last Checked:</span>
-                        <span class="spec-val" style="font-size: 0.775rem; color: var(--text-dim);">${lastCheckedStr}</span>
-                    </div>
+                    <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
+                    <div class="spec-item"><span class="spec-label">Hardware</span><span class="spec-val">${safeModel}</span></div>
+                    <div class="spec-item"><span class="spec-label">Assigned Users</span><span class="spec-val highlight">${safeTotalUsers} Pegawai</span></div>
+                    <div class="spec-item"><span class="spec-label">Last Checked</span><span class="spec-val">${escapeHtml(lastCheckedStr)}</span></div>
                 </div>
                 <div class="door-actions">
-                    ${(window.APP_CONFIG?.permissions || []).includes('device.manage') ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
-                    <button class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('${safeDoorId}', this)">🔓 Buka Pintu</button>
-                    <button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
-                        📡 Cek Koneksi
-                    </button>
+                    ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
+                    <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
+                    <button class="btn-action" onclick="openDoorUsers('${safeDoorId}')">Sync Users</button>
                 </div>
-            </div>
-        `;
+            </article>`;
     }).join('');
 
     renderTargets.forEach(target => target.innerHTML = html);
 }
 
-async function toggleDoorStatus(doorId, newStatus) {
+async function toggleDoorStatus(doorId, enabled) {
     try {
-        const res = await apiFetch(`/admin/doors/${doorId}/status`, {
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/status`, {
             method: 'PATCH',
-            body: JSON.stringify({
-                connection_status: newStatus,
-                is_manual_override: true,
-            })
+            body: JSON.stringify({ is_manual_override: Boolean(enabled) })
         });
-
         if (res.status === 'success') {
-            showToast(`Status terminal ${doorId} diubah menjadi ${newStatus.toUpperCase()}`, 'success');
+            showToast(`Maintenance override ${enabled ? 'diaktifkan' : 'dinonaktifkan'} untuk ${doorId}.`, 'success');
             await loadDoors();
         }
     } catch (err) {
-        showToast(`Gagal override status ${doorId}: ${err.message}`, 'error');
+        showToast('Perubahan maintenance tidak dapat disimpan.', 'error');
     }
 }
 
-async function remoteUnlockDoor(doorId, btn) {
-    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin membuka relay pintu ${doorId} secara remote?`)) {
+function openDoorLogs(doorId) {
+    const filter = document.getElementById('logDoorFilter');
+    if (filter) filter.value = doorId;
+    switchTab('logsTab');
+    loadAccessLogs();
+}
+
+function openDoorUsers(doorId) {
+    const filter = document.getElementById('employeeDoorFilter');
+    if (filter) filter.value = doorId;
+    switchTab('employeesTab');
+    loadEmployees();
+}
+
+function openRemoteUnlockModal(doorId) {
+    const door = state.doors.find(item => String(item.door_id) === String(doorId));
+    const isOnline = door && (door.connection_status === 'online' || door.status === 'online');
+    if (!door || !isOnline) {
+        showToast('Remote unlock diblokir: Terminal belum terhubung.', 'warning');
         return;
     }
 
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '⏳ Membuka...';
-    }
+    state.pendingRemoteUnlockDoor = door;
+    document.getElementById('remoteUnlockDoorIdentity').textContent = door.door_name || door.name || door.door_id;
+    document.getElementById('remoteUnlockDoorCode').textContent = door.door_id;
+    document.getElementById('remoteUnlockDoorLocation').textContent = door.building_name || door.location || '-';
+    document.getElementById('remoteUnlockDoorStatus').textContent = 'ONLINE — siap menerima perintah';
+    openModal('remoteUnlockModal');
+}
 
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-    const token = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+function cancelRemoteUnlock() {
+    state.pendingRemoteUnlockDoor = null;
+    closeModal('remoteUnlockModal');
+}
 
-    const headers = {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'X-CSRF-TOKEN': csrfToken,
-        'X-Requested-With': 'XMLHttpRequest'
-    };
-    if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-    }
+async function confirmRemoteUnlock() {
+    const door = state.pendingRemoteUnlockDoor;
+    const button = document.getElementById('confirmRemoteUnlockButton');
+    if (!door || !button) return;
 
+    button.disabled = true;
+    button.textContent = '⏳ Mengirim perintah...';
     try {
-        const response = await fetch(`/api/v1/doors/${doorId}/unlock`, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify({ command: 'open' })
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (response.ok && data.status === 'success') {
-            alert(`✓ Berhasil: ${data.message || 'Relay pintu berhasil dibuka!'}`);
-            await loadDoors();
-            if (typeof loadActivityLogs === 'function') {
-                await loadActivityLogs();
-            }
-        } else {
-            alert(`✕ Gagal: ${data.message || 'Relay pintu gagal dibuka oleh hardware.'}`);
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST' });
+        if (res.status === 'success') {
+            showToast(`Perintah remote unlock ${door.door_id} berhasil dikirim.`, 'success');
+            cancelRemoteUnlock();
+            await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
         }
     } catch (err) {
-        alert(`✕ Terjadi kesalahan koneksi: ${err.message}`);
+        showToast('Remote unlock gagal. Periksa izin dan koneksi terminal, lalu coba kembali.', 'error');
     } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
+        button.disabled = false;
+        button.textContent = 'Konfirmasi & Buka Pintu';
     }
 }
 
@@ -383,24 +389,26 @@ async function loadOrganizationLookup() {
     } catch (err) { console.warn('Organization lookup unavailable', err); }
 }
 
-async function loadEmployees() {
+async function loadEmployees(page = state.employeePage) {
     const tbody = document.getElementById('employeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
+    state.employeePage = Math.max(1, Number(page) || 1);
 
     if (tbody) {
         tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan & hak akses...</td></tr>`;
     }
 
     try {
-        let url = `/user-management/users?per_page=50`;
+        let url = `/user-management/users?per_page=20&page=${state.employeePage}`;
         if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
         const res = await apiFetch(url);
         if (res.status === 'success') {
             state.employees = res.data;
+            state.employeePagination = res.pagination || null;
             state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
             updateMetricCards();
 
@@ -409,6 +417,7 @@ async function loadEmployees() {
             }
 
             renderEmployeesTable(state.employees);
+            renderEmployeePagination();
         }
     } catch (err) {
         if (tbody) {
@@ -531,8 +540,26 @@ function handleDeleteEmployeeBtn(id, btn) {
 function handleEmployeeSearch() {
     clearTimeout(state.searchDebounceTimer);
     state.searchDebounceTimer = setTimeout(() => {
-        loadEmployees();
+        loadEmployees(1);
     }, 300);
+}
+
+function renderEmployeePagination() {
+    const pagination = state.employeePagination;
+    document.querySelectorAll('.employee-pagination').forEach(container => {
+        if (!pagination || Number(pagination.total_pages || 1) <= 1) {
+            container.innerHTML = '';
+            return;
+        }
+        const current = Number(pagination.current_page || 1);
+        const total = Number(pagination.total_pages || 1);
+        container.innerHTML = `
+            <div style="display:flex;justify-content:flex-end;align-items:center;gap:.75rem;padding:1rem;">
+                <button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
+                <span style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
+                <button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+            </div>`;
+    });
 }
 
 // ==========================================
@@ -576,6 +603,10 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.name || '');
         const safeDoorLoc = escapeHtml(door.location || '');
+        const operationalDoor = state.doors.find(item => String(item.door_id) === String(door.door_id));
+        const isOnline = operationalDoor && (operationalDoor.connection_status === 'online' || operationalDoor.status === 'online');
+        const assignment = (employee.door_assign || []).find(item => String(item.door_id) === String(door.door_id));
+        const syncLabel = assignment ? escapeHtml(assignment.sync_status || 'pending') : 'not assigned';
 
         return `
             <label class="door-checkbox-card ${isChecked ? 'selected' : ''}">
@@ -584,6 +615,7 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
                     <div class="checkbox-door-code">${safeDoorId}</div>
                     <div class="checkbox-door-name">${safeDoorName}</div>
                     <div class="checkbox-door-loc">${safeDoorLoc}</div>
+                    <div class="checkbox-door-loc">${isOnline ? '🟢 Online' : '🔴 Offline'} · Sync: ${syncLabel}</div>
                 </div>
             </label>
         `;
@@ -794,6 +826,40 @@ async function loadAccessLogs() {
         if (tbody) {
             tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat log akses: ${err.message}</td></tr>`;
         }
+    }
+}
+
+async function loadActivityLogs() {
+    const tbody = document.getElementById('activityLogsTableBody');
+    if (!tbody || !(window.APP_CONFIG?.permissions || []).includes('audit.view')) return;
+    try {
+        const res = await apiFetch('/admin/activity-logs?per_page=30');
+        state.activityLogs = Array.isArray(res.data) ? res.data : [];
+        if (state.activityLogs.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="empty-td">Belum ada aktivitas administratif.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = state.activityLogs.map(log => `
+            <tr>
+                <td>${escapeHtml(formatDateTime(log.timestamp))}</td>
+                <td>${escapeHtml(log.admin?.name || 'System')}</td>
+                <td><span class="badge badge-info">${escapeHtml(log.action || '-')}</span></td>
+                <td>${escapeHtml(log.subject_type || '-')}${log.subject_id ? ` #${Number(log.subject_id)}` : ''}</td>
+                <td class="audit-description">${escapeHtml(log.description || '-')}</td>
+            </tr>`).join('');
+    } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="5" class="error-td">Audit timeline tidak dapat dimuat.</td></tr>';
+    }
+}
+
+async function refreshOperationalData(button) {
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Memuat data...'; }
+    try {
+        await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
+        showToast('Data operasional terbaru berhasil dimuat.', 'success');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
     }
 }
 
@@ -1127,6 +1193,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
     if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
+    if (tabId === 'logsTab') loadActivityLogs();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
@@ -1256,7 +1323,12 @@ function toggleSidebar(forceState) {
 // Expose globally
 window.toggleSidebar = toggleSidebar;
 window.pingSingleDoor = pingSingleDoor;
-window.remoteUnlockDoor = remoteUnlockDoor;
+window.openRemoteUnlockModal = openRemoteUnlockModal;
+window.cancelRemoteUnlock = cancelRemoteUnlock;
+window.confirmRemoteUnlock = confirmRemoteUnlock;
+window.refreshOperationalData = refreshOperationalData;
+window.openDoorLogs = openDoorLogs;
+window.openDoorUsers = openDoorUsers;
 window.checkAllDoors = checkAllDoors;
 window.syncHardwareLogs = syncHardwareLogs;
 window.revokeAllEmployeeDoors = revokeAllEmployeeDoors;
@@ -1317,6 +1389,8 @@ function handleNewLiveEvent(data) {
     // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
     if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
         loadAccessLogs();
+        updateMetricCards();
+        loadActivityLogs();
     }
 
     // Also refresh door status
@@ -1336,6 +1410,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDoors();
     loadEmployees();
     loadAccessLogs();
+    loadActivityLogs();
 
     // Initialize Real-time SSE connection
     initLiveAccessStream();
@@ -1347,6 +1422,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab') {
             loadAccessLogs();
+            updateMetricCards();
+        }
+        if (state.activeTab === 'logsTab') {
+            loadActivityLogs();
         }
     }, 60000);
 });

@@ -5,12 +5,16 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\ActivityLogResource;
 use App\Models\ActivityLog;
+use App\Services\PortalAccess;
 use Illuminate\Http\Request;
 
 class ActivityLogController extends Controller
 {
+    public function __construct(private readonly PortalAccess $portalAccess) {}
+
     public function index(Request $request)
     {
+        abort_unless($this->portalAccess->can($request->user(), 'audit.view'), 403);
         $logs = ActivityLog::with('admin')
             ->orderBy('timestamp', 'desc')
             ->paginate($request->get('per_page', 20));

@@ -9,13 +9,17 @@ use App\Models\ActivityLog;
 use App\Models\Door;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
+use App\Services\PortalAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
 class AdminAccessLogController extends Controller
 {
+    public function __construct(private readonly PortalAccess $portalAccess) {}
+
     public function index(Request $request)
     {
+        abort_unless($this->portalAccess->can($request->user(), 'security.view'), 403);
         $query = AccessLog::with(['door', 'employee']);
 
         $admin = $request->user();
@@ -113,6 +117,8 @@ class AdminAccessLogController extends Controller
      */
     public function syncHardware(Request $request, HikvisionIsapiService $isapiService)
     {
+        abort_unless($this->portalAccess->can($request->user(), 'security.manage'), 403);
+
         $doorId = $request->input('door_id');
         $limit = (int) $request->input('limit', 30);
 
