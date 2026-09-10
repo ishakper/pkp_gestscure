@@ -1500,12 +1500,15 @@
         <!-- SECTION 1: 4 CENTRALIZED ACCESS DOORS -->
         <div class="section-header">
             <div>
-                <h2 class="section-title">🌐 4 Centralized Access Doors</h2>
-                <p class="section-desc">Status real-time 4 terminal fisik Hikvision DS-K1T804AMF (Gedung A, B, C, D)</p>
+                <h2 class="section-title">🌐 Centralized Access Doors</h2>
+                <p class="section-desc">Status real-time terminal Hikvision lintas gedung dari konfigurasi terkelola.</p>
             </div>
-            <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">
-                📡 Cek Semua Koneksi Terminal
-            </button>
+            <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
+                @if(in_array('device.manage', $permissions ?? []))
+                <button class="btn-primary" onclick="openFacilityModal()">＋ Tambah Gedung / Pintu</button>
+                @endif
+                <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">📡 Cek Semua Koneksi Terminal</button>
+            </div>
         </div>
         <div class="doors-grid" id="overviewDoorsGrid">
             @if(isset($doors) && $doors->isNotEmpty())
@@ -1683,9 +1686,12 @@
                 <h2 class="section-title">🌐 Centralized Door Terminal Monitoring</h2>
                 <p class="section-desc">Audit hardware konektivitas IP & kontrol manual status online/offline</p>
             </div>
-            <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">
-                📡 Cek Semua Koneksi Terminal
-            </button>
+            <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
+                @if(in_array('device.manage', $permissions ?? []))
+                <button class="btn-primary" onclick="openFacilityModal()">＋ Tambah Gedung / Pintu</button>
+                @endif
+                <button class="btn-secondary" onclick="checkAllDoors(this)" title="Audit semua koneksi terminal melalui ISAPI">📡 Cek Semua Koneksi Terminal</button>
+            </div>
         </div>
         <div class="doors-grid" id="doorsGrid">
             @if(isset($doors) && $doors->isNotEmpty())
@@ -3072,6 +3078,19 @@
 
         <div class="stats-grid" id="attendanceMetricsContainer" style="margin-bottom: 1.5rem;">
             <!-- Metrics populated by JS -->
+        </div>
+
+        <div class="table-container" style="margin-bottom:1.5rem;padding:1rem;">
+            <div class="table-toolbar" style="margin-bottom:1rem;">
+                <div class="toolbar-left"><h3 style="margin:0;color:#fff;">Laporan Kehadiran Bulanan</h3><div class="section-desc">Ringkasan hadir, terlambat, dan absen per karyawan serta gedung.</div></div>
+                <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
+                    <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
+                    <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
+                    <button class="btn-secondary" onclick="exportAttendanceReport()">⬇ Export CSV</button>
+                </div>
+            </div>
+            <div class="stats-grid" id="attendanceReportMetrics" style="margin-bottom:1rem;"></div>
+            <div style="overflow:auto;"><table class="data-table"><thead><tr><th>Karyawan</th><th>Gedung</th><th>Hadir</th><th>Terlambat</th><th>Absen</th><th>Attendance Rate</th><th>Menit Terlambat</th></tr></thead><tbody id="attendanceReportBody"><tr><td colspan="7" class="loading-td">Memuat laporan bulanan...</td></tr></tbody></table></div>
         </div>
 
         <!-- Attendance Content -->
@@ -5555,10 +5574,22 @@
     </div>
 </div>
 
+<!-- MODAL: DYNAMIC FACILITY CONFIGURATION -->
+<div class="modal-overlay" id="facilityModal">
+    <div class="modal-card" style="max-width:720px;">
+        <div class="modal-header"><div><h3 class="modal-title">Facility & Door Configuration</h3><div class="section-desc">Register a building or terminal without changing existing hardware records.</div></div><button class="modal-close-btn" onclick="closeModal('facilityModal')">✖</button></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;">
+            <form id="buildingConfigForm" onsubmit="submitBuildingConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New Building</h4><div class="form-row"><label>Code *</label><input id="facilityBuildingCode" required maxlength="100" placeholder="BLD-C"></div><div class="form-row"><label>Name *</label><input id="facilityBuildingName" required maxlength="255" placeholder="Gedung C"></div><div class="form-row"><label>Description</label><textarea id="facilityBuildingDescription" maxlength="1000"></textarea></div><button class="btn-secondary" type="submit">Save Building</button></form>
+            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
+        </div>
+    </div>
+</div>
+
 <!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),
+        permissions: @json($permissions ?? []),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),

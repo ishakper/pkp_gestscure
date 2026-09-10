@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AdminAccessLogController;
 use App\Http\Controllers\Api\V1\AdminDoorController;
+use App\Http\Controllers\Api\V1\AttendanceReportController;
+use App\Http\Controllers\Api\V1\FacilityConfigurationController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\DoorSyncController;
 use App\Http\Controllers\Api\V1\EmployeeController;
@@ -62,6 +64,10 @@ Route::prefix('v1')->group(function () {
         // Admin Pillar
         Route::prefix('admin')->group(function () {
             Route::get('/doors', [AdminDoorController::class, 'index']);
+            Route::post('/doors', [FacilityConfigurationController::class, 'storeDoor']);
+            Route::put('/doors/{door_id}', [FacilityConfigurationController::class, 'updateDoor']);
+            Route::get('/buildings', [FacilityConfigurationController::class, 'buildings']);
+            Route::post('/buildings', [FacilityConfigurationController::class, 'storeBuilding']);
             Route::post('/doors/check-all', [AdminDoorController::class, 'checkAllConnections']);
             Route::post('/doors/{door_id}/check-connection', [AdminDoorController::class, 'checkConnection']);
             Route::post('/doors/{door_id}/open', [AdminDoorController::class, 'openDoor'])->name('admin.doors.open');
@@ -192,6 +198,8 @@ Route::prefix('v1')->group(function () {
         // Sprint 8: Work Calendar + Attendance Core
         Route::prefix('attendance')->group(function () {
             Route::get('/metrics', [\App\Http\Controllers\Api\AttendanceController::class, 'metrics']);
+            Route::get('/reports/monthly', [AttendanceReportController::class, 'monthly']);
+            Route::get('/reports/monthly/export', [AttendanceReportController::class, 'export']);
 
             // Work Calendars
             Route::get('/calendars', [\App\Http\Controllers\Api\AttendanceController::class, 'calendars']);

@@ -229,6 +229,7 @@ function renderDoorCards(doors) {
                     </div>
                 </div>
                 <div class="door-actions">
+                    ${(window.APP_CONFIG?.permissions || []).includes('device.manage') ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
                     <button class="btn-action btn-unlock" style="background:#059669;color:#fff;font-weight:600;" onclick="remoteUnlockDoor('${safeDoorId}', this)">🔓 Buka Pintu</button>
                     <button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Cek status ISAPI getDeviceStatus">
                         📡 Cek Koneksi
@@ -5037,6 +5038,7 @@ function debounceAssetSearch() {
 
 async function loadAttendanceData() {
     loadAttendanceMetrics();
+    loadAttendanceReport();
     const tbody = document.getElementById('attendanceTableBody');
     if (!tbody) return;
 
@@ -5142,6 +5144,77 @@ async function loadAttendanceMetrics() {
     } catch (e) {
         console.error('Failed to load attendance metrics', e);
     }
+}
+
+async function loadAttendanceReport() {
+    const tbody = document.getElementById('attendanceReportBody');
+    if (!tbody) return;
+    const month = document.getElementById('attendanceReportMonth');
+    if (!month.value) month.value = new Date().toISOString().slice(0, 7);
+    const building = document.getElementById('attendanceReportBuilding');
+    if (building.options.length === 1) {
+        try {
+            const lookup = await apiFetch('/user-management/organization/lookup');
+            (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, item.id)));
+        } catch (_) {}
+    }
+    const query = new URLSearchParams({ month: month.value });
+    if (building.value) query.set('building_id', building.value);
+    try {
+        const res = await apiFetch(`/attendance/reports/monthly?${query}`);
+        const totals = res.data.totals;
+        document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
+        tbody.innerHTML = res.data.rows.length ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-td">No attendance data for this period.</td></tr>';
+    } catch (error) {
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">${escapeHtml(error.message)}</td></tr>`;
+    }
+}
+
+async function exportAttendanceReport() {
+    const query = new URLSearchParams({ month: document.getElementById('attendanceReportMonth').value });
+    const building = document.getElementById('attendanceReportBuilding').value;
+    if (building) query.set('building_id', building);
+    const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, { headers: { Accept: 'text/csv', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) } });
+    if (!response.ok) return showToast('Attendance export failed.', 'error');
+    const url = URL.createObjectURL(await response.blob());
+    const link = document.createElement('a');
+    link.href = url; link.download = `attendance-report-${query.get('month')}.csv`; link.click(); URL.revokeObjectURL(url);
+}
+
+async function openFacilityModal(doorId = null) {
+    openModal('facilityModal');
+    const response = await apiFetch('/admin/buildings');
+    const select = document.getElementById('facilityDoorBuilding');
+    select.innerHTML = '<option value="">Select building</option>' + response.data.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
+    const door = doorId ? state.doors.find(item => item.door_id === doorId) : null;
+    document.getElementById('facilityOriginalDoorId').value = door?.door_id || '';
+    document.getElementById('facilityDoorId').value = door?.door_id || '';
+    document.getElementById('facilityDoorName').value = door?.door_name || '';
+    select.value = door?.building_id || '';
+    document.getElementById('facilityDoorIp').value = door?.device_ip || '';
+    document.getElementById('facilityDoorGateway').value = door?.gateway || '';
+    document.getElementById('facilityDoorModel').value = door?.device_model || 'DS-K1T804AMF';
+    document.getElementById('facilityDoorSubmit').textContent = door ? 'Update Door' : 'Register Door';
+}
+
+async function submitBuildingConfig(event) {
+    event.preventDefault();
+    try {
+        await apiFetch('/admin/buildings', { method: 'POST', body: JSON.stringify({ code: document.getElementById('facilityBuildingCode').value, name: document.getElementById('facilityBuildingName').value, description: document.getElementById('facilityBuildingDescription').value || null }) });
+        event.target.reset();
+        await openFacilityModal(document.getElementById('facilityOriginalDoorId').value || null);
+        showToast('Building registered.', 'success');
+    } catch (error) { showToast(error.message, 'error'); }
+}
+
+async function submitDoorConfig(event) {
+    event.preventDefault();
+    const original = document.getElementById('facilityOriginalDoorId').value;
+    const payload = { door_id: document.getElementById('facilityDoorId').value, name: document.getElementById('facilityDoorName').value, building_id: Number(document.getElementById('facilityDoorBuilding').value), device_ip: document.getElementById('facilityDoorIp').value, gateway: document.getElementById('facilityDoorGateway').value || null, device_model: document.getElementById('facilityDoorModel').value };
+    try {
+        await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', { method: original ? 'PUT' : 'POST', body: JSON.stringify(payload) });
+        closeModal('facilityModal'); await loadDoors(); showToast(original ? 'Door configuration updated.' : 'Door registered offline pending verification.', 'success');
+    } catch (error) { showToast(error.message, 'error'); }
 }
 
 // ==========================================

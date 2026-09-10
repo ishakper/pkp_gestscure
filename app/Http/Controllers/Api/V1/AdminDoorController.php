@@ -40,7 +40,7 @@ class AdminDoorController extends Controller
     public function index(Request $request)
     {
         $admin = $request->user();
-        $query = Door::withCount(['employees', 'doorAssignments']);
+        $query = Door::with('building:id,name')->withCount(['employees', 'doorAssignments']);
 
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
             $query->where('location', $admin->assigned_building);
