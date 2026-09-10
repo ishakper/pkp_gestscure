@@ -68,10 +68,10 @@ class HikvisionIsapiService
         $doorKey = $door && !empty($door->door_id) ? strtoupper($door->door_id) : null;
         $configuredIp = $doorKey ? config("services.doors.{$doorKey}.ip") : null;
 
-        $host = $door && !empty($door->device_ip) 
-            ? $door->device_ip 
+        $host = $door && !empty($door->device_ip)
+            ? $door->device_ip
             : ($configuredIp ?: config('services.hikvision.host', '192.168.90.11'));
-        
+
         $port = (int) config('services.hikvision.port', 80);
 
         return ['host' => $host, 'port' => $port];
@@ -290,7 +290,7 @@ class HikvisionIsapiService
 
             $body = $response->body();
             $isSuccessStatus = in_array($response->status(), [200, 204], true);
-            $hasSuccessXml = stripos($body, '<statusString>OK</statusString>') !== false 
+            $hasSuccessXml = stripos($body, '<statusString>OK</statusString>') !== false
                 || stripos($body, '<subStatusCode>ok</subStatusCode>') !== false;
 
             if ($isSuccessStatus && ($hasSuccessXml || ($response->status() === 204 && trim($body) === ''))) {
