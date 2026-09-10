@@ -73,6 +73,17 @@ class RemoteUnlockDoorTest extends TestCase
         $this->assertEquals('Simulated door unlock successful', $result['message']);
     }
 
+    public function test_remote_control_door_rejects_unverified_commands(): void
+    {
+        Config::set('services.hikvision.use_mock', true);
+
+        $result = $this->service->remoteControlDoor($this->doorB, 'close');
+
+        $this->assertFalse($result['status']);
+        $this->assertEquals(422, $result['statusCode']);
+        $this->assertSame('Unsupported remote door command.', $result['error']);
+    }
+
     /**
      * Test HikvisionIsapiService remoteControlDoor in real HTTP mode with XML response.
      */

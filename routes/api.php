@@ -79,7 +79,19 @@ Route::prefix('v1')->group(function () {
             Route::get('/activity-logs', [ActivityLogController::class, 'index']);
             Route::post('/door-assignments/sync', [DoorSyncController::class, 'sync']);
             Route::post('/doors/{door_id}/sync-employee/{employee_id}', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncDoorEmployee']);
+
+            // Sprint 13: versioned job descriptions and verified skill matrix
+            Route::get('/job-descriptions', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'jobDescriptions']);
+            Route::post('/job-descriptions', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'storeJobDescription']);
+            Route::post('/job-descriptions/{jobDescription}/publish', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'publishJobDescription']);
+            Route::post('/job-descriptions/{jobDescription}/archive', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'archiveJobDescription']);
+            Route::get('/skills', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'skills']);
+            Route::post('/skills', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'storeSkill']);
         });
+
+        Route::post('/employees/{employee}/skills', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'declareSkill']);
+        Route::post('/employees/{employee}/skills/{skill}/verify', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'verifySkill']);
+        Route::get('/employees/{employee}/skill-gap', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'skillGap']);
 
         // Recruitment & ATS Pillar
         Route::prefix('recruitment')->group(function () {

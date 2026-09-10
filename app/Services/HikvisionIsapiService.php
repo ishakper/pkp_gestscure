@@ -13,6 +13,8 @@ use Illuminate\Support\Str;
 
 class HikvisionIsapiService
 {
+    private const ALLOWED_REMOTE_COMMANDS = ['open'];
+
     /**
      * Check if system is running in mock mode.
      */
@@ -246,6 +248,15 @@ class HikvisionIsapiService
      */
     public function remoteControlDoor(Door $door, string $command = 'open'): array
     {
+        $command = strtolower(trim($command));
+        if (!in_array($command, self::ALLOWED_REMOTE_COMMANDS, true)) {
+            return [
+                'status' => false,
+                'statusCode' => 422,
+                'error' => 'Unsupported remote door command.',
+            ];
+        }
+
         // 1. Mock Mode: Return simulated success or offline error
         if ($this->isMockMode()) {
             if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
@@ -266,7 +277,7 @@ class HikvisionIsapiService
 
         // 2. Real Physical Device Mode: PUT /ISAPI/AccessControl/RemoteControl/door/1
         $url = $this->buildUrl('/AccessControl/RemoteControl/door/1', $door);
-        $xmlBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><RemoteControlDoor><cmd>{$command}</cmd></RemoteControlDoor>";
+        $xmlBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><RemoteControlDoor><cmd>" . htmlspecialchars($command, ENT_XML1 | ENT_QUOTES, 'UTF-8') . "</cmd></RemoteControlDoor>";
 
         try {
             $response = $this->buildHttpClient($door)

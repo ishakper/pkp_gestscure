@@ -17,7 +17,7 @@ Status per 2026-09-09.
 | 10 | Field Attendance + GPS + Geofence | PASS |
 | 11 | WFH + Leave + Permission + Sick | PASS |
 | 12 | Attendance Correction + Overtime | PASS |
-| 13 | Job Description + Skill Matrix | IN_PROGRESS |
+| 13 | Job Description + Skill Matrix | PASS |
 | 14-18 | Work, projects, approvals, training, performance | NOT_STARTED |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
 | 25-27 | Privacy/RBAC audit, backup readiness, full regression | NOT_STARTED |
@@ -257,4 +257,17 @@ Sprint 12: Attendance Correction + Overtime.
 - MIGRATION_SAFETY: PASS (additive columns and tables; pre- and post-migration row counts verified 100% preserved)
 - REPOSITORY_SYNC: PASS
 
-Next: Sprint 13 Job Description + Skill Matrix (IN_PROGRESS).
+Next: Sprint 14 Work, Projects, Approvals, Training, and Performance foundations.
+
+Sprint 13: Job Description + Skill Matrix.
+- SPRINT_13: PASS
+- JOB_DESCRIPTION_VERSIONING: PASS (additive versioned records with draft, published, and archived lifecycle)
+- SELF_DECLARED_NOT_VERIFIED: PASS
+- SELF_VERIFICATION_DENY: PASS
+- VERIFIED_ONLY_SKILL_GAP: PASS (active published JD and effective-date filtering)
+- EMPLOYEE_360_INTEGRATION: PASS
+- RBAC: PASS (management lifecycle controls; employee self-declaration; authorized verification only)
+- TARGETED_TESTS: PASS (3 tests, 17 assertions)
+- FULL_REGRESSION: PASS (307 tests, 1343 assertions; 2 non-failing warnings)
+- HIKVISION_COMMAND_ALLOWLIST: PASS (remote unlock only; unverified lock/close command rejected)
+- MIGRATION_SAFETY: additive tables only; operational before/after row evidence is NOT_CAPTURED

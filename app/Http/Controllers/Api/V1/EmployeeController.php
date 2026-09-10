@@ -58,7 +58,7 @@ class EmployeeController extends Controller
         $employee = $this->findEmployeeByIdentifier($id)->load([
             'biometricStatus','doors','building','division','position','supervisor','directReports',
             'accessLogs','credentials.deviceSyncs.door','accessRequests.accessProfile','emoneyCards',
-            'assetAssignments.asset.category','assetIncidents.asset'
+            'assetAssignments.asset.category','assetIncidents.asset','skills.skill','skills.verifier'
         ]);
         $this->authorize('view', $employee);
 
@@ -92,6 +92,15 @@ class EmployeeController extends Controller
 
         $assetsData = [];
         $assetIncidentsData = [];
+        $skillsData = $employee->skills->map(fn($employeeSkill) => [
+            'skill_id' => $employeeSkill->skill_id,
+            'code' => $employeeSkill->skill?->code,
+            'name' => $employeeSkill->skill?->name,
+            'declared_level' => $employeeSkill->declared_level,
+            'verified_level' => $employeeSkill->verified_level,
+            'verified_by' => $employeeSkill->verifier?->only(['id', 'name']),
+            'verified_at' => $employeeSkill->verified_at?->toIso8601String(),
+        ]);
         if (!$isTechOnly && ($actor?->isSuperAdmin() || in_array(strtolower((string)$actor?->role), ['hrd', 'management'], true) || $actor?->id === $employee->id)) {
             $assetsData = $employee->assetAssignments->map(fn($a) => [
                 'id' => $a->id,
@@ -133,6 +142,7 @@ class EmployeeController extends Controller
             ],
             'credentials'=>$credentialsData,
             'emoney_summary'=>$emoneySummary,
+            'skills'=>$skillsData,
             'assets'=>$assetsData,
             'asset_incidents'=>$assetIncidentsData,
             'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]
