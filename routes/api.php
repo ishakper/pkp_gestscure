@@ -93,6 +93,15 @@ Route::prefix('v1')->group(function () {
         Route::post('/employees/{employee}/skills/{skill}/verify', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'verifySkill']);
         Route::get('/employees/{employee}/skill-gap', [\App\Http\Controllers\Api\V1\JobDescriptionSkillController::class, 'skillGap']);
 
+        // Sprint 14: task management and worklogs
+        Route::get('/tasks', [\App\Http\Controllers\Api\V1\TaskController::class, 'index']);
+        Route::post('/tasks', [\App\Http\Controllers\Api\V1\TaskController::class, 'store']);
+        Route::get('/tasks/metrics', [\App\Http\Controllers\Api\V1\TaskController::class, 'metrics']);
+        Route::get('/tasks/{task}', [\App\Http\Controllers\Api\V1\TaskController::class, 'show']);
+        Route::put('/tasks/{task}', [\App\Http\Controllers\Api\V1\TaskController::class, 'update']);
+        Route::get('/tasks/{task}/worklogs', [\App\Http\Controllers\Api\V1\TaskController::class, 'worklogs']);
+        Route::post('/tasks/{task}/worklogs', [\App\Http\Controllers\Api\V1\TaskController::class, 'storeWorklog']);
+
         // Recruitment & ATS Pillar
         Route::prefix('recruitment')->group(function () {
             Route::get('/metrics', [\App\Http\Controllers\Api\RecruitmentController::class, 'metrics']);

@@ -1435,6 +1435,7 @@
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
         @endif
+        <li class="nav-item"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
 
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []) || in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []) || in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []))
         <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
@@ -1707,7 +1708,38 @@
         </div>
     </section>
 
-    <!-- TAB 4: ACCESS LOGS ONLY -->
+    <!-- TAB 4: TASKS & WORKLOGS -->
+    <section id="tasksTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">✅ Tasks &amp; Worklogs</h2>
+                <p class="section-desc">Tugas operasional, kepemilikan karyawan, progres, dan rekam durasi kerja.</p>
+            </div>
+            <button class="btn-secondary" onclick="loadTasks()">↻ Refresh Tasks</button>
+        </div>
+        <div class="metrics-grid" id="taskMetricsGrid">
+            <div class="metric-card"><div class="metric-icon-box icon-blue">▣</div><div><div class="metric-label">Total Tasks</div><div class="metric-value" id="taskMetricTotal">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-indigo">◷</div><div><div class="metric-label">In Progress</div><div class="metric-value" id="taskMetricProgress">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-red">!</div><div><div class="metric-label">Blocked</div><div class="metric-value" id="taskMetricBlocked">-</div></div></div>
+            <div class="metric-card"><div class="metric-icon-box icon-green">✓</div><div><div class="metric-label">Completed</div><div class="metric-value" id="taskMetricDone">-</div></div></div>
+        </div>
+        <div class="table-container">
+            <div class="table-toolbar">
+                <div class="toolbar-left">
+                    <div class="search-box">🔍 <input id="taskSearch" type="search" placeholder="Cari task / project..." oninput="loadTasks(1)"></div>
+                    <select id="taskStatusFilter" onchange="loadTasks(1)"><option value="">Semua Status</option><option value="TODO">TODO</option><option value="IN_PROGRESS">IN PROGRESS</option><option value="BLOCKED">BLOCKED</option><option value="DONE">DONE</option></select>
+                    <select id="taskPriorityFilter" onchange="loadTasks(1)"><option value="">Semua Prioritas</option><option value="URGENT">URGENT</option><option value="HIGH">HIGH</option><option value="MEDIUM">MEDIUM</option><option value="LOW">LOW</option></select>
+                </div>
+            </div>
+            <table>
+                <thead><tr><th>Task</th><th>Employee</th><th>Project</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due Date</th><th>Action</th></tr></thead>
+                <tbody id="tasksTableBody"><tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat tasks...</td></tr></tbody>
+            </table>
+            <div class="employee-pagination" id="taskPagination" aria-live="polite"></div>
+        </div>
+    </section>
+
+    <!-- TAB 5: ACCESS LOGS ONLY -->
     <section id="logsTab" class="tab-content">
         <div class="section-header">
             <div>
@@ -3864,6 +3896,7 @@
 </div>
 
 <div class="modal-overlay" id="employee360Modal"><div class="modal-card"><div class="modal-header"><h3 class="modal-title">Employee 360</h3><button class="modal-close-btn" onclick="closeModal(&quot;employee360Modal&quot;)">✖</button></div><div id="employee360Content" class="section-desc">Memuat profil…</div></div></div>
+<div class="modal-overlay" id="taskDetailModal"><div class="modal-card"><div class="modal-header"><h3 class="modal-title">Task Detail</h3><button class="modal-close-btn" onclick="closeModal('taskDetailModal')">✖</button></div><div id="taskDetailContent" class="section-desc">Memuat task...</div></div></div>
 
 <!-- RECRUITMENT MODAL 1: BUAT LOWONGAN -->
 <div class="modal-overlay" id="modalAddVacancy">

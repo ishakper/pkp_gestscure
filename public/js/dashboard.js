@@ -13,6 +13,7 @@ let state = {
     employees: [],
     accessLogs: [],
     activityLogs: [],
+    tasks: [],
     pendingRemoteUnlockDoor: null,
     employeePage: 1,
     employeePagination: null,
@@ -863,6 +864,75 @@ async function refreshOperationalData(button) {
     }
 }
 
+async function loadTasks(page = 1) {
+    const body = document.getElementById('tasksTableBody');
+    if (!body) return;
+    const params = new URLSearchParams({ page: String(page), per_page: '15' });
+    const search = document.getElementById('taskSearch')?.value?.trim();
+    const status = document.getElementById('taskStatusFilter')?.value;
+    const priority = document.getElementById('taskPriorityFilter')?.value;
+    if (search) params.set('search', search);
+    if (status) params.set('status', status);
+    if (priority) params.set('priority', priority);
+    body.innerHTML = '<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat tasks...</td></tr>';
+    try {
+        const [list, metrics] = await Promise.all([apiFetch(`/tasks?${params}`), apiFetch('/tasks/metrics')]);
+        state.tasks = Array.isArray(list.data?.data) ? list.data.data : [];
+        renderTasks(state.tasks);
+        renderTaskMetrics(metrics.data || {});
+        renderTaskPagination(list.pagination || {});
+    } catch (err) {
+        body.innerHTML = `<tr><td colspan="8" class="error-td">Gagal memuat tasks: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderTasks(tasks) {
+    const body = document.getElementById('tasksTableBody');
+    if (!body) return;
+    if (!tasks.length) {
+        body.innerHTML = '<tr><td colspan="8" class="empty-td">Belum ada task untuk ditampilkan.</td></tr>';
+        return;
+    }
+    body.innerHTML = tasks.map(task => `<tr>
+        <td><strong>${escapeHtml(task.title)}</strong><br><small class="text-muted">${escapeHtml(task.task_code)}</small></td>
+        <td>${escapeHtml(task.employee?.name || '-')}</td>
+        <td>${escapeHtml(task.project_name || '-')}</td>
+        <td><span class="badge badge-info">${escapeHtml(task.priority)}</span></td>
+        <td>${escapeHtml(task.status)}</td>
+        <td>${Number(task.progress) || 0}%</td>
+        <td>${escapeHtml(task.due_date || '-')}</td>
+        <td><button class="btn-secondary" onclick="openTaskDetail(${Number(task.id)})">Detail</button></td>
+    </tr>`).join('');
+}
+
+function renderTaskMetrics(metrics) {
+    const values = { taskMetricTotal: metrics.total, taskMetricProgress: metrics.in_progress, taskMetricBlocked: metrics.blocked, taskMetricDone: metrics.done };
+    Object.entries(values).forEach(([id, value]) => { const element = document.getElementById(id); if (element) element.textContent = value ?? '-'; });
+}
+
+function renderTaskPagination(pagination) {
+    const target = document.getElementById('taskPagination');
+    if (!target || !pagination.total_pages) return;
+    const current = Number(pagination.current_page || 1);
+    const total = Number(pagination.total_pages || 1);
+    target.innerHTML = `<button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadTasks(${current - 1})">← Sebelumnya</button><span>Halaman ${current} / ${total}</span><button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadTasks(${current + 1})">Berikutnya →</button>`;
+}
+
+async function openTaskDetail(taskId) {
+    const content = document.getElementById('taskDetailContent');
+    if (!content) return;
+    content.innerHTML = '<div class="loading-td"><div class="spinner"></div> Memuat detail...</div>';
+    document.getElementById('taskDetailModal')?.classList.add('active');
+    try {
+        const res = await apiFetch(`/tasks/${Number(taskId)}`);
+        const task = res.data;
+        const logs = task.worklogs || [];
+        content.innerHTML = `<div class="task-detail-summary"><h4>${escapeHtml(task.title)}</h4><p>${escapeHtml(task.description || 'Tidak ada deskripsi.')}</p><p><strong>${escapeHtml(task.status)}</strong> · ${Number(task.progress) || 0}% · ${escapeHtml(task.priority)}</p></div><h4>Worklog Timeline</h4>${logs.length ? `<div>${logs.map(log => `<div class="audit-description" style="padding:.65rem 0;border-bottom:1px solid var(--border-color);"><strong>${escapeHtml(log.work_date)}</strong> · ${Number(log.duration_minutes)} menit<br><span>${escapeHtml(log.notes || 'Tanpa catatan')}</span></div>`).join('')}</div>` : '<p class="empty-td">Belum ada worklog.</p>'}`;
+    } catch (err) {
+        content.innerHTML = `<div class="error-td">Gagal memuat detail: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
 async function syncHardwareLogs(btn) {
     const originalText = btn ? btn.innerHTML : '';
     if (btn) {
@@ -1199,6 +1269,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'onboardingTab') loadOnboardingData();
     if (tabId === 'accessTab') loadAccessData();
     if (tabId === 'assetsTab') loadAssetsData();
+    if (tabId === 'tasksTab') loadTasks();
     if (tabId === 'attendanceTab') loadAttendanceData();
     if (tabId === 'fieldAttendanceTab') loadFieldAttendanceData();
     if (tabId === 'attendanceRequestsTab') loadAttendanceRequestsData();
@@ -1337,6 +1408,8 @@ window.openDoorAssignmentModal = openDoorAssignmentModal;
 window.submitDoorAssignment = submitDoorAssignment;
 window.handleSimEventTypeChange = handleSimEventTypeChange;
 window.runEventSimulation = runEventSimulation;
+window.loadTasks = loadTasks;
+window.openTaskDetail = openTaskDetail;
 
 // ==========================================
 // Section 5: Real-Time SSE Stream (Phase 7-13)

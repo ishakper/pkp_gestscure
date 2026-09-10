@@ -58,7 +58,7 @@ class EmployeeController extends Controller
         $employee = $this->findEmployeeByIdentifier($id)->load([
             'biometricStatus','doors','building','division','position','supervisor','directReports',
             'accessLogs','credentials.deviceSyncs.door','accessRequests.accessProfile','emoneyCards',
-            'assetAssignments.asset.category','assetIncidents.asset','skills.skill','skills.verifier'
+            'assetAssignments.asset.category','assetIncidents.asset','skills.skill','skills.verifier','tasks.worklogs'
         ]);
         $this->authorize('view', $employee);
 
@@ -100,6 +100,17 @@ class EmployeeController extends Controller
             'verified_level' => $employeeSkill->verified_level,
             'verified_by' => $employeeSkill->verifier?->only(['id', 'name']),
             'verified_at' => $employeeSkill->verified_at?->toIso8601String(),
+        ]);
+        $tasksData = $employee->tasks->map(fn($task) => [
+            'id' => $task->id,
+            'task_code' => $task->task_code,
+            'title' => $task->title,
+            'project_name' => $task->project_name,
+            'priority' => $task->priority,
+            'status' => $task->status,
+            'progress' => $task->progress,
+            'due_date' => $task->due_date?->toDateString(),
+            'worklog_minutes' => $task->worklogs->sum('duration_minutes'),
         ]);
         if (!$isTechOnly && ($actor?->isSuperAdmin() || in_array(strtolower((string)$actor?->role), ['hrd', 'management'], true) || $actor?->id === $employee->id)) {
             $assetsData = $employee->assetAssignments->map(fn($a) => [
@@ -143,6 +154,7 @@ class EmployeeController extends Controller
             'credentials'=>$credentialsData,
             'emoney_summary'=>$emoneySummary,
             'skills'=>$skillsData,
+            'tasks'=>$tasksData,
             'assets'=>$assetsData,
             'asset_incidents'=>$assetIncidentsData,
             'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]

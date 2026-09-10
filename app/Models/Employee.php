@@ -173,6 +173,16 @@ class Employee extends Model
         return $this->hasMany(EmployeeSkill::class);
     }
 
+    public function tasks()
+    {
+        return $this->hasMany(WorkTask::class);
+    }
+
+    public function taskWorklogs()
+    {
+        return $this->hasMany(TaskWorklog::class);
+    }
+
     // Sprint 11: WFH + Leave + Permission + Sick
     public function attendanceRequests()
     {

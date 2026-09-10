@@ -18,7 +18,7 @@ Status per 2026-09-09.
 | 11 | WFH + Leave + Permission + Sick | PASS |
 | 12 | Attendance Correction + Overtime | PASS |
 | 13 | Job Description + Skill Matrix | PASS |
-| 14-18 | Work, projects, approvals, training, performance | NOT_STARTED |
+| 14-18 | Work, projects, approvals, training, performance | IN_PROGRESS |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
 | 25-27 | Privacy/RBAC audit, backup readiness, full regression | NOT_STARTED |
 
@@ -271,3 +271,15 @@ Sprint 13: Job Description + Skill Matrix.
 - FULL_REGRESSION: PASS (307 tests, 1343 assertions; 2 non-failing warnings)
 - HIKVISION_COMMAND_ALLOWLIST: PASS (remote unlock only; unverified lock/close command rejected)
 - MIGRATION_SAFETY: additive tables only; operational before/after row evidence is NOT_CAPTURED
+
+Sprint 14: Task + Worklog.
+- SPRINT_14: IN_PROGRESS (implementation and local validation complete; GitLab CI evidence pending)
+- TASK_MANAGEMENT: PASS (ownership, priority, status lifecycle, due date, progress, and project label)
+- WORKLOGS: PASS (dated duration entries, notes, timeline detail, and task totals)
+- RBAC: PASS (employee self-scope, supervisor direct-report scope, management scope, IDOR denial)
+- AUDIT: PASS (task creation, task updates, and worklog creation)
+- EMPLOYEE_360_INTEGRATION: PASS
+- DASHBOARD: PASS (task metrics, filters, pagination, loading/empty/error states, detail timeline)
+- TARGETED_TESTS: PASS (5 tests, 29 assertions)
+- FULL_REGRESSION: PASS (310 tests, 1361 assertions; 2 non-failing warnings)
+- MIGRATION_SAFETY: additive task and worklog tables; operational before/after row evidence is NOT_CAPTURED
