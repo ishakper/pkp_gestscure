@@ -156,4 +156,15 @@ class Employee extends Model
             })
             ->latest('effective_from');
     }
+
+    // Sprint 10: Field Attendance
+    public function fieldAssignments()
+    {
+        return $this->hasMany(FieldAssignment::class);
+    }
+
+    public function fieldAttendanceEvidences()
+    {
+        return $this->hasMany(FieldAttendanceEvidence::class);
+    }
 }

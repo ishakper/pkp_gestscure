@@ -1395,6 +1395,9 @@
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Kehadiran & Kalender Kerja" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Kehadiran & Kalender</span></button></li>
         @endif
+        @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Presensi Lapangan (GPS & Foto)" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -3085,6 +3088,163 @@
             </table>
         </div>
     </section>
+
+    <!-- SPRINT 10: FIELD ATTENDANCE TAB -->
+    <section class="tab-content" id="fieldAttendanceTab">
+        <!-- Header & Action -->
+        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+            <div class="toolbar-left">
+                <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
+                    <span>📍</span> Presensi Lapangan (GPS & Foto)
+                </h2>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
+                    Verifikasi presensi mobile-first berbasis validasi geofence server-side dan bukti foto terenkripsi lokal.
+                </div>
+            </div>
+            <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadFieldAttendanceData(); showToast('Data Presensi Lapangan diperbarui', 'info');">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+
+        <!-- Mobile-First Self-Service Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-bottom: 2rem;">
+
+            <!-- 1. Assignment & Geofence Target Card -->
+            <div class="metric-card" style="display: block; padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                        📋 Penugasan Hari Ini
+                    </div>
+                    <span id="fieldAssignmentStatusBadge" class="status-badge status-info">Memeriksa...</span>
+                </div>
+                <div id="fieldAssignmentDetails">
+                    <div class="spinner"></div> Memuat penugasan...
+                </div>
+            </div>
+
+            <!-- 2. Live GPS Validation Card -->
+            <div class="metric-card" style="display: block; padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                        🛰️ Status Geofence GPS
+                    </div>
+                    <span id="fieldGpsStatusBadge" class="status-badge" style="background: rgba(148, 163, 184, 0.2); color: var(--text-muted);">BELUM TERDETEKSI</span>
+                </div>
+                <div id="fieldGpsDetails" style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 1rem;">
+                    Tekan tombol di bawah untuk mendeteksi posisi GPS Anda dari browser perangkat.
+                </div>
+                <button type="button" class="btn-primary" id="btnAcquireGps" style="width: 100%; justify-content: center;" onclick="acquireFieldGps()">
+                    📡 Ambil Titik GPS Saya
+                </button>
+            </div>
+
+            <!-- 3. Photo Evidence & Action Card -->
+            <div class="metric-card" style="display: block; padding: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <div style="font-size: 0.85rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">
+                        📸 Bukti Foto Lapangan
+                    </div>
+                    <span id="fieldPhotoStatusBadge" class="status-badge status-warning">FOTO DIPERLUKAN</span>
+                </div>
+
+                <div id="fieldPhotoPreviewBox" style="margin-bottom: 1rem; border: 2px dashed var(--border-color); border-radius: 0.75rem; padding: 1rem; text-align: center; cursor: pointer; min-height: 120px; display: flex; flex-direction: column; align-items: center; justify-content: center;" onclick="document.getElementById('fieldPhotoInput').click()">
+                    <span style="font-size: 2rem; margin-bottom: 0.25rem;">📷</span>
+                    <div style="font-size: 0.825rem; color: var(--text-muted);" id="fieldPhotoPlaceholderText">
+                        Klik untuk mengambil foto selfie / lokasi
+                    </div>
+                    <img id="fieldPhotoPreviewImg" style="display: none; max-width: 100%; max-height: 140px; border-radius: 0.5rem; margin-top: 0.5rem; object-fit: cover;" />
+                </div>
+                <input type="file" id="fieldPhotoInput" accept="image/*" capture="user" style="display: none;" onchange="handleFieldPhotoSelected(event)">
+
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="fieldAttendanceNotes" placeholder="Catatan / keterangan tambahan (opsional)..." class="form-control" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.6rem 0.85rem; border-radius: 0.5rem; font-size: 0.85rem;">
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                    <button type="button" class="btn-primary" id="btnFieldCheckIn" style="justify-content: center; background: #10b981; border-color: #059669;" onclick="submitFieldAttendance('CHECK_IN')" disabled>
+                        📥 Check-In
+                    </button>
+                    <button type="button" class="btn-primary" id="btnFieldCheckOut" style="justify-content: center; background: #6366f1; border-color: #4f46e5;" onclick="submitFieldAttendance('CHECK_OUT')" disabled>
+                        📤 Check-Out
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Today's Attendance Core Status Card -->
+        <div id="fieldTodayAttendanceCard" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem; display: none;">
+            <!-- Populated via JS -->
+        </div>
+
+        <!-- Evidence History Table -->
+        <div class="table-container">
+            <div style="padding: 1rem 1.5rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                <h3 style="font-size: 1.05rem; font-weight: 700; margin: 0; color: #fff;">
+                    📋 Log Bukti & Riwayat Presensi Lapangan
+                </h3>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">
+                    Menampilkan rekaman presensi lapangan sesuai hak akses Anda
+                </div>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Waktu Presensi</th>
+                        <th>Karyawan</th>
+                        <th>Lokasi Proyek</th>
+                        <th>Tipe</th>
+                        <th>Jarak Geofence</th>
+                        <th>Akurasi GPS</th>
+                        <th>Hasil Geofence</th>
+                        <th>Status Bukti</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="fieldAttendanceTableBody">
+                    <tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat riwayat presensi lapangan...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- MODAL: PHOTO VIEWER (SECURE PRIVATE STREAM) -->
+    <div class="modal-overlay" id="fieldPhotoModal">
+        <div class="modal-card" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 class="modal-title">🖼️ Foto Bukti Presensi Lapangan</h3>
+                <button class="modal-close-btn" onclick="closeModal('fieldPhotoModal')">✖</button>
+            </div>
+            <div style="text-align: center; padding: 1rem 0;" id="fieldPhotoModalBody">
+                <div class="spinner"></div> Mengambil foto secara aman...
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: MANUAL OVERRIDE -->
+    <div class="modal-overlay" id="fieldOverrideModal">
+        <div class="modal-card" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3 class="modal-title">⚖️ Manual Override Presensi Lapangan</h3>
+                <button class="modal-close-btn" onclick="closeModal('fieldOverrideModal')">✖</button>
+            </div>
+            <form id="fieldOverrideForm" onsubmit="submitFieldOverride(event)">
+                <input type="hidden" id="overrideEvidenceId" />
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Sebagai HRD / Administrator, Anda dapat memverifikasi presensi lapangan yang berada di luar geofence atau berakurasi rendah. Tindakan ini akan dicatat dalam audit log.
+                </p>
+                <div style="margin-bottom: 1.25rem;">
+                    <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.4rem;">Alasan Override *</label>
+                    <textarea id="overrideReasonInput" required minlength="5" rows="3" class="form-control" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.6rem; border-radius: 0.5rem; font-size: 0.85rem;" placeholder="Contoh: Karyawan ditugaskan inspeksi di luar batas gerbang proyek..."></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('fieldOverrideModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitOverride">Terapkan Override</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
 <!-- MODAL 1: DOOR ASSIGNMENT MODAL -->
 <div class="modal-overlay" id="doorAssignModal">

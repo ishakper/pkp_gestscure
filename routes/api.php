@@ -215,6 +215,32 @@ Route::prefix('v1')->group(function () {
             Route::get('/employees/{id}/summary', [\App\Http\Controllers\Api\AttendanceController::class, 'employeeSummary']);
         });
 
+        // Sprint 10: Field Attendance + GPS + Photo + Geofence
+        Route::prefix('field-attendance')->group(function () {
+            // Locations
+            Route::get('/locations', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'listLocations']);
+            Route::post('/locations', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'storeLocation']);
+            Route::get('/locations/{id}', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'showLocation']);
+            Route::put('/locations/{id}', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'updateLocation']);
+            Route::delete('/locations/{id}', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'destroyLocation']);
+
+            // Assignments
+            Route::get('/assignments', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'listAssignments']);
+            Route::post('/assignments', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'storeAssignment']);
+            Route::get('/my-assignment', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'myAssignment']);
+
+            // Check-In / Check-Out
+            Route::post('/check-in', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'checkIn']);
+            Route::post('/check-out', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'checkOut']);
+
+            // Status & Records
+            Route::get('/status-today', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'statusToday']);
+            Route::get('/records', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'listRecords']);
+            Route::get('/records/{id}', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'showRecord']);
+            Route::post('/records/{id}/override', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'overrideRecord']);
+            Route::get('/records/{id}/photo', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'downloadPhoto']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
         Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent']);
     });

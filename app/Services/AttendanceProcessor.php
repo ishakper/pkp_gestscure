@@ -228,10 +228,17 @@ class AttendanceProcessor
                 $attendance->restore();
             }
 
+            $attendanceType = $data['attendance_type'] ?? (
+                (($data['clock_in_source'] ?? '') === 'FIELD' || ($data['clock_out_source'] ?? '') === 'FIELD')
+                    ? 'FIELD'
+                    : ($attendance?->attendance_type ?? 'OFFICE')
+            );
+
             $attributes = array_merge([
                 'employee_id'             => $employee->id,
                 'attendance_date'          => $date->toDateString(),
                 'work_calendar_id'         => $calendar?->id,
+                'attendance_type'          => $attendanceType,
                 'clock_in_at'              => $clockIn,
                 'clock_out_at'             => $clockOut,
                 'clock_in_source'          => $data['clock_in_source']  ?? 'MANUAL',
@@ -249,6 +256,58 @@ class AttendanceProcessor
 
             return Attendance::create($attributes);
         });
+    }
+
+    /**
+     * Process a verified FieldAttendanceEvidence record to update the daily Attendance
+     * with attendance_type = FIELD.
+     */
+    public function processFieldEvidence(\App\Models\FieldAttendanceEvidence $evidence): ?Attendance
+    {
+        if (!$evidence->employee_id || !$evidence->isVerified()) {
+            return null;
+        }
+
+        $employee = \App\Models\Employee::find($evidence->employee_id);
+        if (!$employee) return null;
+
+        $date = $evidence->attendance_date ? Carbon::parse($evidence->attendance_date) : $evidence->captured_at->copy()->startOfDay();
+
+        // Fetch existing attendance for the day
+        $attendance = Attendance::where('employee_id', $employee->id)
+            ->whereDate('attendance_date', $date->toDateString())
+            ->first();
+
+        $clockIn = $attendance?->clock_in_at;
+        $clockOut = $attendance?->clock_out_at;
+        $sourceIn = $attendance?->clock_in_source ?? 'FIELD';
+        $sourceOut = $attendance?->clock_out_source ?? 'FIELD';
+
+        if ($evidence->type === 'CHECK_IN') {
+            if (!$clockIn) {
+                $clockIn = $evidence->captured_at;
+                $sourceIn = 'FIELD';
+            }
+        } elseif ($evidence->type === 'CHECK_OUT') {
+            $clockOut = $evidence->captured_at;
+            $sourceOut = 'FIELD';
+        }
+
+        $result = $this->record($employee, $date, [
+            'clock_in_at' => $clockIn?->toDateTimeString(),
+            'clock_out_at' => $clockOut?->toDateTimeString(),
+            'clock_in_source' => $sourceIn,
+            'clock_out_source' => $sourceOut,
+            'attendance_type' => 'FIELD',
+            'notes' => $attendance?->notes ?? ('Presensi Lapangan: ' . ($evidence->fieldLocation?->name ?? 'Lokasi')),
+        ]);
+
+        if ($result && $evidence->attendance_id !== $result->id) {
+            $evidence->attendance_id = $result->id;
+            $evidence->save();
+        }
+
+        return $result;
     }
     /**
      * Process an AttendanceEvidence record from a physical access log

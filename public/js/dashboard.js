@@ -1132,6 +1132,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'accessTab') loadAccessData();
     if (tabId === 'assetsTab') loadAssetsData();
     if (tabId === 'attendanceTab') loadAttendanceData();
+    if (tabId === 'fieldAttendanceTab') loadFieldAttendanceData();
 }
 
 // ==========================================
@@ -5137,5 +5138,506 @@ async function loadAttendanceMetrics() {
         `;
     } catch (e) {
         console.error('Failed to load attendance metrics', e);
+    }
+}
+
+// ==========================================
+// SPRINT 10: FIELD ATTENDANCE + GPS + PHOTO
+// ==========================================
+
+let currentFieldAssignment = null;
+let currentGpsCoords = null;
+let currentFieldPhotoFile = null;
+let isSubmittingFieldAttendance = false;
+let todayAttendanceData = null;
+
+async function loadFieldAttendanceData() {
+    const assignBadge = document.getElementById('fieldAssignmentStatusBadge');
+    const assignDetails = document.getElementById('fieldAssignmentDetails');
+    const todayCard = document.getElementById('fieldTodayAttendanceCard');
+    const tbody = document.getElementById('fieldAttendanceTableBody');
+
+    if (assignDetails) {
+        assignDetails.innerHTML = '<div class="spinner"></div> Memeriksa penugasan lapangan...';
+    }
+
+    try {
+        // 1. Fetch Today's status & assignment
+        const statusRes = await apiFetch('/api/v1/field-attendance/status-today');
+        const data = statusRes.data || statusRes;
+
+        currentFieldAssignment = data.assignment;
+        todayAttendanceData = data.attendance;
+
+        if (currentFieldAssignment) {
+            const loc = currentFieldAssignment.field_location;
+            if (assignBadge) {
+                assignBadge.className = 'status-badge status-active';
+                assignBadge.innerText = 'PENUGASAN AKTIF';
+            }
+            if (assignDetails) {
+                assignDetails.innerHTML = `
+                    <div style="font-weight: 700; font-size: 1.05rem; color: #fff; margin-bottom: 0.25rem;">
+                        ${escapeHtml(loc?.name || 'Lokasi Lapangan')}
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--primary); margin-bottom: 0.5rem;">
+                        Proyek: ${escapeHtml(loc?.project_name || '-')} • Klien: ${escapeHtml(loc?.client_name || '-')}
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                        📍 ${escapeHtml(loc?.site_address || 'Alamat tidak ditentukan')}
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <span class="status-badge" style="background: rgba(56, 189, 248, 0.15); color: var(--primary);">
+                            Radius Geofence: ${loc?.radius_meters || 100} m
+                        </span>
+                        <span class="status-badge" style="background: rgba(148, 163, 184, 0.15); color: var(--text-muted);">
+                            Masa Tugas: ${escapeHtml(currentFieldAssignment.start_date || '')} s/d ${escapeHtml(currentFieldAssignment.end_date || '')}
+                        </span>
+                    </div>
+                `;
+            }
+        } else {
+            if (assignBadge) {
+                assignBadge.className = 'status-badge status-inactive';
+                assignBadge.innerText = 'TIDAK ADA PENUGASAN';
+            }
+            if (assignDetails) {
+                assignDetails.innerHTML = `
+                    <div style="color: var(--text-muted); font-size: 0.85rem; padding: 0.5rem 0;">
+                        Anda belum memiliki penugasan lapangan aktif untuk hari ini. Hubungi HRD atau Supervisor untuk penerbitan surat tugas lapangan.
+                    </div>
+                `;
+            }
+        }
+
+        // 2. Render Today's Attendance State Card
+        if (todayCard) {
+            if (todayAttendanceData && (todayAttendanceData.clock_in_at || todayAttendanceData.clock_out_at)) {
+                todayCard.style.display = 'block';
+                const inTime = todayAttendanceData.clock_in_at ? todayAttendanceData.clock_in_at.substring(11, 16) : '-';
+                const outTime = todayAttendanceData.clock_out_at ? todayAttendanceData.clock_out_at.substring(11, 16) : 'Belum Check-Out';
+                const duration = todayAttendanceData.effective_work_minutes ? `${Math.floor(todayAttendanceData.effective_work_minutes / 60)}j ${todayAttendanceData.effective_work_minutes % 60}m` : '-';
+
+                let badge = '<span class="status-badge status-active">HADIR</span>';
+                if (todayAttendanceData.status === 'LATE') {
+                    badge = `<span class="status-badge status-warning">TERLAMBAT (+${todayAttendanceData.late_minutes}m)</span>`;
+                }
+
+                todayCard.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+                        <div>
+                            <div style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">
+                                Ringkasan Kehadiran Lapangan Hari Ini (${escapeHtml(data.date)})
+                            </div>
+                            <div style="font-size: 1.1rem; font-weight: 700; color: #fff; margin-top: 0.25rem;">
+                                Check-In: <span style="color: var(--success);">${inTime}</span> • Check-Out: <span style="color: #818cf8;">${outTime}</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span style="font-size: 0.85rem; color: var(--text-muted);">Durasi Kerja: <strong>${duration}</strong></span>
+                            ${badge}
+                        </div>
+                    </div>
+                `;
+            } else {
+                todayCard.style.display = 'none';
+            }
+        }
+
+        // 3. Fetch Evidence Records
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat riwayat...</td></tr>';
+            const recRes = await apiFetch('/api/v1/field-attendance/records');
+            const records = recRes.data?.data || recRes.data || [];
+
+            if (!records.length) {
+                tbody.innerHTML = '<tr><td colspan="9" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada bukti presensi lapangan yang tercatat.</td></tr>';
+                return;
+            }
+
+            const canManage = window.APP_CONFIG?.admin?.role === 'hrd' || window.APP_CONFIG?.admin?.role === 'super_admin';
+
+            tbody.innerHTML = records.map(ev => {
+                const empName = ev.employee ? ev.employee.name : '-';
+                const locName = ev.field_location ? ev.field_location.name : '-';
+                const dateStr = ev.attendance_date ? ev.attendance_date.substring(0, 10) : '';
+                const timeStr = ev.captured_at ? ev.captured_at.substring(11, 16) : '';
+
+                let typeBadge = ev.type === 'CHECK_IN'
+                    ? '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;">CHECK-IN</span>'
+                    : '<span class="status-badge" style="background:rgba(99,102,241,0.15);color:#818cf8;">CHECK-OUT</span>';
+
+                let geoBadge = '';
+                switch (ev.geofence_result) {
+                    case 'VALID':
+                        geoBadge = '<span class="status-badge status-active">VALID</span>';
+                        break;
+                    case 'OUTSIDE_GEOFENCE':
+                        geoBadge = '<span class="status-badge status-inactive">LUAR RADIUS</span>';
+                        break;
+                    case 'LOW_ACCURACY':
+                        geoBadge = '<span class="status-badge status-warning">AKURASI RENDAH</span>';
+                        break;
+                    default:
+                        geoBadge = `<span class="status-badge">${escapeHtml(ev.geofence_result)}</span>`;
+                }
+
+                let statusBadge = ev.is_override
+                    ? '<span class="status-badge" style="background:rgba(245,158,11,0.2);color:#f59e0b;" title="' + escapeHtml(ev.override_reason || '') + '">OVERRIDE HRD</span>'
+                    : (ev.geofence_result === 'VALID' ? '<span class="status-badge status-active">TERVERIFIKASI</span>' : '<span class="status-badge status-inactive">TERTUNDA</span>');
+
+                let actionBtns = `
+                    <button class="btn-action btn-ping" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" onclick="viewFieldPhoto(${ev.id})">
+                        📷 Foto
+                    </button>
+                `;
+
+                if (canManage && !ev.is_override && ev.geofence_result !== 'VALID') {
+                    actionBtns += `
+                        <button class="btn-action btn-override" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; margin-left: 0.25rem;" onclick="openFieldOverrideModal(${ev.id})">
+                            ⚖️ Override
+                        </button>
+                    `;
+                }
+
+                return `
+                    <tr>
+                        <td><strong>${escapeHtml(dateStr)}</strong> ${escapeHtml(timeStr)}</td>
+                        <td>${escapeHtml(empName)}</td>
+                        <td>${escapeHtml(locName)}</td>
+                        <td>${typeBadge}</td>
+                        <td>${ev.distance_meters != null ? Math.round(ev.distance_meters) + ' m' : '-'}</td>
+                        <td>±${ev.accuracy_meters != null ? Math.round(ev.accuracy_meters) + ' m' : '-'}</td>
+                        <td>${geoBadge}</td>
+                        <td>${statusBadge}</td>
+                        <td>${actionBtns}</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        updateFieldActionButtons();
+    } catch (e) {
+        console.error('Error loading field attendance', e);
+        if (assignDetails) {
+            assignDetails.innerHTML = `<div style="color:var(--danger);font-size:0.85rem;">Gagal memuat data: ${escapeHtml(e.message)}</div>`;
+        }
+    }
+}
+
+function acquireFieldGps() {
+    const badge = document.getElementById('fieldGpsStatusBadge');
+    const details = document.getElementById('fieldGpsDetails');
+    const btn = document.getElementById('btnAcquireGps');
+
+    if (!navigator.geolocation) {
+        showToast('Browser Anda tidak mendukung Geolocation API.', 'error');
+        if (badge) { badge.className = 'status-badge status-inactive'; badge.innerText = 'UNAVAILABLE'; }
+        return;
+    }
+
+    if (badge) {
+        badge.className = 'status-badge status-info';
+        badge.innerText = 'GPS ACQUIRING...';
+    }
+    if (btn) { btn.disabled = true; btn.innerText = '⏳ Mendeteksi Satelit...'; }
+
+    navigator.geolocation.getCurrentPosition(
+        pos => {
+            currentGpsCoords = {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                accuracy: pos.coords.accuracy,
+                timestamp: new Date().toISOString()
+            };
+
+            const lat = currentGpsCoords.latitude.toFixed(6);
+            const lon = currentGpsCoords.longitude.toFixed(6);
+            const acc = Math.round(currentGpsCoords.accuracy);
+
+            let distanceMeters = null;
+            let isInside = false;
+
+            if (currentFieldAssignment?.field_location) {
+                const targetLat = currentFieldAssignment.field_location.latitude;
+                const targetLon = currentFieldAssignment.field_location.longitude;
+                const radius = currentFieldAssignment.field_location.radius_meters || 100;
+
+                // Client-side Haversine estimate
+                const R = 6371000;
+                const dLat = (targetLat - currentGpsCoords.latitude) * Math.PI / 180;
+                const dLon = (targetLon - currentGpsCoords.longitude) * Math.PI / 180;
+                const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                          Math.cos(currentGpsCoords.latitude * Math.PI / 180) * Math.cos(targetLat * Math.PI / 180) *
+                          Math.sin(dLon/2) * Math.sin(dLon/2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+                distanceMeters = Math.round(R * c);
+                isInside = (distanceMeters <= radius);
+            }
+
+            if (acc > 50) {
+                if (badge) { badge.className = 'status-badge status-warning'; badge.innerText = 'LOW ACCURACY'; }
+            } else if (distanceMeters !== null && !isInside) {
+                if (badge) { badge.className = 'status-badge status-inactive'; badge.innerText = 'OUTSIDE GEOFENCE'; }
+            } else {
+                if (badge) { badge.className = 'status-badge status-active'; badge.innerText = 'GPS READY'; }
+            }
+
+            if (details) {
+                details.innerHTML = `
+                    <div style="color: #fff; font-weight: 600;">Koordinat Terkunci:</div>
+                    <div>Lat: <code>${lat}</code>, Lon: <code>${lon}</code></div>
+                    <div>Akurasi GPS: <strong style="color:${acc <= 50 ? 'var(--success)' : '#f59e0b'}">±${acc} meter</strong></div>
+                    ${distanceMeters !== null ? `<div>Jarak ke Pusat Proyek: <strong style="color:${isInside ? 'var(--success)' : '#ef4444'}">${distanceMeters} meter</strong> (Radius: ${currentFieldAssignment.field_location.radius_meters}m)</div>` : ''}
+                `;
+            }
+
+            if (btn) { btn.disabled = false; btn.innerText = '🔄 Perbarui Titik GPS'; }
+            showToast('Posisi GPS berhasil dideteksi', 'info');
+            updateFieldActionButtons();
+        },
+        err => {
+            console.error('Geolocation error', err);
+            if (badge) { badge.className = 'status-badge status-inactive'; badge.innerText = 'ERROR'; }
+            if (details) {
+                details.innerHTML = `<span style="color:var(--danger);">Gagal mendapatkan GPS: ${escapeHtml(err.message)}. Pastikan izin lokasi aktif pada browser.</span>`;
+            }
+            if (btn) { btn.disabled = false; btn.innerText = '📡 Coba Lagi Ambil GPS'; }
+            showToast('Gagal memperoleh titik GPS: ' + err.message, 'error');
+            updateFieldActionButtons();
+        },
+        { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
+    );
+}
+
+function handleFieldPhotoSelected(e) {
+    const file = e.target.files?.[0];
+    const previewBox = document.getElementById('fieldPhotoPreviewBox');
+    const previewImg = document.getElementById('fieldPhotoPreviewImg');
+    const placeholder = document.getElementById('fieldPhotoPlaceholderText');
+    const badge = document.getElementById('fieldPhotoStatusBadge');
+
+    if (!file) {
+        currentFieldPhotoFile = null;
+        if (badge) { badge.className = 'status-badge status-warning'; badge.innerText = 'FOTO DIPERLUKAN'; }
+        if (previewImg) previewImg.style.display = 'none';
+        if (placeholder) placeholder.style.display = 'block';
+        updateFieldActionButtons();
+        return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+        showToast('Ukuran foto melebihi batas maksimal 5 MB.', 'error');
+        e.target.value = '';
+        currentFieldPhotoFile = null;
+        updateFieldActionButtons();
+        return;
+    }
+
+    currentFieldPhotoFile = file;
+    if (badge) { badge.className = 'status-badge status-active'; badge.innerText = 'FOTO SIAP'; }
+
+    const reader = new FileReader();
+    reader.onload = evt => {
+        if (previewImg) {
+            previewImg.src = evt.target.result;
+            previewImg.style.display = 'block';
+        }
+        if (placeholder) {
+            placeholder.style.display = 'none';
+        }
+    };
+    reader.readAsDataURL(file);
+
+    showToast('Foto bukti berhasil dipilih', 'success');
+    updateFieldActionButtons();
+}
+
+function updateFieldActionButtons() {
+    const btnIn = document.getElementById('btnFieldCheckIn');
+    const btnOut = document.getElementById('btnFieldCheckOut');
+
+    const hasGps = currentGpsCoords !== null;
+    const hasPhoto = currentFieldPhotoFile !== null;
+    const hasAssignment = currentFieldAssignment !== null;
+
+    const canSubmit = hasGps && hasPhoto && hasAssignment && !isSubmittingFieldAttendance;
+
+    const hasCheckedInToday = todayAttendanceData && todayAttendanceData.clock_in_at;
+    const hasCheckedOutToday = todayAttendanceData && todayAttendanceData.clock_out_at;
+
+    if (btnIn) {
+        btnIn.disabled = !canSubmit || !!hasCheckedInToday;
+        if (hasCheckedInToday) {
+            btnIn.title = 'Anda sudah melakukan check-in hari ini.';
+        }
+    }
+
+    if (btnOut) {
+        btnOut.disabled = !canSubmit || !hasCheckedInToday || !!hasCheckedOutToday;
+        if (!hasCheckedInToday) {
+            btnOut.title = 'Lakukan check-in terlebih dahulu.';
+        } else if (hasCheckedOutToday) {
+            btnOut.title = 'Anda sudah melakukan check-out hari ini.';
+        }
+    }
+}
+
+async function submitFieldAttendance(type) {
+    if (isSubmittingFieldAttendance) return;
+
+    if (!currentGpsCoords) {
+        showToast('Ambil titik GPS Anda terlebih dahulu.', 'warning');
+        return;
+    }
+    if (!currentFieldPhotoFile) {
+        showToast('Ambil atau pilih foto bukti kehadiran terlebih dahulu.', 'warning');
+        return;
+    }
+
+    isSubmittingFieldAttendance = true;
+    updateFieldActionButtons();
+
+    const btnIn = document.getElementById('btnFieldCheckIn');
+    const btnOut = document.getElementById('btnFieldCheckOut');
+    const notesInput = document.getElementById('fieldAttendanceNotes');
+
+    const activeBtn = type === 'CHECK_IN' ? btnIn : btnOut;
+    const origText = activeBtn ? activeBtn.innerText : '';
+    if (activeBtn) activeBtn.innerText = '⏳ Mengirim...';
+
+    const formData = new FormData();
+    formData.append('latitude', currentGpsCoords.latitude);
+    formData.append('longitude', currentGpsCoords.longitude);
+    formData.append('accuracy_meters', currentGpsCoords.accuracy);
+    formData.append('captured_at', currentGpsCoords.timestamp || new Date().toISOString());
+    formData.append('photo', currentFieldPhotoFile);
+    if (notesInput && notesInput.value.trim()) {
+        formData.append('notes', notesInput.value.trim());
+    }
+
+    const endpoint = type === 'CHECK_IN'
+        ? '/api/v1/field-attendance/check-in'
+        : '/api/v1/field-attendance/check-out';
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+
+        const headers = {
+            'Accept': 'application/json',
+            'X-CSRF-TOKEN': csrfToken,
+        };
+        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+            showToast(data.message || 'Presensi lapangan berhasil dicatat!', 'success');
+
+            // Reset photo
+            currentFieldPhotoFile = null;
+            const photoInput = document.getElementById('fieldPhotoInput');
+            if (photoInput) photoInput.value = '';
+            const previewImg = document.getElementById('fieldPhotoPreviewImg');
+            if (previewImg) previewImg.style.display = 'none';
+            const placeholder = document.getElementById('fieldPhotoPlaceholderText');
+            if (placeholder) placeholder.style.display = 'block';
+            const photoBadge = document.getElementById('fieldPhotoStatusBadge');
+            if (photoBadge) { photoBadge.className = 'status-badge status-warning'; photoBadge.innerText = 'FOTO DIPERLUKAN'; }
+
+            if (notesInput) notesInput.value = '';
+
+            await loadFieldAttendanceData();
+        } else {
+            showToast(data.message || 'Presensi lapangan gagal disimpan.', 'error');
+        }
+    } catch (e) {
+        showToast('Terjadi kesalahan pengiriman: ' + e.message, 'error');
+    } finally {
+        isSubmittingFieldAttendance = false;
+        if (activeBtn) activeBtn.innerText = origText;
+        updateFieldActionButtons();
+    }
+}
+
+async function viewFieldPhoto(evidenceId) {
+    const modal = document.getElementById('fieldPhotoModal');
+    const body = document.getElementById('fieldPhotoModalBody');
+    if (!modal || !body) return;
+
+    body.innerHTML = '<div class="spinner"></div> Mengambil foto secara terotorisasi...';
+    modal.classList.add('active');
+
+    try {
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+        const headers = appToken ? { 'Authorization': `Bearer ${appToken}` } : {};
+
+        const res = await fetch(`/api/v1/field-attendance/records/${evidenceId}/photo`, { headers });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            body.innerHTML = `<div style="color:var(--danger);padding:1rem;">Gagal memuat foto: ${escapeHtml(err.message || 'Akses ditolak.')}</div>`;
+            return;
+        }
+
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+
+        body.innerHTML = `
+            <img src="${objUrl}" style="max-width: 100%; max-height: 420px; border-radius: 0.75rem; box-shadow: 0 4px 20px rgba(0,0,0,0.5); object-fit: contain;" />
+            <div style="margin-top: 0.75rem; font-size: 0.8rem; color: var(--text-muted);">
+                Foto bukti kehadiran terenkripsi lokal • ID Rekaman #${evidenceId}
+            </div>
+        `;
+    } catch (e) {
+        body.innerHTML = `<div style="color:var(--danger);padding:1rem;">Kesalahan koneksi: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function openFieldOverrideModal(evidenceId) {
+    const modal = document.getElementById('fieldOverrideModal');
+    const idInput = document.getElementById('overrideEvidenceId');
+    const reasonInput = document.getElementById('overrideReasonInput');
+
+    if (idInput) idInput.value = evidenceId;
+    if (reasonInput) reasonInput.value = '';
+    if (modal) modal.classList.add('active');
+}
+
+async function submitFieldOverride(e) {
+    e.preventDefault();
+    const evidenceId = document.getElementById('overrideEvidenceId')?.value;
+    const reason = document.getElementById('overrideReasonInput')?.value?.trim();
+    const btn = document.getElementById('btnSubmitOverride');
+
+    if (!evidenceId || !reason) {
+        showToast('Alasan override wajib diisi.', 'warning');
+        return;
+    }
+
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
+
+    try {
+        const res = await apiFetch(`/api/v1/field-attendance/records/${evidenceId}/override`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+
+        if (res.success || res.message) {
+            showToast(res.message || 'Override berhasil diterapkan.', 'success');
+            closeModal('fieldOverrideModal');
+            await loadFieldAttendanceData();
+        }
+    } catch (err) {
+        showToast('Gagal override: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
     }
 }

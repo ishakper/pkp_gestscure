@@ -31,6 +31,7 @@ class Attendance extends Model
         'work_calendar_id',
         'attendance_date',
         'status',
+        'attendance_type',
         'clock_in_at',
         'clock_out_at',
         'late_minutes',
@@ -64,7 +65,8 @@ class Attendance extends Model
         'FIELD',
     ];
 
-    public const SOURCES = ['MANUAL', 'ACCESS_LOG', 'KIOSK', 'DEVICE'];
+    public const SOURCES = ['MANUAL', 'ACCESS_LOG', 'KIOSK', 'DEVICE', 'FIELD'];
+    public const TYPES   = ['OFFICE', 'FIELD', 'WFH'];
 
     /** Persist calendar days as DATE values on every supported database driver. */
     public function setAttendanceDateAttribute($value): void
@@ -103,5 +105,10 @@ class Attendance extends Model
     public function isOnTime(): bool
     {
         return in_array($this->status, ['PRESENT', 'WFH', 'FIELD'], true);
+    }
+
+    public function fieldEvidences()
+    {
+        return $this->hasMany(FieldAttendanceEvidence::class);
     }
 }

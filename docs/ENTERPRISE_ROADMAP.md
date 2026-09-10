@@ -171,4 +171,15 @@ Sprint 9: Office Attendance Integration.
 - PHYSICAL_CARD_E2E: DEFERRED_WITH_EVIDENCE
 - PHYSICAL_FINGERPRINT_E2E: DEFERRED_WITH_EVIDENCE
 
-Next: Sprint 10 Field Attendance + GPS + Photo + Geofence.
+Sprint 10: Field Attendance + GPS + Photo + Geofence.
+- SPRINT_10: PASS
+- ATTENDANCE_PROCESSOR_REUSE: PASS (reuses AttendanceProcessor, sets attendance_type = FIELD)
+- GEOFENCE_VALIDATION: PASS (server-side Haversine calculation, accuracy threshold, anomaly detection)
+- PRIVATE_PHOTO_EVIDENCE: PASS (stored on local disk under randomized paths, authenticated stream endpoint with path traversal defense)
+- RBAC_SCOPING: PASS (Self: employee/intern; Assigned Team: supervisor; Full Management: HRD; Summary: management without photos; Denied: building admin, developer)
+- MOBILE_FIRST_UI: PASS (Geolocation API acquisition, camera/photo upload, double-click protection, daily status badge, photo viewer modal)
+- TARGETED_TESTS: PASS (21 tests, 94 assertions in FieldAttendanceTest)
+- FULL_REGRESSION: PASS (204 tests, 978 assertions)
+- MIGRATION_PRESERVATION: PASS (row count check before and after additive migration)
+
+Next: Sprint 11 WFH + Leave + Permission + Sick.
