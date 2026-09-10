@@ -173,4 +173,15 @@ class Employee extends Model
     {
         return $this->hasMany(AttendanceRequest::class);
     }
+
+    // Sprint 12: Attendance Correction + Overtime
+    public function attendanceCorrectionRequests()
+    {
+        return $this->hasMany(AttendanceCorrectionRequest::class);
+    }
+
+    public function overtimeRequests()
+    {
+        return $this->hasMany(OvertimeRequest::class);
+    }
 }

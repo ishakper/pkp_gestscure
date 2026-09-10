@@ -1401,6 +1401,12 @@
         @if(in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Pengajuan Absensi (WFH, Cuti, Izin, Sakit)" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
         @endif
+        @if(in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Koreksi Presensi & Kehadiran" onclick="switchTab('attendanceCorrectionsTab', this)"><span class="nav-icon">✏️</span><span class="nav-text">Koreksi Presensi</span></button></li>
+        @endif
+        @if(in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Pengajuan Lembur (Overtime)" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -3393,6 +3399,380 @@
                 <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
                     <button type="button" class="btn-secondary" onclick="closeModal('rejectAttendanceRequestModal')">Batal</button>
                     <button type="submit" class="btn-primary" style="background: var(--danger); border-color: var(--danger);" id="btnSubmitRejectReq">Tolak Permohonan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+         SPRINT 12: KOREKSI PRESENSI (ATTENDANCE CORRECTION)
+         ========================================================================= -->
+    <section class="tab-content" id="attendanceCorrectionsTab">
+        <div class="content-header">
+            <div>
+                <h2>✏️ Koreksi Presensi & Kehadiran</h2>
+                <p class="section-desc">Pusat permohonan koreksi jam scan, status, dan riwayat presensi yang dapat diaudit secara transparan.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadAttendanceCorrectionsData()">🔄 Refresh</button>
+                <button class="btn-primary" onclick="openNewAttendanceCorrectionModal()">➕ Ajukan Koreksi Presensi</button>
+            </div>
+        </div>
+
+        <!-- METRICS COUNTERS -->
+        <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+            <div class="metric-card">
+                <div class="metric-title">Menunggu Persetujuan</div>
+                <div class="metric-value" style="color: var(--warning, #f59e0b);" id="corrMetricPending">0</div>
+                <div class="metric-sub">Pending review</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Disetujui</div>
+                <div class="metric-value" style="color: var(--success, #10b981);" id="corrMetricApproved">0</div>
+                <div class="metric-sub">Approved corrections</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Ditolak</div>
+                <div class="metric-value" style="color: var(--danger, #ef4444);" id="corrMetricRejected">0</div>
+                <div class="metric-sub">Rejected corrections</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Dibatalkan</div>
+                <div class="metric-value" style="color: var(--text-muted);" id="corrMetricCancelled">0</div>
+                <div class="metric-sub">Cancelled by user</div>
+            </div>
+        </div>
+
+        <!-- FILTER BAR -->
+        <div class="glass-panel" style="padding: 1rem; margin-bottom: 1.25rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Tipe Koreksi</label>
+                <select id="corrFilterType" class="form-control" onchange="loadAttendanceCorrectionsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;">
+                    <option value="">Semua Tipe</option>
+                    <option value="CHECK_IN">Jam Masuk (Check-In)</option>
+                    <option value="CHECK_OUT">Jam Keluar (Check-Out)</option>
+                    <option value="CHECK_IN_AND_OUT">Masuk & Keluar</option>
+                    <option value="STATUS">Status Kehadiran</option>
+                    <option value="ATTENDANCE_TYPE">Tipe Presensi (Kantor/Lapangan/WFH)</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Status</label>
+                <select id="corrFilterStatus" class="form-control" onchange="loadAttendanceCorrectionsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;">
+                    <option value="">Semua Status</option>
+                    <option value="SUBMITTED">Menunggu Persetujuan</option>
+                    <option value="APPROVED">Disetujui</option>
+                    <option value="REJECTED">Ditolak</option>
+                    <option value="CANCELLED">Dibatalkan</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Dari Tanggal</label>
+                <input type="date" id="corrFilterFrom" class="form-control" onchange="loadAttendanceCorrectionsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Sampai Tanggal</label>
+                <input type="date" id="corrFilterTo" class="form-control" onchange="loadAttendanceCorrectionsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+        </div>
+
+        <!-- DATA TABLE -->
+        <div class="table-responsive glass-panel">
+            <table class="data-table" id="attendanceCorrectionsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Karyawan</th>
+                        <th>Tgl Presensi</th>
+                        <th>Tipe</th>
+                        <th>Data Awal (Asli)</th>
+                        <th>Koreksi Diajukan</th>
+                        <th>Alasan & Catatan</th>
+                        <th>Dokumen</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceCorrectionsTableBody">
+                    <tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat daftar koreksi presensi...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- MODAL: NEW ATTENDANCE CORRECTION -->
+    <div class="modal-overlay" id="newAttendanceCorrectionModal">
+        <div class="modal-card" style="max-width: 550px;">
+            <div class="modal-header">
+                <h3 class="modal-title">✏️ Ajukan Koreksi Presensi</h3>
+                <button class="modal-close-btn" onclick="closeModal('newAttendanceCorrectionModal')">✖</button>
+            </div>
+            <form id="newAttendanceCorrectionForm" onsubmit="submitNewAttendanceCorrection(event)">
+                <div class="form-row">
+                    <label>Tanggal Presensi yang Dikoreksi *</label>
+                    <input type="date" id="newCorrDate" required max="{{ now()->toDateString() }}" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div class="form-row">
+                    <label>Tipe Koreksi *</label>
+                    <select id="newCorrType" required class="form-control" style="width: 100%;">
+                        <option value="CHECK_IN_AND_OUT">Koreksi Jam Masuk & Keluar</option>
+                        <option value="CHECK_IN">Hanya Jam Masuk (Check-In)</option>
+                        <option value="CHECK_OUT">Hanya Jam Keluar (Check-Out)</option>
+                        <option value="STATUS">Koreksi Status Kehadiran</option>
+                        <option value="ATTENDANCE_TYPE">Koreksi Tipe Presensi</option>
+                    </select>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem;" class="form-row">
+                    <div style="flex: 1;">
+                        <label>Waktu Masuk Baru (Check-In)</label>
+                        <input type="datetime-local" id="newCorrCheckIn" class="form-control" style="width: 100%;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Waktu Keluar Baru (Check-Out)</label>
+                        <input type="datetime-local" id="newCorrCheckOut" class="form-control" style="width: 100%;" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Status Kehadiran yang Diusulkan (Opsional)</label>
+                    <select id="newCorrStatus" class="form-control" style="width: 100%;">
+                        <option value="">Otomatis dari Sistem / Jadwal</option>
+                        <option value="PRESENT">PRESENT (Hadir Tepat Waktu)</option>
+                        <option value="LATE">LATE (Terlambat)</option>
+                        <option value="HALF_DAY">HALF_DAY (Setengah Hari)</option>
+                        <option value="WFH">WFH (Work From Home)</option>
+                        <option value="FIELD">FIELD (Tugas Lapangan)</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <label>Alasan Koreksi *</label>
+                    <textarea id="newCorrReason" required minlength="5" rows="3" class="form-control" style="width: 100%;" placeholder="Jelaskan alasan pengajuan koreksi (cth: kartu tertinggal, perbaikan reader pintu)..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <label>Catatan Bukti / Keterangan Tambahan</label>
+                    <input type="text" id="newCorrEvidenceNote" class="form-control" placeholder="Contoh: Terkonfirmasi oleh atasan / security pos 1" style="width: 100%;" />
+                </div>
+
+                <div class="form-row">
+                    <label>Dokumen Pendukung (Foto logbook, surat tugas, maks 5MB)</label>
+                    <input type="file" id="newCorrAttachment" accept=".pdf,.jpg,.jpeg,.png,.webp" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('newAttendanceCorrectionModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitNewCorr">Kirim Koreksi</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: REJECT CORRECTION -->
+    <div class="modal-overlay" id="rejectAttendanceCorrectionModal">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title">❌ Tolak Koreksi Presensi</h3>
+                <button class="modal-close-btn" onclick="closeModal('rejectAttendanceCorrectionModal')">✖</button>
+            </div>
+            <form id="rejectAttendanceCorrectionForm" onsubmit="submitRejectAttendanceCorrection(event)">
+                <input type="hidden" id="rejectCorrId" />
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Berikan alasan penolakan koreksi presensi ini secara objektif.
+                </p>
+                <div class="form-row">
+                    <label>Alasan Penolakan *</label>
+                    <textarea id="rejectCorrReasonInput" required minlength="3" rows="3" class="form-control" style="width: 100%;" placeholder="Contoh: Log akses fisik tidak menunjukkan kehadiran..."></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('rejectAttendanceCorrectionModal')">Batal</button>
+                    <button type="submit" class="btn-primary" style="background: var(--danger); border-color: var(--danger);" id="btnSubmitRejectCorr">Tolak Koreksi</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- =========================================================================
+         SPRINT 12: PENGAJUAN LEMBUR (OVERTIME REQUEST)
+         ========================================================================= -->
+    <section class="tab-content" id="overtimeRequestsTab">
+        <div class="content-header">
+            <div>
+                <h2>⚡ Pengajuan Lembur (Overtime)</h2>
+                <p class="section-desc">Manajemen penugasan dan pengajuan lembur terverifikasi dengan perhitungan durasi otomatis dan persetujuan bertingkat.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadOvertimeRequestsData()">🔄 Refresh</button>
+                <button class="btn-primary" onclick="openNewOvertimeRequestModal()">➕ Ajukan Lembur Baru</button>
+            </div>
+        </div>
+
+        <!-- METRICS COUNTERS -->
+        <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+            <div class="metric-card">
+                <div class="metric-title">Menunggu Persetujuan</div>
+                <div class="metric-value" style="color: var(--warning, #f59e0b);" id="otMetricPending">0</div>
+                <div class="metric-sub">Pending review</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Disetujui</div>
+                <div class="metric-value" style="color: var(--success, #10b981);" id="otMetricApproved">0</div>
+                <div class="metric-sub">Approved overtime</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Ditolak</div>
+                <div class="metric-value" style="color: var(--danger, #ef4444);" id="otMetricRejected">0</div>
+                <div class="metric-sub">Rejected requests</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Total Jam Lembur</div>
+                <div class="metric-value" style="color: #6366f1;" id="otMetricTotalHours">0 Jam</div>
+                <div class="metric-sub">Approved duration</div>
+            </div>
+        </div>
+
+        <!-- FILTER BAR -->
+        <div class="glass-panel" style="padding: 1rem; margin-bottom: 1.25rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Status</label>
+                <select id="otFilterStatus" class="form-control" onchange="loadOvertimeRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;">
+                    <option value="">Semua Status</option>
+                    <option value="SUBMITTED">Menunggu Persetujuan</option>
+                    <option value="APPROVED">Disetujui</option>
+                    <option value="REJECTED">Ditolak</option>
+                    <option value="CANCELLED">Dibatalkan</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Dari Tanggal</label>
+                <input type="date" id="otFilterFrom" class="form-control" onchange="loadOvertimeRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Sampai Tanggal</label>
+                <input type="date" id="otFilterTo" class="form-control" onchange="loadOvertimeRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+        </div>
+
+        <!-- DATA TABLE -->
+        <div class="table-responsive glass-panel">
+            <table class="data-table" id="overtimeRequestsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Karyawan</th>
+                        <th>Tanggal</th>
+                        <th>Waktu Lembur</th>
+                        <th>Pengajuan</th>
+                        <th>Disetujui</th>
+                        <th>Alasan & Referensi Tugas</th>
+                        <th>Dokumen</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="overtimeRequestsTableBody">
+                    <tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat daftar pengajuan lembur...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- MODAL: NEW OVERTIME REQUEST -->
+    <div class="modal-overlay" id="newOvertimeRequestModal">
+        <div class="modal-card" style="max-width: 550px;">
+            <div class="modal-header">
+                <h3 class="modal-title">⚡ Ajukan Lembur Baru</h3>
+                <button class="modal-close-btn" onclick="closeModal('newOvertimeRequestModal')">✖</button>
+            </div>
+            <form id="newOvertimeRequestForm" onsubmit="submitNewOvertimeRequest(event)">
+                <div class="form-row">
+                    <label>Tanggal Lembur *</label>
+                    <input type="date" id="newOtDate" required class="form-control" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; gap: 0.75rem;" class="form-row">
+                    <div style="flex: 1;">
+                        <label>Jam Mulai *</label>
+                        <input type="time" id="newOtStartTime" required class="form-control" style="width: 100%;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Jam Selesai *</label>
+                        <input type="time" id="newOtEndTime" required class="form-control" style="width: 100%;" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Referensi Tugas / Proyek (Opsional)</label>
+                    <input type="text" id="newOtTaskRef" placeholder="Contoh: Deployment Sprint 12 / Maintenance Server" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div class="form-row">
+                    <label>Uraian Alasan / Pekerjaan Lembur *</label>
+                    <textarea id="newOtReason" required minlength="5" rows="3" class="form-control" style="width: 100%;" placeholder="Jelaskan kebutuhan mendesak lembur dan rincian pekerjaan..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <label>Dokumen / Surat Perintah Lembur (Opsional, PDF/JPG/PNG maks 5MB)</label>
+                    <input type="file" id="newOtAttachment" accept=".pdf,.jpg,.jpeg,.png,.webp" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('newOvertimeRequestModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitNewOt">Kirim Pengajuan Lembur</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: APPROVE OVERTIME (WITH DURATION SPECIFICATION) -->
+    <div class="modal-overlay" id="approveOvertimeModal">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title">✅ Setujui Pengajuan Lembur</h3>
+                <button class="modal-close-btn" onclick="closeModal('approveOvertimeModal')">✖</button>
+            </div>
+            <form id="approveOvertimeForm" onsubmit="submitApproveOvertime(event)">
+                <input type="hidden" id="approveOtId" />
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Konfirmasikan durasi lembur yang disetujui (dalam menit). Durasi tidak boleh melebihi durasi yang diajukan.
+                </p>
+                <div class="form-row">
+                    <label>Durasi Diajukan (Menit)</label>
+                    <input type="number" id="approveOtRequestedMinutes" readonly class="form-control" style="width: 100%; background: var(--border-color);" />
+                </div>
+                <div class="form-row">
+                    <label>Durasi Disetujui (Menit) *</label>
+                    <input type="number" id="approveOtMinutesInput" required min="1" class="form-control" style="width: 100%;" />
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('approveOvertimeModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitApproveOt">Setujui Lembur</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: REJECT OVERTIME -->
+    <div class="modal-overlay" id="rejectOvertimeModal">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title">❌ Tolak Pengajuan Lembur</h3>
+                <button class="modal-close-btn" onclick="closeModal('rejectOvertimeModal')">✖</button>
+            </div>
+            <form id="rejectOvertimeForm" onsubmit="submitRejectOvertime(event)">
+                <input type="hidden" id="rejectOtId" />
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Berikan alasan penolakan pengajuan lembur ini secara objektif.
+                </p>
+                <div class="form-row">
+                    <label>Alasan Penolakan *</label>
+                    <textarea id="rejectOtReasonInput" required minlength="3" rows="3" class="form-control" style="width: 100%;" placeholder="Contoh: Target pekerjaan dapat diselesaikan pada jam kerja normal..."></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('rejectOvertimeModal')">Batal</button>
+                    <button type="submit" class="btn-primary" style="background: var(--danger); border-color: var(--danger);" id="btnSubmitRejectOt">Tolak Lembur</button>
                 </div>
             </form>
         </div>

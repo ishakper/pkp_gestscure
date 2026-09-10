@@ -16,8 +16,9 @@ Status per 2026-09-09.
 | 9 | Office Attendance Integration | PASS |
 | 10 | Field Attendance + GPS + Geofence | PASS |
 | 11 | WFH + Leave + Permission + Sick | PASS |
-| 12 | Attendance Correction + Overtime | IN_PROGRESS |
-| 13-18 | Skills, work, projects, approvals, training, performance | NOT_STARTED |
+| 12 | Attendance Correction + Overtime | PASS |
+| 13 | Job Description + Skill Matrix | IN_PROGRESS |
+| 14-18 | Work, projects, approvals, training, performance | NOT_STARTED |
 | 19-24 | Reporting, analytics, documents, offboarding, search, mobile UX | NOT_STARTED |
 | 25-27 | Privacy/RBAC audit, backup readiness, full regression | NOT_STARTED |
 
@@ -222,7 +223,32 @@ Sprint 11: WFH + Leave + Permission + Sick.
 - MOBILE_FIRST_UI: PASS (Pengajuan Absensi tab, metrics cards, filter bar, modals for new request and rejection reason, status timeline badges)
 - TARGETED_TESTS: PASS (30 tests, 74 assertions in AttendanceRequestTest)
 - FULL_REGRESSION: PASS (256 tests, 1146 assertions)
-- MIGRATION_SAFETY: PASS (additive table attendance_requests, pre/post table counts verified preserved)
+Sprint 12: Attendance Correction + Overtime.
+- SPRINT_12: PASS
+- CORRECTION_REQUEST: PASS (check-in, check-out, status, attendance type corrections with reason and evidence note)
+- CORRECTION_APPROVAL: PASS (deterministic lifecycle SUBMITTED -> APPROVED / REJECTED / CANCELLED)
+- CORRECTION_HISTORY_IMMUTABLE: PASS (original_check_in/out/status snapshots preserved, corrected snapshots stored upon approval)
+- ACCESSLOG_IMMUTABLE: PASS (raw physical access logs and attendance evidences are strictly immutable; correction creates derived Attendance adjustment only)
+- ATTENDANCE_EVIDENCE_IMMUTABLE: PASS (physical terminal mappings never deleted or overwritten)
+- MANUAL_SOURCE_PROVENANCE: PASS (clock_in_source and clock_out_source set to MANUAL, [KOREKSI_MANUAL: reason] provenance note appended)
+- SELF_APPROVAL_DENY: PASS (strict anti-self-approval enforced on corrections and overtime)
+- SUPERVISOR_SCOPE: PASS (supervisor authorized strictly for assigned direct reports; cross-team access rejected with 403)
+- HRD_SCOPE: PASS (organization-wide management, review, and approval)
+- TECHNICAL_ROLE_DENIED: PASS (developer, devops, security_engineer, and building_admin strictly denied from HR correction/overtime approval)
+- IDOR: PASS (employees/interns cannot submit or cancel requests for other employees; cross-employee document access denied)
+- OVERTIME_REQUEST: PASS (date, start/end time, requested minutes, business reason, task reference)
+- OVERTIME_APPROVAL: PASS (supervisor/HRD bounded approval up to requested duration)
+- OVERTIME_CALCULATION: PASS (deterministic calculation; approved overtime attached to Attendance.overtime_minutes)
+- LATE_CHECKOUT_NOT_OVERTIME: PASS (late checkout alone does NOT create overtime; unapproved overtime = 0 approved minutes)
+- OFF_DAY_OVERTIME_POLICY: PASS (off-day and public holiday overtime supported via explicit approval, preserving OFF/HOLIDAY calendar semantics)
+- OVERTIME_OVERLAP_VALIDATION: PASS (conflicting overlapping overtime requests prevented; overtime during approved leave/sick prevented)
+- DOUBLE_APPROVAL_PREVENTION: PASS (database row-level lockForUpdate prevents race conditions and double approvals)
+- PRIVATE_ATTACHMENT_HANDLING: PASS (private local storage, random hash filenames, MIME & 5MB size validation, authorized streaming download)
+- AUDIT: PASS (ActivityLog on submit, approve, reject, cancel for both corrections and overtime)
+- UI_UX: PASS (mobile-first responsive tabs for Koreksi Presensi and Pengajuan Lembur, KPI cards, filter bars, diff view, modals for new submissions and approvals/rejections)
+- TARGETED_TESTS: PASS (38 tests, 124 assertions in AttendanceCorrectionTest and OvertimeRequestTest)
+- FULL_REGRESSION: PASS (294 tests, 1270 assertions, 0 failures)
+- MIGRATION_SAFETY: PASS (additive columns and tables; pre- and post-migration row counts verified 100% preserved)
 - REPOSITORY_SYNC: PASS
 
-Next: Sprint 12 Attendance Correction + Overtime (IN_PROGRESS).
+Next: Sprint 13 Job Description + Skill Matrix (IN_PROGRESS).

@@ -37,6 +37,7 @@ class Attendance extends Model
         'late_minutes',
         'early_leave_minutes',
         'effective_work_minutes',
+        'overtime_minutes',
         'clock_in_source',
         'clock_out_source',
         'access_log_in_id',
@@ -48,10 +49,11 @@ class Attendance extends Model
     ];
 
     protected $casts = [
-        'attendance_date' => 'date',
-        'clock_in_at'     => 'datetime',
-        'clock_out_at'    => 'datetime',
-        'verified_at'     => 'datetime',
+        'attendance_date'  => 'date',
+        'clock_in_at'      => 'datetime',
+        'clock_out_at'     => 'datetime',
+        'verified_at'      => 'datetime',
+        'overtime_minutes' => 'integer',
     ];
 
     public const STATUSES = [
@@ -112,5 +114,15 @@ class Attendance extends Model
     public function fieldEvidences()
     {
         return $this->hasMany(FieldAttendanceEvidence::class);
+    }
+
+    public function correctionRequests()
+    {
+        return $this->hasMany(AttendanceCorrectionRequest::class);
+    }
+
+    public function overtimeRequests()
+    {
+        return $this->hasMany(OvertimeRequest::class);
     }
 }

@@ -72,6 +72,12 @@ class PortalAccess
                 $perms[] = 'attendance_request.view';
                 $perms[] = 'attendance_request.manage';
                 $perms[] = 'attendance_request.approve';
+                $perms[] = 'attendance_correction.view';
+                $perms[] = 'attendance_correction.manage';
+                $perms[] = 'attendance_correction.approve';
+                $perms[] = 'overtime.view';
+                $perms[] = 'overtime.manage';
+                $perms[] = 'overtime.approve';
             }
             return $perms;
         }
@@ -92,6 +98,8 @@ class PortalAccess
                 $perms[] = 'attendance.view';
                 $perms[] = 'field_attendance.view';
                 $perms[] = 'attendance_request.view';
+                $perms[] = 'attendance_correction.view';
+                $perms[] = 'overtime.view';
             }
             if (in_array($role, ['hrd', 'management'], true)) {
                 $perms[] = 'contract.view';
@@ -133,10 +141,16 @@ class PortalAccess
                 $perms[] = 'field_location.manage';
                 $perms[] = 'attendance_request.manage';
                 $perms[] = 'attendance_request.approve';
+                $perms[] = 'attendance_correction.manage';
+                $perms[] = 'attendance_correction.approve';
+                $perms[] = 'overtime.manage';
+                $perms[] = 'overtime.approve';
             }
             if (in_array($role, ['supervisor'], true)) {
                 $perms[] = 'internship.mentor';
                 $perms[] = 'attendance_request.approve';
+                $perms[] = 'attendance_correction.approve';
+                $perms[] = 'overtime.approve';
             }
             return $perms;
         }
@@ -154,6 +168,8 @@ class PortalAccess
                 'attendance.self',
                 'field_attendance.self',
                 'attendance_request.self',
+                'attendance_correction.self',
+                'overtime.self',
             ];
         }
 

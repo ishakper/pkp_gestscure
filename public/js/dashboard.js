@@ -1134,6 +1134,8 @@ function switchTab(tabId, btn) {
     if (tabId === 'attendanceTab') loadAttendanceData();
     if (tabId === 'fieldAttendanceTab') loadFieldAttendanceData();
     if (tabId === 'attendanceRequestsTab') loadAttendanceRequestsData();
+    if (tabId === 'attendanceCorrectionsTab') loadAttendanceCorrectionsData();
+    if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
 }
 
 // ==========================================
@@ -5945,3 +5947,495 @@ window.approveAttendanceRequest = approveAttendanceRequest;
 window.openRejectAttendanceRequestModal = openRejectAttendanceRequestModal;
 window.submitRejectAttendanceRequest = submitRejectAttendanceRequest;
 window.cancelAttendanceRequest = cancelAttendanceRequest;
+
+// =========================================================================
+// SPRINT 12: ATTENDANCE CORRECTIONS (CLIENT CONTROLLER)
+// =========================================================================
+async function loadAttendanceCorrectionsData() {
+    const tbody = document.getElementById('attendanceCorrectionsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data koreksi presensi...</td></tr>`;
+
+    // 1. Load metrics
+    try {
+        const mRes = await apiFetch('/api/v1/attendance-corrections/metrics');
+        if (mRes.success && mRes.data) {
+            const d = mRes.data;
+            const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+            setVal('corrMetricPending', d.submitted || 0);
+            setVal('corrMetricApproved', d.approved || 0);
+            setVal('corrMetricRejected', d.rejected || 0);
+            setVal('corrMetricCancelled', d.cancelled || 0);
+        }
+    } catch (e) {
+        console.warn('Failed to load correction metrics:', e);
+    }
+
+    // 2. Load list
+    const type = document.getElementById('corrFilterType')?.value || '';
+    const status = document.getElementById('corrFilterStatus')?.value || '';
+    const from = document.getElementById('corrFilterFrom')?.value || '';
+    const to = document.getElementById('corrFilterTo')?.value || '';
+
+    const params = new URLSearchParams();
+    if (type) params.append('request_type', type);
+    if (status) params.append('status', status);
+    if (from) params.append('from_date', from);
+    if (to) params.append('to_date', to);
+
+    try {
+        const res = await apiFetch('/api/v1/attendance-corrections?' + params.toString());
+        if (!res.success || !res.data || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan koreksi presensi yang sesuai.</td></tr>`;
+            return;
+        }
+
+        const role = (window.currentUserRole || '').toLowerCase();
+        const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
+
+        tbody.innerHTML = res.data.map(item => {
+            const empName = item.employee?.name || `Karyawan #${item.employee_id}`;
+            const corrDate = item.correction_date ? item.correction_date.substring(0, 10) : '-';
+
+            // Original snapshot
+            const origIn = item.original_check_in ? item.original_check_in.substring(11, 16) : '-';
+            const origOut = item.original_check_out ? item.original_check_out.substring(11, 16) : '-';
+            const origStat = item.original_status || '-';
+            const origSummary = `<span style="font-size: 0.75rem; color: var(--text-muted);">${origIn} - ${origOut} [${origStat}]</span>`;
+
+            // Requested snapshot
+            const reqIn = item.requested_check_in ? item.requested_check_in.substring(11, 16) : origIn;
+            const reqOut = item.requested_check_out ? item.requested_check_out.substring(11, 16) : origOut;
+            const reqStat = item.requested_status || (item.status === 'APPROVED' ? item.corrected_status : '-');
+            const reqSummary = `<span style="font-size: 0.8rem; font-weight: 600; color: #fff;">${reqIn} - ${reqOut}</span>` + (reqStat !== '-' ? ` <span class="badge" style="font-size: 0.65rem; background: var(--border-color);">${reqStat}</span>` : '');
+
+            // Status Badge
+            let statusBadge = `<span class="badge badge-warning">SUBMITTED</span>`;
+            if (item.status === 'APPROVED') statusBadge = `<span class="badge badge-success">APPROVED</span>`;
+            if (item.status === 'REJECTED') statusBadge = `<span class="badge badge-danger">REJECTED</span>`;
+            if (item.status === 'CANCELLED') statusBadge = `<span class="badge" style="background: var(--text-muted); color: #fff;">CANCELLED</span>`;
+
+            // Attachment link
+            let docLink = `<span style="color: var(--text-muted); font-size: 0.75rem;">-</span>`;
+            if (item.attachment_path) {
+                docLink = `<a href="/api/v1/attendance-corrections/${item.id}/attachment" target="_blank" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; text-decoration: none;">📎 Unduh</a>`;
+            }
+
+            // Action buttons
+            let actions = [];
+            if (item.status === 'SUBMITTED') {
+                if (canApprove) {
+                    actions.push(`<button class="btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; background: var(--success); border-color: var(--success);" onclick="approveAttendanceCorrection(${item.id})">✔ Setujui</button>`);
+                    actions.push(`<button class="btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--danger); border-color: var(--danger);" onclick="openRejectAttendanceCorrectionModal(${item.id})">✖ Tolak</button>`);
+                }
+                actions.push(`<button class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="cancelAttendanceCorrection(${item.id})">Batalkan</button>`);
+            } else {
+                actions.push(`<span style="color: var(--text-muted); font-size: 0.75rem;">Selesai</span>`);
+            }
+
+            return `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.8rem;">#${item.id}</td>
+                    <td><strong>${escapeHtml(empName)}</strong></td>
+                    <td>${corrDate}</td>
+                    <td><span class="badge" style="background: var(--bg-base); border: 1px solid var(--border-color); font-size: 0.7rem;">${item.request_type}</span></td>
+                    <td>${origSummary}</td>
+                    <td>${reqSummary}</td>
+                    <td style="max-width: 220px; font-size: 0.8rem; line-height: 1.2;">
+                        ${escapeHtml(item.reason || '-')}
+                        ${item.rejection_reason ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 0.25rem;">Alasan tolak: ${escapeHtml(item.rejection_reason)}</div>` : ''}
+                    </td>
+                    <td>${docLink}</td>
+                    <td>${statusBadge}</td>
+                    <td><div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">${actions.join('')}</div></td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--danger); padding: 2rem;">Gagal memuat koreksi presensi: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function openNewAttendanceCorrectionModal() {
+    const modal = document.getElementById('newAttendanceCorrectionModal');
+    if (!modal) return;
+    const form = document.getElementById('newAttendanceCorrectionForm');
+    if (form) form.reset();
+
+    const dateInput = document.getElementById('newCorrDate');
+    if (dateInput) {
+        const today = new Date().toISOString().substring(0, 10);
+        dateInput.value = today;
+    }
+    openModal('newAttendanceCorrectionModal');
+}
+
+async function submitNewAttendanceCorrection(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitNewCorr');
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Mengirim...'; }
+
+    const formData = new FormData();
+    formData.append('correction_date', document.getElementById('newCorrDate').value);
+    formData.append('request_type', document.getElementById('newCorrType').value);
+
+    const checkInVal = document.getElementById('newCorrCheckIn').value;
+    if (checkInVal) formData.append('requested_check_in', checkInVal);
+
+    const checkOutVal = document.getElementById('newCorrCheckOut').value;
+    if (checkOutVal) formData.append('requested_check_out', checkOutVal);
+
+    const statusVal = document.getElementById('newCorrStatus').value;
+    if (statusVal) formData.append('requested_status', statusVal);
+
+    formData.append('reason', document.getElementById('newCorrReason').value);
+
+    const noteVal = document.getElementById('newCorrEvidenceNote').value;
+    if (noteVal) formData.append('evidence_note', noteVal);
+
+    const attInput = document.getElementById('newCorrAttachment');
+    if (attInput && attInput.files && attInput.files[0]) {
+        formData.append('attachment', attInput.files[0]);
+    }
+
+    try {
+        const res = await apiFetchForm('/api/v1/attendance-corrections', formData);
+        if (res.success) {
+            showToast(res.message || 'Pengajuan koreksi presensi berhasil dibuat.', 'success');
+            closeModal('newAttendanceCorrectionModal');
+            await loadAttendanceCorrectionsData();
+        }
+    } catch (err) {
+        showToast('Gagal mengajukan koreksi: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+async function approveAttendanceCorrection(id) {
+    if (!confirm(`Setujui pengajuan koreksi presensi #${id}? Perubahan akan langsung diaplikasikan pada rekap presensi harian.`)) return;
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/approve`, { method: 'POST' });
+        if (res.success) {
+            showToast(res.message || 'Koreksi presensi berhasil disetujui.', 'success');
+            await loadAttendanceCorrectionsData();
+        }
+    } catch (err) {
+        showToast('Gagal menyetujui koreksi: ' + err.message, 'error');
+    }
+}
+
+function openRejectAttendanceCorrectionModal(id) {
+    const modal = document.getElementById('rejectAttendanceCorrectionModal');
+    if (!modal) return;
+    document.getElementById('rejectCorrId').value = id;
+    document.getElementById('rejectCorrReasonInput').value = '';
+    openModal('rejectAttendanceCorrectionModal');
+}
+
+async function submitRejectAttendanceCorrection(e) {
+    e.preventDefault();
+    const id = document.getElementById('rejectCorrId').value;
+    const reason = document.getElementById('rejectCorrReasonInput').value;
+    const btn = document.getElementById('btnSubmitRejectCorr');
+
+    if (!reason || reason.trim().length < 3) {
+        showToast('Alasan penolakan minimal 3 karakter.', 'warning');
+        return;
+    }
+
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+        if (res.success) {
+            showToast(res.message || 'Koreksi presensi berhasil ditolak.', 'success');
+            closeModal('rejectAttendanceCorrectionModal');
+            await loadAttendanceCorrectionsData();
+        }
+    } catch (err) {
+        showToast('Gagal menolak: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+async function cancelAttendanceCorrection(id) {
+    if (!confirm(`Batalkan pengajuan koreksi presensi #${id}?`)) return;
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/cancel`, { method: 'POST' });
+        if (res.success) {
+            showToast(res.message || 'Pengajuan koreksi berhasil dibatalkan.', 'success');
+            await loadAttendanceCorrectionsData();
+        }
+    } catch (err) {
+        showToast('Gagal membatalkan: ' + err.message, 'error');
+    }
+}
+
+// =========================================================================
+// SPRINT 12: OVERTIME REQUESTS (CLIENT CONTROLLER)
+// =========================================================================
+async function loadOvertimeRequestsData() {
+    const tbody = document.getElementById('overtimeRequestsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = `<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data pengajuan lembur...</td></tr>`;
+
+    // 1. Metrics
+    try {
+        const mRes = await apiFetch('/api/v1/overtime-requests/metrics');
+        if (mRes.success && mRes.data) {
+            const d = mRes.data;
+            const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
+            setVal('otMetricPending', d.submitted || 0);
+            setVal('otMetricApproved', d.approved || 0);
+            setVal('otMetricRejected', d.rejected || 0);
+            const totalHours = ((d.total_approved_minutes || 0) / 60).toFixed(1);
+            setVal('otMetricTotalHours', `${totalHours} Jam`);
+        }
+    } catch (e) {
+        console.warn('Failed to load overtime metrics:', e);
+    }
+
+    // 2. List
+    const status = document.getElementById('otFilterStatus')?.value || '';
+    const from = document.getElementById('otFilterFrom')?.value || '';
+    const to = document.getElementById('otFilterTo')?.value || '';
+
+    const params = new URLSearchParams();
+    if (status) params.append('status', status);
+    if (from) params.append('from_date', from);
+    if (to) params.append('to_date', to);
+
+    try {
+        const res = await apiFetch('/api/v1/overtime-requests?' + params.toString());
+        if (!res.success || !res.data || res.data.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan lembur yang sesuai.</td></tr>`;
+            return;
+        }
+
+        const role = (window.currentUserRole || '').toLowerCase();
+        const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
+
+        tbody.innerHTML = res.data.map(item => {
+            const empName = item.employee?.name || `Karyawan #${item.employee_id}`;
+            const otDate = item.overtime_date ? item.overtime_date.substring(0, 10) : '-';
+            const timeRange = `${item.requested_start?.substring(0, 5) || '-'} s/d ${item.requested_end?.substring(0, 5) || '-'}`;
+            const reqDuration = `${item.requested_minutes || 0} mnt`;
+            const appDuration = item.status === 'APPROVED' ? `<strong style="color: var(--success);">${item.approved_minutes || 0} mnt</strong>` : `<span style="color: var(--text-muted);">-</span>`;
+
+            // Status Badge
+            let statusBadge = `<span class="badge badge-warning">SUBMITTED</span>`;
+            if (item.status === 'APPROVED') statusBadge = `<span class="badge badge-success">APPROVED</span>`;
+            if (item.status === 'REJECTED') statusBadge = `<span class="badge badge-danger">REJECTED</span>`;
+            if (item.status === 'CANCELLED') statusBadge = `<span class="badge" style="background: var(--text-muted); color: #fff;">CANCELLED</span>`;
+
+            // Attachment link
+            let docLink = `<span style="color: var(--text-muted); font-size: 0.75rem;">-</span>`;
+            if (item.attachment_path) {
+                docLink = `<a href="/api/v1/overtime-requests/${item.id}/attachment" target="_blank" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem; text-decoration: none;">📎 Unduh</a>`;
+            }
+
+            // Action buttons
+            let actions = [];
+            if (item.status === 'SUBMITTED') {
+                if (canApprove) {
+                    actions.push(`<button class="btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; background: var(--success); border-color: var(--success);" onclick="openApproveOvertimeModal(${item.id}, ${item.requested_minutes || 0})">✔ Setujui</button>`);
+                    actions.push(`<button class="btn-secondary" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; color: var(--danger); border-color: var(--danger);" onclick="openRejectOvertimeModal(${item.id})">✖ Tolak</button>`);
+                }
+                actions.push(`<button class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="cancelOvertimeRequest(${item.id})">Batalkan</button>`);
+            } else {
+                actions.push(`<span style="color: var(--text-muted); font-size: 0.75rem;">Selesai</span>`);
+            }
+
+            return `
+                <tr>
+                    <td style="font-family: monospace; font-size: 0.8rem;">#${item.id}</td>
+                    <td><strong>${escapeHtml(empName)}</strong></td>
+                    <td>${otDate}</td>
+                    <td><span style="font-size: 0.8rem; font-weight: 600;">${timeRange}</span></td>
+                    <td>${reqDuration}</td>
+                    <td>${appDuration}</td>
+                    <td style="max-width: 220px; font-size: 0.8rem; line-height: 1.2;">
+                        ${escapeHtml(item.reason || '-')}
+                        ${item.project_task_reference ? `<div style="color: #6366f1; font-size: 0.75rem; margin-top: 0.2rem;">Ref: ${escapeHtml(item.project_task_reference)}</div>` : ''}
+                        ${item.rejection_reason ? `<div style="color: var(--danger); font-size: 0.75rem; margin-top: 0.25rem;">Alasan tolak: ${escapeHtml(item.rejection_reason)}</div>` : ''}
+                    </td>
+                    <td>${docLink}</td>
+                    <td>${statusBadge}</td>
+                    <td><div style="display: flex; gap: 0.35rem; flex-wrap: wrap;">${actions.join('')}</div></td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--danger); padding: 2rem;">Gagal memuat pengajuan lembur: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function openNewOvertimeRequestModal() {
+    const modal = document.getElementById('newOvertimeRequestModal');
+    if (!modal) return;
+    const form = document.getElementById('newOvertimeRequestForm');
+    if (form) form.reset();
+
+    const dateInput = document.getElementById('newOtDate');
+    if (dateInput) {
+        dateInput.value = new Date().toISOString().substring(0, 10);
+    }
+    openModal('newOvertimeRequestModal');
+}
+
+async function submitNewOvertimeRequest(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitNewOt');
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Mengirim...'; }
+
+    const formData = new FormData();
+    formData.append('overtime_date', document.getElementById('newOtDate').value);
+    formData.append('requested_start', document.getElementById('newOtStartTime').value);
+    formData.append('requested_end', document.getElementById('newOtEndTime').value);
+    formData.append('reason', document.getElementById('newOtReason').value);
+
+    const refVal = document.getElementById('newOtTaskRef').value;
+    if (refVal) formData.append('project_task_reference', refVal);
+
+    const attInput = document.getElementById('newOtAttachment');
+    if (attInput && attInput.files && attInput.files[0]) {
+        formData.append('attachment', attInput.files[0]);
+    }
+
+    try {
+        const res = await apiFetchForm('/api/v1/overtime-requests', formData);
+        if (res.success) {
+            showToast(res.message || 'Pengajuan lembur berhasil dibuat.', 'success');
+            closeModal('newOvertimeRequestModal');
+            await loadOvertimeRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal mengajukan lembur: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+function openApproveOvertimeModal(id, requestedMinutes) {
+    const modal = document.getElementById('approveOvertimeModal');
+    if (!modal) return;
+    document.getElementById('approveOtId').value = id;
+    document.getElementById('approveOtRequestedMinutes').value = requestedMinutes;
+    document.getElementById('approveOtMinutesInput').value = requestedMinutes;
+    document.getElementById('approveOtMinutesInput').max = requestedMinutes;
+    openModal('approveOvertimeModal');
+}
+
+async function submitApproveOvertime(e) {
+    e.preventDefault();
+    const id = document.getElementById('approveOtId').value;
+    const minutes = parseInt(document.getElementById('approveOtMinutesInput').value, 10);
+    const btn = document.getElementById('btnSubmitApproveOt');
+
+    if (!minutes || minutes <= 0) {
+        showToast('Durasi lembur harus lebih dari 0 menit.', 'warning');
+        return;
+    }
+
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Memproses...'; }
+
+    try {
+        const res = await apiFetch(`/api/v1/overtime-requests/${id}/approve`, {
+            method: 'POST',
+            body: JSON.stringify({ approved_minutes: minutes })
+        });
+        if (res.success) {
+            showToast(res.message || 'Pengajuan lembur berhasil disetujui.', 'success');
+            closeModal('approveOvertimeModal');
+            await loadOvertimeRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal menyetujui lembur: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+function openRejectOvertimeModal(id) {
+    const modal = document.getElementById('rejectOvertimeModal');
+    if (!modal) return;
+    document.getElementById('rejectOtId').value = id;
+    document.getElementById('rejectOtReasonInput').value = '';
+    openModal('rejectOvertimeModal');
+}
+
+async function submitRejectOvertime(e) {
+    e.preventDefault();
+    const id = document.getElementById('rejectOtId').value;
+    const reason = document.getElementById('rejectOtReasonInput').value;
+    const btn = document.getElementById('btnSubmitRejectOt');
+
+    if (!reason || reason.trim().length < 3) {
+        showToast('Alasan penolakan minimal 3 karakter.', 'warning');
+        return;
+    }
+
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
+
+    try {
+        const res = await apiFetch(`/api/v1/overtime-requests/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+        if (res.success) {
+            showToast(res.message || 'Pengajuan lembur berhasil ditolak.', 'success');
+            closeModal('rejectOvertimeModal');
+            await loadOvertimeRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal menolak: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+async function cancelOvertimeRequest(id) {
+    if (!confirm(`Batalkan pengajuan lembur #${id}?`)) return;
+
+    try {
+        const res = await apiFetch(`/api/v1/overtime-requests/${id}/cancel`, { method: 'POST' });
+        if (res.success) {
+            showToast(res.message || 'Pengajuan lembur berhasil dibatalkan.', 'success');
+            await loadOvertimeRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal membatalkan: ' + err.message, 'error');
+    }
+}
+
+// Register global window hooks
+window.loadAttendanceCorrectionsData = loadAttendanceCorrectionsData;
+window.openNewAttendanceCorrectionModal = openNewAttendanceCorrectionModal;
+window.submitNewAttendanceCorrection = submitNewAttendanceCorrection;
+window.approveAttendanceCorrection = approveAttendanceCorrection;
+window.openRejectAttendanceCorrectionModal = openRejectAttendanceCorrectionModal;
+window.submitRejectAttendanceCorrection = submitRejectAttendanceCorrection;
+window.cancelAttendanceCorrection = cancelAttendanceCorrection;
+
+window.loadOvertimeRequestsData = loadOvertimeRequestsData;
+window.openNewOvertimeRequestModal = openNewOvertimeRequestModal;
+window.submitNewOvertimeRequest = submitNewOvertimeRequest;
+window.openApproveOvertimeModal = openApproveOvertimeModal;
+window.submitApproveOvertime = submitApproveOvertime;
+window.openRejectOvertimeModal = openRejectOvertimeModal;
+window.submitRejectOvertime = submitRejectOvertime;
+window.cancelOvertimeRequest = cancelOvertimeRequest;

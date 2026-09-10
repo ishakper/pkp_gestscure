@@ -8,6 +8,8 @@ use App\Models\Attendance;
 use App\Models\Employee;
 use App\Models\EmployeeCalendarAssignment;
 use App\Models\AttendanceRequest;
+use App\Models\AttendanceCorrectionRequest;
+use App\Models\OvertimeRequest;
 use App\Models\PublicHoliday;
 use App\Models\WorkCalendar;
 use App\Models\WorkScheduleDay;
@@ -544,6 +546,144 @@ class AttendanceProcessor
 
             $cursor->addDay();
         }
+    }
+
+    /**
+     * Apply an approved AttendanceCorrectionRequest to the derived Attendance record.
+     * IMMUTABILITY INVARIANT: RAW physical access logs and evidences are never altered.
+     * Only the derived attendance record is adjusted with explicit provenance marked MANUAL.
+     */
+    public function applyApprovedCorrection(AttendanceCorrectionRequest $correction): Attendance
+    {
+        $employee = $correction->employee;
+        $date = Carbon::parse($correction->correction_date)->startOfDay();
+        $calendar = $this->resolveCalendar($employee, $date);
+
+        $attendance = Attendance::where('employee_id', $employee->id)
+            ->whereDate('attendance_date', $date->toDateString())
+            ->first();
+
+        // Capture immutable original baseline if not set yet
+        if (!$correction->original_check_in && $attendance?->clock_in_at) {
+            $correction->original_check_in = $attendance->clock_in_at;
+        }
+        if (!$correction->original_check_out && $attendance?->clock_out_at) {
+            $correction->original_check_out = $attendance->clock_out_at;
+        }
+        if (!$correction->original_status && $attendance?->status) {
+            $correction->original_status = $attendance->status;
+        }
+        if (!$correction->original_attendance_type && $attendance?->attendance_type) {
+            $correction->original_attendance_type = $attendance->attendance_type;
+        }
+
+        // Determine corrected values
+        $clockIn  = $correction->requested_check_in  ?? $attendance?->clock_in_at;
+        $clockOut = $correction->requested_check_out ?? $attendance?->clock_out_at;
+        $attType  = $correction->requested_attendance_type ?? $attendance?->attendance_type ?? 'OFFICE';
+
+        if ($correction->requested_status) {
+            $status = $correction->requested_status;
+            $lateMinutes = $attendance?->late_minutes ?? 0;
+            $earlyLeaveMinutes = $attendance?->early_leave_minutes ?? 0;
+            $effectiveWorkMinutes = $attendance?->effective_work_minutes ?? 0;
+        } elseif ($clockIn) {
+            $computed = $this->computeStatus($clockIn, $clockOut, $calendar, $date, $employee);
+            $status = $computed['status'];
+            $lateMinutes = $computed['late_minutes'];
+            $earlyLeaveMinutes = $computed['early_leave_minutes'];
+            $effectiveWorkMinutes = $computed['effective_work_minutes'];
+        } else {
+            $status = $attendance?->status ?? 'PRESENT';
+            $lateMinutes = 0;
+            $earlyLeaveMinutes = 0;
+            $effectiveWorkMinutes = 0;
+        }
+
+        $provenanceNote = '[KOREKSI_MANUAL: ' . ($correction->reason ?? 'Disetujui') . ']';
+
+        $recordData = [
+            'clock_in_at'            => $clockIn?->toDateTimeString(),
+            'clock_out_at'           => $clockOut?->toDateTimeString(),
+            'status'                 => $status,
+            'attendance_type'        => $attType,
+            'late_minutes'           => $lateMinutes,
+            'early_leave_minutes'    => $earlyLeaveMinutes,
+            'effective_work_minutes' => $effectiveWorkMinutes,
+            'clock_in_source'        => $correction->requested_check_in ? 'MANUAL' : ($attendance?->clock_in_source ?? 'MANUAL'),
+            'clock_out_source'       => $correction->requested_check_out ? 'MANUAL' : ($attendance?->clock_out_source ?? 'MANUAL'),
+            'notes'                  => trim(($attendance?->notes ? $attendance->notes . ' | ' : '') . $provenanceNote),
+            'verified_by'            => $correction->approved_by,
+            'verified_at'            => now(),
+        ];
+
+        // Maintain physical access log IDs if already linked (NEVER mutate AccessLog)
+        if ($attendance?->access_log_in_id) {
+            $recordData['access_log_in_id'] = $attendance->access_log_in_id;
+        }
+        if ($attendance?->access_log_out_id) {
+            $recordData['access_log_out_id'] = $attendance->access_log_out_id;
+        }
+
+        $updatedAttendance = $this->record($employee, $date, $recordData);
+
+        // Snapshot corrected outcome
+        $correction->corrected_check_in         = $updatedAttendance->clock_in_at;
+        $correction->corrected_check_out        = $updatedAttendance->clock_out_at;
+        $correction->corrected_status           = $updatedAttendance->status;
+        $correction->corrected_attendance_type  = $updatedAttendance->attendance_type;
+        $correction->attendance_id              = $updatedAttendance->id;
+        $correction->save();
+
+        return $updatedAttendance;
+    }
+
+    /**
+     * Apply an approved OvertimeRequest to the derived Attendance record.
+     */
+    public function applyApprovedOvertime(OvertimeRequest $overtime): Attendance
+    {
+        $employee = $overtime->employee;
+        $date = Carbon::parse($overtime->overtime_date)->startOfDay();
+
+        $attendance = Attendance::where('employee_id', $employee->id)
+            ->whereDate('attendance_date', $date->toDateString())
+            ->first();
+
+        if (!$attendance) {
+            $calendar = $this->resolveCalendar($employee, $date);
+            $scheduleDay = $calendar ? $this->resolveScheduleDay($calendar, $date) : null;
+            $isHoliday = $calendar ? $this->isPublicHoliday($date, $calendar->building_id) : false;
+            $status = ($scheduleDay && !$scheduleDay->is_working_day) || $isHoliday ? 'OFF' : 'PRESENT';
+
+            $attendance = Attendance::create([
+                'employee_id'            => $employee->id,
+                'work_calendar_id'       => $calendar?->id,
+                'attendance_date'        => $date->toDateString(),
+                'status'                 => $status,
+                'attendance_type'        => 'OFFICE',
+                'overtime_minutes'       => (int) $overtime->approved_minutes,
+                'clock_in_source'        => 'MANUAL',
+                'clock_out_source'       => 'MANUAL',
+                'notes'                  => '[LEMBUR_DISETUJUI: ' . $overtime->approved_minutes . ' menit - ' . $overtime->reason . ']',
+                'verified_by'            => $overtime->approved_by,
+                'verified_at'            => now(),
+            ]);
+        } else {
+            $attendance->overtime_minutes = (int) $overtime->approved_minutes;
+            $overtimeNote = '[LEMBUR_DISETUJUI: ' . $overtime->approved_minutes . ' menit]';
+            if (!str_contains((string) $attendance->notes, '[LEMBUR_DISETUJUI:')) {
+                $attendance->notes = trim(($attendance->notes ? $attendance->notes . ' | ' : '') . $overtimeNote);
+            }
+            $attendance->save();
+        }
+
+        if ($overtime->attendance_id !== $attendance->id) {
+            $overtime->attendance_id = $attendance->id;
+            $overtime->save();
+        }
+
+        return $attendance;
     }
 
     /**

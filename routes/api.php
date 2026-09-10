@@ -256,6 +256,30 @@ Route::prefix('v1')->group(function () {
             Route::get('/{id}/attachment', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'attachment']);
         });
 
+        // Sprint 12: Attendance Correction
+        Route::prefix('attendance-corrections')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'store']);
+            Route::get('/metrics', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'metrics']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'show']);
+            Route::post('/{id}/approve', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'approve']);
+            Route::post('/{id}/reject', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'reject']);
+            Route::post('/{id}/cancel', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'cancel']);
+            Route::get('/{id}/attachment', [\App\Http\Controllers\Api\V1\AttendanceCorrectionController::class, 'attachment']);
+        });
+
+        // Sprint 12: Overtime Requests
+        Route::prefix('overtime-requests')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'store']);
+            Route::get('/metrics', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'metrics']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'show']);
+            Route::post('/{id}/approve', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'approve']);
+            Route::post('/{id}/reject', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'reject']);
+            Route::post('/{id}/cancel', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'cancel']);
+            Route::get('/{id}/attachment', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'attachment']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
         Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent']);
     });
