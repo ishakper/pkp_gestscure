@@ -7,6 +7,7 @@ use App\Models\AccessLog;
 use App\Models\Attendance;
 use App\Models\Employee;
 use App\Models\EmployeeCalendarAssignment;
+use App\Models\AttendanceRequest;
 use App\Models\PublicHoliday;
 use App\Models\WorkCalendar;
 use App\Models\WorkScheduleDay;
@@ -115,7 +116,8 @@ class AttendanceProcessor
         ?Carbon $clockIn,
         ?Carbon $clockOut,
         ?WorkCalendar $calendar,
-        Carbon $date
+        Carbon $date,
+        ?Employee $employee = null
     ): array {
         // No calendar → cannot compute; treat as OFF
         if (!$calendar) {
@@ -137,6 +139,54 @@ class AttendanceProcessor
         $buildingId = $calendar->building_id;
         if ($this->isPublicHoliday($date, $buildingId)) {
             return $this->offResult();
+        }
+
+        // Check if employee has an approved AttendanceRequest covering this date
+        if ($employee) {
+            $approvedRequest = AttendanceRequest::where('employee_id', $employee->id)
+                ->where('status', AttendanceRequest::STATUS_APPROVED)
+                ->whereDate('start_date', '<=', $date->toDateString())
+                ->whereDate('end_date', '>=', $date->toDateString())
+                ->first();
+
+            if ($approvedRequest) {
+                if ($approvedRequest->request_type === AttendanceRequest::TYPE_LEAVE) {
+                    return [
+                        'status'                 => 'LEAVE',
+                        'late_minutes'           => 0,
+                        'early_leave_minutes'    => 0,
+                        'effective_work_minutes' => 0,
+                    ];
+                }
+                if ($approvedRequest->request_type === AttendanceRequest::TYPE_SICK) {
+                    return [
+                        'status'                 => 'SICK',
+                        'late_minutes'           => 0,
+                        'early_leave_minutes'    => 0,
+                        'effective_work_minutes' => 0,
+                    ];
+                }
+                if ($approvedRequest->request_type === AttendanceRequest::TYPE_WFH) {
+                    if (!$clockIn) {
+                        return [
+                            'status'                 => 'WFH',
+                            'late_minutes'           => 0,
+                            'early_leave_minutes'    => 0,
+                            'effective_work_minutes' => 0,
+                        ];
+                    }
+                }
+                if ($approvedRequest->request_type === AttendanceRequest::TYPE_PERMISSION) {
+                    if (!$clockIn) {
+                        return [
+                            'status'                 => 'PERMISSION',
+                            'late_minutes'           => 0,
+                            'early_leave_minutes'    => 0,
+                            'effective_work_minutes' => 0,
+                        ];
+                    }
+                }
+            }
         }
 
         // Working day but no clock-in → ABSENT
@@ -213,7 +263,7 @@ class AttendanceProcessor
                 'effective_work_minutes' => $data['effective_work_minutes'] ?? 0,
             ];
         } else {
-            $computed = $this->computeStatus($clockIn, $clockOut, $calendar, $date);
+            $computed = $this->computeStatus($clockIn, $clockOut, $calendar, $date, $employee);
         }
 
         return DB::transaction(function () use ($employee, $date, $data, $calendar, $clockIn, $clockOut, $computed) {
@@ -397,7 +447,7 @@ class AttendanceProcessor
 
                 if (!$existing) {
                     $calendar = $this->resolveCalendar($employee, $date);
-                    $computed = $this->computeStatus(null, null, $calendar, $date);
+                    $computed = $this->computeStatus(null, null, $calendar, $date, $employee);
                     Attendance::create([
                         'employee_id'            => $employee->id,
                         'work_calendar_id'       => $calendar?->id,
@@ -416,6 +466,84 @@ class AttendanceProcessor
         }
 
         return $created;
+    }
+
+    /**
+     * Integrate an approved AttendanceRequest (WFH, LEAVE, PERMISSION, SICK)
+     * into Attendance daily records across its entire date range.
+     */
+    public function integrateApprovedRequest(AttendanceRequest $request): void
+    {
+        $employee = $request->employee;
+        if (!$employee) {
+            return;
+        }
+
+        $start = Carbon::parse($request->start_date)->startOfDay();
+        $end   = Carbon::parse($request->end_date)->startOfDay();
+        $cursor = $start->copy();
+
+        while ($cursor->lte($end)) {
+            $calendar = $this->resolveCalendar($employee, $cursor);
+            $scheduleDay = $calendar ? $this->resolveScheduleDay($calendar, $cursor) : null;
+            $isHoliday = $calendar ? $this->isPublicHoliday($cursor, $calendar->building_id) : false;
+
+            // Do not convert non-working days / holidays to leave/sick/WFH
+            if ($scheduleDay && $scheduleDay->is_working_day && !$isHoliday) {
+                $attendance = Attendance::where('employee_id', $employee->id)
+                    ->whereDate('attendance_date', $cursor->toDateString())
+                    ->first();
+
+                $targetStatus = match ($request->request_type) {
+                    AttendanceRequest::TYPE_LEAVE      => 'LEAVE',
+                    AttendanceRequest::TYPE_SICK       => 'SICK',
+                    AttendanceRequest::TYPE_PERMISSION => 'PERMISSION',
+                    AttendanceRequest::TYPE_WFH        => 'WFH',
+                    default                            => 'PRESENT',
+                };
+
+                $notePrefix = match ($request->request_type) {
+                    AttendanceRequest::TYPE_LEAVE      => 'Cuti: ',
+                    AttendanceRequest::TYPE_SICK       => 'Sakit: ',
+                    AttendanceRequest::TYPE_PERMISSION => 'Izin: ',
+                    AttendanceRequest::TYPE_WFH        => 'WFH: ',
+                    default                            => 'Permohonan: ',
+                };
+
+                if (!$attendance) {
+                    Attendance::create([
+                        'employee_id'            => $employee->id,
+                        'work_calendar_id'       => $calendar?->id,
+                        'attendance_date'        => $cursor->toDateString(),
+                        'status'                 => $targetStatus,
+                        'attendance_type'        => $request->request_type === AttendanceRequest::TYPE_WFH ? 'WFH' : 'OFFICE',
+                        'late_minutes'           => 0,
+                        'early_leave_minutes'    => 0,
+                        'effective_work_minutes' => 0,
+                        'clock_in_source'        => 'MANUAL',
+                        'clock_out_source'       => 'MANUAL',
+                        'notes'                  => $notePrefix . $request->reason,
+                        'created_by'             => $request->approved_by,
+                    ]);
+                } else {
+                    // Update existing row
+                    $updates = [];
+                    if (in_array($attendance->status, ['ABSENT', 'OFF'], true)) {
+                        $updates['status'] = $targetStatus;
+                    }
+                    if ($request->request_type === AttendanceRequest::TYPE_WFH) {
+                        $updates['attendance_type'] = 'WFH';
+                        if ($attendance->status === 'ABSENT') {
+                            $updates['status'] = 'WFH';
+                        }
+                    }
+                    $updates['notes'] = trim(($attendance->notes ? $attendance->notes . ' | ' : '') . $notePrefix . $request->reason);
+                    $attendance->update($updates);
+                }
+            }
+
+            $cursor->addDay();
+        }
     }
 
     /**

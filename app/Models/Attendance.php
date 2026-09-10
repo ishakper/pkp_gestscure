@@ -63,6 +63,8 @@ class Attendance extends Model
         'HALF_DAY',
         'WFH',
         'FIELD',
+        'SICK',
+        'PERMISSION',
     ];
 
     public const SOURCES = ['MANUAL', 'ACCESS_LOG', 'KIOSK', 'DEVICE', 'FIELD'];

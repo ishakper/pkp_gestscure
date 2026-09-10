@@ -197,4 +197,21 @@ Sprint 6 Follow-Up: Biometric User Provisioning & Centralized Door Sync (HR Inte
 - TARGETED_TESTS: PASS (22 tests, 94 assertions in BiometricUserProvisioningTest)
 - PHYSICAL_BIOMETRIC_PROVISIONING_E2E: DEFERRED_WITH_EVIDENCE
 
-Next: Sprint 11 WFH + Leave + Permission + Sick.
+Sprint 11: WFH + Leave + Permission + Sick.
+- WFH_REQUEST: PASS (date range, work context, Attendance integration attendance_type = WFH)
+- LEAVE_REQUEST: PASS (date range, categories, status LEAVE, excludes from ABSENT generation)
+- PERMISSION_REQUEST: PASS (full-day & partial-day time boundaries, preserved physical logs)
+- SICK_REQUEST: PASS (date range, private supporting document upload, status SICK, excludes from ABSENT generation)
+- APPROVAL_WORKFLOW: PASS (backend authoritative approval, deterministic status lifecycle SUBMITTED -> APPROVED / REJECTED / CANCELLED)
+- APPROVAL_SAFETY: PASS (anti-self-approval enforced, anti-IDOR enforced, double-approval prevention, rejection reason required)
+- ROLE_SCOPES: PASS (Super Admin & HRD org-wide; Supervisor direct reports only; Employee self-service; Building Admin & Technical Roles denied)
+- ATTENDANCE_INTEGRATION: PASS (AttendanceProcessor::integrateApprovedRequest, computeStatus recognizes approved requests, OFF_DAY unaffected)
+- PRIVATE_DOCUMENTS: PASS (private local disk, random hash naming, MIME & 5MB size validation, authorized stream/download)
+- OVERLAP_VALIDATION: PASS (conflicting active requests prevented across date ranges)
+- AUDIT_TRAIL: PASS (ActivityLog on submit, approve, reject, cancel)
+- MOBILE_FIRST_UI: PASS (Pengajuan Absensi tab, metrics cards, filter bar, modals for new request and rejection reason, status timeline badges)
+- TARGETED_TESTS: PASS (30 tests, 74 assertions in AttendanceRequestTest)
+- FULL_REGRESSION: PASS (256 tests, 1146 assertions)
+- MIGRATION_SAFETY: PASS (additive table attendance_requests, pre/post table counts verified preserved)
+
+Next: Sprint 12 Attendance Correction + Overtime.

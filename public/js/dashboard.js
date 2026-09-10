@@ -1133,6 +1133,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'assetsTab') loadAssetsData();
     if (tabId === 'attendanceTab') loadAttendanceData();
     if (tabId === 'fieldAttendanceTab') loadFieldAttendanceData();
+    if (tabId === 'attendanceRequestsTab') loadAttendanceRequestsData();
 }
 
 // ==========================================
@@ -5641,3 +5642,306 @@ async function submitFieldOverride(e) {
         if (btn) { btn.disabled = false; btn.innerText = origText; }
     }
 }
+
+// =========================================================================
+// SPRINT 11: ATTENDANCE REQUESTS (WFH, LEAVE, PERMISSION, SICK)
+// =========================================================================
+
+let attendanceRequestsCache = [];
+
+async function loadAttendanceRequestsData() {
+    const tbody = document.getElementById('attendanceRequestsTableBody');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat daftar pengajuan absensi...</td></tr>';
+
+    try {
+        // 1. Fetch Metrics
+        const metricsRes = await apiFetch('/api/v1/attendance-requests/metrics').catch(() => null);
+        if (metricsRes && metricsRes.data) {
+            const m = metricsRes.data;
+            const pEl = document.getElementById('reqMetricPending');
+            const aEl = document.getElementById('reqMetricApproved');
+            const rEl = document.getElementById('reqMetricRejected');
+            const wEl = document.getElementById('reqMetricWfh');
+            const lsEl = document.getElementById('reqMetricLeaveSick');
+
+            if (pEl) pEl.innerText = m.submitted || 0;
+            if (aEl) aEl.innerText = m.approved || 0;
+            if (rEl) rEl.innerText = m.rejected || 0;
+            if (wEl) wEl.innerText = m.wfh_count || 0;
+            if (lsEl) lsEl.innerText = (m.leave_count || 0) + (m.sick_count || 0);
+        }
+
+        // 2. Fetch Requests
+        const type = document.getElementById('reqFilterType')?.value || '';
+        const status = document.getElementById('reqFilterStatus')?.value || '';
+        const fromDate = document.getElementById('reqFilterFrom')?.value || '';
+        const toDate = document.getElementById('reqFilterTo')?.value || '';
+
+        let url = '/api/v1/attendance-requests?per_page=50';
+        if (type) url += `&request_type=${encodeURIComponent(type)}`;
+        if (status) url += `&status=${encodeURIComponent(status)}`;
+        if (fromDate) url += `&from_date=${encodeURIComponent(fromDate)}`;
+        if (toDate) url += `&to_date=${encodeURIComponent(toDate)}`;
+
+        const res = await apiFetch(url);
+        const items = res.data || [];
+        attendanceRequestsCache = items;
+
+        if (items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada data pengajuan absensi untuk filter ini.</td></tr>';
+            return;
+        }
+
+        const currentAdminId = window.APP_CONFIG?.adminId || null;
+        const currentEmpId = window.APP_CONFIG?.employeeId || null;
+        const currentRole = (window.APP_CONFIG?.role || '').toLowerCase();
+        const canManage = ['super_admin', 'hrd', 'management', 'supervisor'].includes(currentRole);
+
+        tbody.innerHTML = items.map(req => {
+            const empName = req.employee ? req.employee.name : `Emp #${req.employee_id}`;
+            const empDept = req.employee?.employee_id ? `(${req.employee.employee_id})` : '';
+
+            // Status badge
+            let badgeClass = 'status-badge';
+            let badgeLabel = req.status;
+            if (req.status === 'SUBMITTED') {
+                badgeClass += ' status-pending';
+                badgeLabel = 'Menunggu';
+            } else if (req.status === 'APPROVED') {
+                badgeClass += ' status-active';
+                badgeLabel = 'Disetujui';
+            } else if (req.status === 'REJECTED') {
+                badgeClass += ' status-expired';
+                badgeLabel = 'Ditolak';
+            } else if (req.status === 'CANCELLED') {
+                badgeClass += ' status-badge';
+                badgeLabel = 'Dibatalkan';
+            }
+
+            // Type badge
+            const typeColor = {
+                'WFH': '#3b82f6',
+                'LEAVE': '#8b5cf6',
+                'PERMISSION': '#f59e0b',
+                'SICK': '#ef4444'
+            }[req.request_type] || '#10b981';
+
+            const period = (req.start_date === req.end_date)
+                ? req.start_date
+                : `${req.start_date} s/d ${req.end_date}`;
+
+            const timeInfo = (req.start_time || req.end_time)
+                ? `${req.start_time || ''} - ${req.end_time || ''}`
+                : (req.category || '-');
+
+            // Attachment link
+            const docLink = req.attachment_path
+                ? `<a href="/api/v1/attendance-requests/${req.id}/attachment" target="_blank" class="btn-table-action" title="Unduh Dokumen">📎 Berkas</a>`
+                : '-';
+
+            // Actions
+            let actions = [];
+            const isSelf = currentEmpId && (parseInt(currentEmpId, 10) === parseInt(req.employee_id, 10));
+            if (req.status === 'SUBMITTED' && canManage && !isSelf) {
+                actions.push(`<button class="btn-table-action" style="color: var(--success);" onclick="approveAttendanceRequest(${req.id})">✓ Setujui</button>`);
+                actions.push(`<button class="btn-table-action" style="color: var(--danger);" onclick="openRejectAttendanceRequestModal(${req.id})">✕ Tolak</button>`);
+            }
+
+            if ((req.status === 'SUBMITTED' && isSelf) || (['super_admin', 'hrd'].includes(currentRole) && ['SUBMITTED', 'APPROVED'].includes(req.status))) {
+                actions.push(`<button class="btn-table-action" style="color: var(--text-muted);" onclick="cancelAttendanceRequest(${req.id})">Batal</button>`);
+            }
+
+            return `
+                <tr>
+                    <td>#${req.id}</td>
+                    <td><strong>${escapeHtml(empName)}</strong> <small style="color:var(--text-muted);">${escapeHtml(empDept)}</small></td>
+                    <td><span class="status-badge" style="background: ${typeColor}22; color: ${typeColor}; border: 1px solid ${typeColor}66;">${req.request_type}</span></td>
+                    <td>${period}</td>
+                    <td><small>${escapeHtml(timeInfo)}</small></td>
+                    <td><small title="${escapeHtml(req.reason)}">${escapeHtml(req.reason.length > 30 ? req.reason.substring(0, 30) + '...' : req.reason)}</small></td>
+                    <td>${docLink}</td>
+                    <td><span class="${badgeClass}">${badgeLabel}</span></td>
+                    <td><div style="display: flex; gap: 0.25rem;">${actions.join('') || '-'}</div></td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--danger); padding: 2rem;">Gagal memuat permohonan: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function onReqTypeChanged() {
+    const type = document.getElementById('newReqType')?.value;
+    const timeRow = document.getElementById('newReqTimeRow');
+    const catRow = document.getElementById('newReqCategoryRow');
+    const attRow = document.getElementById('newReqAttachmentRow');
+
+    if (timeRow) {
+        timeRow.style.display = (type === 'PERMISSION') ? 'flex' : 'none';
+    }
+    if (catRow) {
+        catRow.style.display = (type === 'LEAVE' || type === 'PERMISSION') ? 'block' : 'none';
+    }
+    if (attRow) {
+        attRow.style.display = (type === 'SICK' || type === 'LEAVE') ? 'block' : 'none';
+    }
+}
+
+function openNewAttendanceRequestModal() {
+    const form = document.getElementById('newAttendanceRequestForm');
+    if (form) form.reset();
+
+    const today = new Date().toISOString().split('T')[0];
+    const startEl = document.getElementById('newReqStartDate');
+    const endEl = document.getElementById('newReqEndDate');
+    if (startEl) startEl.value = today;
+    if (endEl) endEl.value = today;
+
+    onReqTypeChanged();
+    const modal = document.getElementById('newAttendanceRequestModal');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitNewAttendanceRequest(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSubmitNewReq');
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Mengirim...'; }
+
+    const form = document.getElementById('newAttendanceRequestForm');
+    const formData = new FormData();
+
+    formData.append('request_type', document.getElementById('newReqType')?.value || '');
+    formData.append('start_date', document.getElementById('newReqStartDate')?.value || '');
+    formData.append('end_date', document.getElementById('newReqEndDate')?.value || '');
+    formData.append('reason', document.getElementById('newReqReason')?.value || '');
+
+    const cat = document.getElementById('newReqCategory')?.value;
+    if (cat) formData.append('category', cat);
+
+    const startTime = document.getElementById('newReqStartTime')?.value;
+    if (startTime) formData.append('start_time', startTime);
+
+    const endTime = document.getElementById('newReqEndTime')?.value;
+    if (endTime) formData.append('end_time', endTime);
+
+    const attFile = document.getElementById('newReqAttachment')?.files[0];
+    if (attFile) formData.append('attachment', attFile);
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || localStorage.getItem('api_token') || '';
+
+        const headers = {
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        };
+        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+
+        const res = await fetch('/api/v1/attendance-requests', {
+            method: 'POST',
+            headers: headers,
+            body: formData
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success) {
+            showToast(data.message || 'Permohonan absensi berhasil dikirim.', 'success');
+            closeModal('newAttendanceRequestModal');
+            await loadAttendanceRequestsData();
+        } else {
+            showToast(data.message || (data.errors ? Object.values(data.errors).flat().join(', ') : 'Gagal mengirim permohonan.'), 'error');
+        }
+    } catch (err) {
+        showToast('Kesalahan koneksi: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+async function approveAttendanceRequest(id) {
+    if (!confirm('Konfirmasi: Setujui permohonan absensi ini?')) return;
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-requests/${id}/approve`, {
+            method: 'POST'
+        });
+        if (res.success) {
+            showToast(res.message || 'Permohonan berhasil disetujui.', 'success');
+            await loadAttendanceRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal menyetujui: ' + err.message, 'error');
+    }
+}
+
+function openRejectAttendanceRequestModal(id) {
+    const idInput = document.getElementById('rejectReqId');
+    const reasonInput = document.getElementById('rejectReasonInput');
+    if (idInput) idInput.value = id;
+    if (reasonInput) reasonInput.value = '';
+
+    const modal = document.getElementById('rejectAttendanceRequestModal');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitRejectAttendanceRequest(e) {
+    e.preventDefault();
+    const id = document.getElementById('rejectReqId')?.value;
+    const reason = document.getElementById('rejectReasonInput')?.value?.trim();
+    const btn = document.getElementById('btnSubmitRejectReq');
+
+    if (!id || !reason) {
+        showToast('Alasan penolakan wajib diisi.', 'warning');
+        return;
+    }
+
+    const origText = btn ? btn.innerText : '';
+    if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-requests/${id}/reject`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+        if (res.success) {
+            showToast(res.message || 'Permohonan berhasil ditolak.', 'success');
+            closeModal('rejectAttendanceRequestModal');
+            await loadAttendanceRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal menolak: ' + err.message, 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerText = origText; }
+    }
+}
+
+async function cancelAttendanceRequest(id) {
+    const reason = prompt('Alasan pembatalan (opsional):');
+    if (reason === null) return; // cancelled prompt
+
+    try {
+        const res = await apiFetch(`/api/v1/attendance-requests/${id}/cancel`, {
+            method: 'POST',
+            body: JSON.stringify({ reason })
+        });
+        if (res.success) {
+            showToast(res.message || 'Permohonan berhasil dibatalkan.', 'success');
+            await loadAttendanceRequestsData();
+        }
+    } catch (err) {
+        showToast('Gagal membatalkan: ' + err.message, 'error');
+    }
+}
+
+window.loadAttendanceRequestsData = loadAttendanceRequestsData;
+window.openNewAttendanceRequestModal = openNewAttendanceRequestModal;
+window.onReqTypeChanged = onReqTypeChanged;
+window.submitNewAttendanceRequest = submitNewAttendanceRequest;
+window.approveAttendanceRequest = approveAttendanceRequest;
+window.openRejectAttendanceRequestModal = openRejectAttendanceRequestModal;
+window.submitRejectAttendanceRequest = submitRejectAttendanceRequest;
+window.cancelAttendanceRequest = cancelAttendanceRequest;

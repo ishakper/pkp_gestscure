@@ -69,6 +69,9 @@ class PortalAccess
                 $perms[] = 'field_attendance.manage';
                 $perms[] = 'field_attendance.verify';
                 $perms[] = 'field_location.manage';
+                $perms[] = 'attendance_request.view';
+                $perms[] = 'attendance_request.manage';
+                $perms[] = 'attendance_request.approve';
             }
             return $perms;
         }
@@ -88,6 +91,7 @@ class PortalAccess
                 $perms[] = 'access.request';
                 $perms[] = 'attendance.view';
                 $perms[] = 'field_attendance.view';
+                $perms[] = 'attendance_request.view';
             }
             if (in_array($role, ['hrd', 'management'], true)) {
                 $perms[] = 'contract.view';
@@ -127,9 +131,12 @@ class PortalAccess
                 $perms[] = 'field_attendance.manage';
                 $perms[] = 'field_attendance.verify';
                 $perms[] = 'field_location.manage';
+                $perms[] = 'attendance_request.manage';
+                $perms[] = 'attendance_request.approve';
             }
             if (in_array($role, ['supervisor'], true)) {
                 $perms[] = 'internship.mentor';
+                $perms[] = 'attendance_request.approve';
             }
             return $perms;
         }
@@ -146,6 +153,7 @@ class PortalAccess
                 'asset.self',
                 'attendance.self',
                 'field_attendance.self',
+                'attendance_request.self',
             ];
         }
 

@@ -167,4 +167,10 @@ class Employee extends Model
     {
         return $this->hasMany(FieldAttendanceEvidence::class);
     }
+
+    // Sprint 11: WFH + Leave + Permission + Sick
+    public function attendanceRequests()
+    {
+        return $this->hasMany(AttendanceRequest::class);
+    }
 }

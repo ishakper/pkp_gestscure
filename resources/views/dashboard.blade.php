@@ -1398,6 +1398,9 @@
         @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Presensi Lapangan (GPS & Foto)" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
         @endif
+        @if(in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Pengajuan Absensi (WFH, Cuti, Izin, Sakit)" onclick="switchTab('attendanceRequestsTab', this)"><span class="nav-icon">📝</span><span class="nav-text">Pengajuan Absensi</span></button></li>
+        @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Security Access Logs" onclick="switchTab('logsTab', this)"><span class="nav-icon">📋</span><span class="nav-text">{{ ($portal ?? '') === 'ADMIN_PORTAL' ? 'Security & Audit' : 'Access Logs' }}</span></button></li>
         @endif
@@ -3208,6 +3211,192 @@
             </table>
         </div>
     </section>
+
+    <!-- ===================================================================== -->
+    <!-- SPRINT 11: WFH + LEAVE + PERMISSION + SICK (ATTENDANCE REQUESTS) -->
+    <!-- ===================================================================== -->
+    <section class="tab-content" id="attendanceRequestsTab">
+        <div class="content-header">
+            <div>
+                <h2>📝 Pengajuan Absensi & Izin Kerja</h2>
+                <p class="section-desc">Pusat permohonan WFH, Cuti, Izin, dan Sakit terintegrasi dengan Attendance Core & Dokumen Privat.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <button class="btn-secondary" onclick="loadAttendanceRequestsData()">🔄 Refresh</button>
+                <button class="btn-primary" onclick="openNewAttendanceRequestModal()">➕ Buat Pengajuan Baru</button>
+            </div>
+        </div>
+
+        <!-- METRICS COUNTERS -->
+        <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 1.5rem;">
+            <div class="metric-card">
+                <div class="metric-title">Menunggu Persetujuan</div>
+                <div class="metric-value" style="color: var(--warning, #f59e0b);" id="reqMetricPending">0</div>
+                <div class="metric-sub">Pending review</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Disetujui</div>
+                <div class="metric-value" style="color: var(--success, #10b981);" id="reqMetricApproved">0</div>
+                <div class="metric-sub">Approved exceptions</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Ditolak</div>
+                <div class="metric-value" style="color: var(--danger, #ef4444);" id="reqMetricRejected">0</div>
+                <div class="metric-sub">Rejected requests</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">WFH Aktif</div>
+                <div class="metric-value" style="color: var(--primary, #3b82f6);" id="reqMetricWfh">0</div>
+                <div class="metric-sub">Work From Home</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-title">Cuti & Sakit</div>
+                <div class="metric-value" style="color: #a855f7;" id="reqMetricLeaveSick">0</div>
+                <div class="metric-sub">Leave & Sick days</div>
+            </div>
+        </div>
+
+        <!-- FILTER BAR -->
+        <div class="glass-panel" style="padding: 1rem; margin-bottom: 1.25rem; display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Tipe Permohonan</label>
+                <select id="reqFilterType" class="form-control" onchange="loadAttendanceRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;">
+                    <option value="">Semua Tipe</option>
+                    <option value="WFH">WFH (Work From Home)</option>
+                    <option value="LEAVE">Cuti (Annual/Unpaid)</option>
+                    <option value="PERMISSION">Izin (Permission)</option>
+                    <option value="SICK">Sakit (Sick Leave)</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Status</label>
+                <select id="reqFilterStatus" class="form-control" onchange="loadAttendanceRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;">
+                    <option value="">Semua Status</option>
+                    <option value="SUBMITTED">Menunggu Persetujuan</option>
+                    <option value="APPROVED">Disetujui</option>
+                    <option value="REJECTED">Ditolak</option>
+                    <option value="CANCELLED">Dibatalkan</option>
+                </select>
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Dari Tanggal</label>
+                <input type="date" id="reqFilterFrom" class="form-control" onchange="loadAttendanceRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+            <div style="flex: 1; min-width: 140px;">
+                <label style="display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.35rem;">Sampai Tanggal</label>
+                <input type="date" id="reqFilterTo" class="form-control" onchange="loadAttendanceRequestsData()" style="width: 100%; background: var(--bg-base); border: 1px solid var(--border-color); color: #fff; padding: 0.5rem; border-radius: 0.5rem;" />
+            </div>
+        </div>
+
+        <!-- DATA TABLE -->
+        <div class="table-responsive glass-panel">
+            <table class="data-table" id="attendanceRequestsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Karyawan</th>
+                        <th>Tipe</th>
+                        <th>Periode</th>
+                        <th>Jam / Ket</th>
+                        <th>Alasan</th>
+                        <th>Dokumen</th>
+                        <th>Status</th>
+                        <th>Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="attendanceRequestsTableBody">
+                    <tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat daftar pengajuan absensi...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- MODAL: NEW ATTENDANCE REQUEST -->
+    <div class="modal-overlay" id="newAttendanceRequestModal">
+        <div class="modal-card" style="max-width: 550px;">
+            <div class="modal-header">
+                <h3 class="modal-title">📝 Buat Pengajuan Absensi Baru</h3>
+                <button class="modal-close-btn" onclick="closeModal('newAttendanceRequestModal')">✖</button>
+            </div>
+            <form id="newAttendanceRequestForm" onsubmit="submitNewAttendanceRequest(event)">
+                <div class="form-row">
+                    <label>Tipe Permohonan *</label>
+                    <select id="newReqType" required onchange="onReqTypeChanged()" class="form-control" style="width: 100%;">
+                        <option value="WFH">WFH — Work From Home</option>
+                        <option value="LEAVE">LEAVE — Cuti Tahunan / Khusus</option>
+                        <option value="PERMISSION">PERMISSION — Izin (Keterlambatan/Pulang Awal/Keperluan)</option>
+                        <option value="SICK">SICK — Sakit (Disertai Surat Dokter)</option>
+                    </select>
+                </div>
+
+                <div class="form-row" id="newReqCategoryRow">
+                    <label>Kategori Khusus (Opsional)</label>
+                    <input type="text" id="newReqCategory" placeholder="Misal: ANNUAL, MATERNITY, LATE_ARRIVAL, EARLY_DEPARTURE" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; gap: 0.75rem;" class="form-row">
+                    <div style="flex: 1;">
+                        <label>Tanggal Mulai *</label>
+                        <input type="date" id="newReqStartDate" required class="form-control" style="width: 100%;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Tanggal Selesai *</label>
+                        <input type="date" id="newReqEndDate" required class="form-control" style="width: 100%;" />
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 0.75rem;" class="form-row" id="newReqTimeRow">
+                    <div style="flex: 1;">
+                        <label>Jam Mulai (Khusus Izin Jam Kerja)</label>
+                        <input type="time" id="newReqStartTime" class="form-control" style="width: 100%;" />
+                    </div>
+                    <div style="flex: 1;">
+                        <label>Jam Selesai</label>
+                        <input type="time" id="newReqEndTime" class="form-control" style="width: 100%;" />
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <label>Alasan Permohonan *</label>
+                    <textarea id="newReqReason" required minlength="5" rows="3" class="form-control" style="width: 100%;" placeholder="Jelaskan keperluan atau keterangan permohonan..."></textarea>
+                </div>
+
+                <div class="form-row" id="newReqAttachmentRow">
+                    <label>Dokumen Pendukung (Surat Dokter / Bukti, maks 5MB, PDF/JPG/PNG)</label>
+                    <input type="file" id="newReqAttachment" accept=".pdf,.jpg,.jpeg,.png,.webp" class="form-control" style="width: 100%;" />
+                </div>
+
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('newAttendanceRequestModal')">Batal</button>
+                    <button type="submit" class="btn-primary" id="btnSubmitNewReq">Kirim Permohonan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: REJECT REASON -->
+    <div class="modal-overlay" id="rejectAttendanceRequestModal">
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title">❌ Tolak Pengajuan Absensi</h3>
+                <button class="modal-close-btn" onclick="closeModal('rejectAttendanceRequestModal')">✖</button>
+            </div>
+            <form id="rejectAttendanceRequestForm" onsubmit="submitRejectAttendanceRequest(event)">
+                <input type="hidden" id="rejectReqId" />
+                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Berikan alasan penolakan secara jelas. Karyawan akan melihat catatan ini pada timeline status permohonan.
+                </p>
+                <div class="form-row">
+                    <label>Alasan Penolakan *</label>
+                    <textarea id="rejectReasonInput" required minlength="3" rows="3" class="form-control" style="width: 100%;" placeholder="Contoh: Jadwal bertabrakan dengan agenda audit pabrik..."></textarea>
+                </div>
+                <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('rejectAttendanceRequestModal')">Batal</button>
+                    <button type="submit" class="btn-primary" style="background: var(--danger); border-color: var(--danger);" id="btnSubmitRejectReq">Tolak Permohonan</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- MODAL: PHOTO VIEWER (SECURE PRIVATE STREAM) -->
     <div class="modal-overlay" id="fieldPhotoModal">

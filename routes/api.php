@@ -244,6 +244,18 @@ Route::prefix('v1')->group(function () {
             Route::get('/records/{id}/photo', [\App\Http\Controllers\Api\V1\FieldAttendanceController::class, 'downloadPhoto']);
         });
 
+        // Sprint 11: WFH + Leave + Permission + Sick (Attendance Requests)
+        Route::prefix('attendance-requests')->group(function () {
+            Route::get('/', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'index']);
+            Route::post('/', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'store']);
+            Route::get('/metrics', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'metrics']);
+            Route::get('/{id}', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'show']);
+            Route::post('/{id}/approve', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'approve']);
+            Route::post('/{id}/reject', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'reject']);
+            Route::post('/{id}/cancel', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'cancel']);
+            Route::get('/{id}/attachment', [\App\Http\Controllers\Api\V1\AttendanceRequestController::class, 'attachment']);
+        });
+
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
         Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent']);
     });
