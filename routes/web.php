@@ -58,7 +58,7 @@ Route::middleware(['auth'])->group(function () {
         $apiToken = session('api_token');
         $admin = Auth::user();
         $doorsQuery = \App\Models\Door::withCount(['employees', 'doorAssignments']);
-        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
+        if ($admin instanceof Admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
             $doorsQuery->where('location', $admin->assigned_building);
         }
         $doors = $doorsQuery->get();
