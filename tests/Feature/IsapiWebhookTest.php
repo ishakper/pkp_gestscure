@@ -486,4 +486,45 @@ XML;
 
         $this->assertEquals($countBefore, AccessLog::count(), 'AccessLog should not duplicate');
     }
+
+    public function test_native_physical_device_is_allowed_only_by_exact_door_ip_without_credentials(): void
+    {
+        Log::spy();
+
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+                'access_status' => 'Granted',
+            ])->assertStatus(200);
+
+        Log::shouldHaveReceived('info')
+            ->with('[ISAPI Webhook] Physical device authenticated', \Mockery::on(fn (array $context) =>
+                $context === [
+                    'auth_mode' => 'physical_ip_bound',
+                    'door_id' => 'DOOR-A',
+                    'ip' => '192.168.90.11',
+                ]
+            ))
+            ->once();
+    }
+
+    public function test_invalid_authorization_header_cannot_downgrade_to_physical_ip_auth(): void
+    {
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->withHeader('Authorization', 'Bearer invalid-token')
+            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+                'door_id' => 'DOOR-A',
+                'user' => 'NIK-882101',
+            ])->assertStatus(403);
+    }
+
+    public function test_physical_ip_auth_requires_claimed_existing_door(): void
+    {
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
+            ->postJson('/api/v1/isapi/event-notification?door_id=UNKNOWN-DOOR', [
+                'door_id' => 'UNKNOWN-DOOR',
+                'user' => 'NIK-882101',
+            ])->assertStatus(403);
+    }
 }

@@ -54,6 +54,7 @@ class VerifyDeviceWebhook
         // 2. Strict Authorization Header & Device Secret Validation
         $secretHeader = $request->header('X-Device-Secret');
         $authHeader = $request->header('Authorization');
+        $credentialProvided = $secretHeader !== null || $authHeader !== null;
 
         $claimedDoorId = $request->query('door_id', $request->input('door_id'));
         $claimedDoor = $claimedDoorId
@@ -67,7 +68,7 @@ class VerifyDeviceWebhook
             ], 403);
         }
         $validSecrets = array_filter([
-            $claimedDoor ? config("services.doors.{$claimedDoor->door_id}.webhook_secret") : null,
+            config("services.doors.{$claimedDoor->door_id}.webhook_secret"),
             config('services.hikvision.device_secret'),
         ]);
 
@@ -90,17 +91,32 @@ class VerifyDeviceWebhook
             }
         }
 
-        $hasSecretProvided = ($isSecretValid || $isTokenValid);
+        $isPhysicalIpBound = !$credentialProvided
+            && $request->isMethod('POST')
+            && $request->is('api/v1/isapi/event-notification')
+            && $claimedDoorId === $claimedDoor->door_id
+            && !empty($claimedDoor->device_ip)
+            && $request->server('REMOTE_ADDR') === $claimedDoor->device_ip
+            && $clientIp === $claimedDoor->device_ip;
 
-        if (!$hasSecretProvided) {
+        if (!$isSecretValid && !$isTokenValid && !$isPhysicalIpBound) {
             \Illuminate\Support\Facades\Log::warning('[ISAPI Webhook] Unauthorized request or unrecognized device IP', [
                 'ip' => $clientIp,
+                'door_id' => $claimedDoor->door_id,
             ]);
             return response()->json([
                 'status' => 'error',
                 'code' => 403,
                 'message' => 'Akses ditolak: Kredensial otentikasi terminal hardware (X-Device-Secret atau Bearer Token) tidak valid atau hilang.',
             ], 403);
+        }
+
+        if ($isPhysicalIpBound) {
+            \Illuminate\Support\Facades\Log::info('[ISAPI Webhook] Physical device authenticated', [
+                'auth_mode' => 'physical_ip_bound',
+                'door_id' => $claimedDoor->door_id,
+                'ip' => $clientIp,
+            ]);
         }
 
         return $next($request);
