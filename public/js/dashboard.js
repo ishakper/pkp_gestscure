@@ -1043,9 +1043,21 @@ function renderAccessLogsTable(logs) {
             : '-';
 
         const safeTime = escapeHtml(timestampStr);
-        const attendanceResult = log.attendance
-            ? `${escapeHtml(log.attendance.result || 'Evidence only')}${log.attendance.direction ? ` · ${escapeHtml(log.attendance.direction)}` : ''}`
-            : 'Not derived';
+        const attendanceStatus = log.attendance?.result || 'NOT_DERIVED';
+        const attendanceClasses = {
+            PRESENT: 'badge-success',
+            LATE: 'badge-pending',
+            ABSENT: 'badge-danger',
+            OFF: 'badge-dim',
+            LEAVE: 'badge-info',
+            NOT_DERIVED: 'badge-neutral',
+        };
+        const attendanceLabel = attendanceStatus === 'NOT_DERIVED'
+            ? (rawStatus === 'Denied' ? 'Ditolak' : 'Belum diproses')
+            : attendanceStatus;
+        const attendanceResult =
+            `<span class="badge ${attendanceClasses[attendanceStatus] || 'badge-info'}">${escapeHtml(attendanceLabel)}</span>` +
+            `${log.attendance?.direction ? ` <small class="text-muted">${escapeHtml(log.attendance.direction)}</small>` : ''}`;
         const safeNik = escapeHtml(log.user?.nik || log.nik || 'Employee belum terpetakan');
         const safeName = escapeHtml(log.user?.name || 'Employee belum terpetakan');
         const safeDoor = escapeHtml(log.door_id || '-');
