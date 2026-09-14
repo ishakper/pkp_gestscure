@@ -320,6 +320,8 @@ class FieldAttendanceTest extends TestCase
 
     public function test_field_checkout_requires_prior_checkin_and_computes_work_duration(): void
     {
+        Carbon::setTestNow('2026-09-10 08:00:00');
+
         $emp = $this->createEmployee();
         $admin = $this->createAdminForEmployee($emp, 'employee');
         $this->createAssignment($emp, $this->location);
@@ -336,7 +338,6 @@ class FieldAttendanceTest extends TestCase
             ])->assertStatus(422);
 
         // Now check-in at 08:00
-        Carbon::setTestNow('2026-09-10 08:00:00');
         $photoIn = UploadedFile::fake()->create('checkin.jpg', 100, 'image/jpeg');
         $this->actingAs($admin)
             ->postJson('/api/v1/field-attendance/check-in', [
