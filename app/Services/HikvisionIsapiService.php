@@ -408,6 +408,65 @@ class HikvisionIsapiService
     }
 
     /**
+     * Read device user metadata without biometric templates or credential material.
+     */
+    public function fetchUsers(Door $door, int $limit = 100): array
+    {
+        if ($this->isMockMode()) {
+            return ['status' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'Device user inventory requires --real mode.'];
+        }
+
+        $url = $this->buildUrl('/AccessControl/UserInfo/Search?format=json', $door);
+        $payload = ['UserInfoSearchCond' => [
+            'searchID' => (string) Str::uuid(),
+            'searchResultPosition' => 0,
+            'maxResults' => max(1, min($limit, 1000)),
+        ]];
+
+        try {
+            $response = $this->buildHttpClient($door)->post($url, $payload);
+            $json = $response->json() ?? [];
+            if (!$response->successful()) {
+                $error = $json['ResponseStatus'] ?? $json;
+                $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                    || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+
+                return [
+                    'status' => false,
+                    'unsupported' => $unsupported,
+                    'total_device_matches' => 0,
+                    'inspected_users' => 0,
+                    'users' => [],
+                    'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
+                ];
+            }
+
+            $container = $json['UserInfoSearch'] ?? $json;
+            $rows = $container['UserInfo'] ?? [];
+            if (isset($rows['employeeNo'])) {
+                $rows = [$rows];
+            }
+            $users = array_map(static fn (array $user): array => [
+                'employee_no' => (string) ($user['employeeNo'] ?? ''),
+                'name' => (string) ($user['name'] ?? ''),
+                'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
+                'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
+            ], array_filter($rows, 'is_array'));
+
+            return [
+                'status' => true,
+                'total_device_matches' => (int) ($container['totalMatches'] ?? count($users)),
+                'inspected_users' => count($users),
+                'users' => $users,
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI fetchUsers failed ({$url}): " . $e->getMessage());
+            return ['status' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'ISAPI user inventory request failed.'];
+        }
+    }
+
+    /**
      * Fetch access events / tap logs from /AccessControl/AcsEvent (POST).
      * In mock mode, directly invokes HikvisionMockController.
      */
@@ -474,45 +533,43 @@ class HikvisionIsapiService
         $url = $this->buildUrl('/AccessControl/AcsEvent', $door);
 
         try {
-            $response = $this->buildHttpClient($door)->post($url, $payload);
+            $client = $this->buildHttpClient($door);
+            $response = $client->post($url, $payload);
             $json = $response->json() ?? [];
 
             if ($response->successful()) {
-                $rawList = $json['AcsEvent']['InfoList'] ?? ($json['events'] ?? ($json['InfoList'] ?? []));
-                $formattedEvents = [];
+                return $this->formatSuccessfulEventsResponse($json);
+            }
 
-                foreach ($rawList as $item) {
-                    $formattedEvents[] = [
-                        'major' => $item['major'] ?? null,
-                        'minor' => $item['minor'] ?? null,
-                        'time' => $item['time'] ?? now()->toIso8601String(),
-                        'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
-                        'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
-                        'name' => $item['name'] ?? null,
-                        'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
-                        'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
-                        'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
-                        'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
-                    ];
+            $error = $json['ResponseStatus'] ?? $json;
+            $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+            $requiresJsonFormat = $response->status() === 400 && (
+                str_contains($response->body(), '0x60000001')
+                || strcasecmp((string) ($error['subStatusCode'] ?? ''), 'badXmlFormat') === 0
+                || strcasecmp((string) ($error['errorMsg'] ?? ''), '0x50000001') === 0
+            );
+
+            if (!$unsupported && $requiresJsonFormat) {
+                $response = $client->post($url . '?format=json', $payload);
+                $json = $response->json() ?? [];
+                if ($response->successful()) {
+                    return $this->formatSuccessfulEventsResponse($json);
                 }
 
-                return [
-                    'status' => true,
-                    'statusCode' => 1,
-                    'total' => count($formattedEvents),
-                    'events' => $formattedEvents,
-                    'data' => $json,
-                    'error' => null,
-                ];
+                $error = $json['ResponseStatus'] ?? $json;
+                $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                    || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
             }
 
             return [
                 'status' => false,
+                'unsupported' => $unsupported,
                 'statusCode' => $response->status(),
                 'total' => 0,
                 'events' => [],
                 'data' => $json,
-                'error' => "HTTP {$response->status()}: " . ($json['errorMsg'] ?? $response->body()),
+                'error' => $unsupported ? 'Device event search unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $response->body()),
             ];
         } catch (\Throwable $e) {
             Log::error("ISAPI fetchEvents failed ({$url}): " . $e->getMessage());
@@ -525,6 +582,37 @@ class HikvisionIsapiService
                 'error' => "ISAPI Connection Error: " . $e->getMessage(),
             ];
         }
+    }
+
+    private function formatSuccessfulEventsResponse(array $json): array
+    {
+        $container = $json['AcsEvent'] ?? $json;
+        $rawList = $container['InfoList'] ?? ($json['events'] ?? []);
+        if (isset($rawList['employeeNoString']) || isset($rawList['employeeNo'])) {
+            $rawList = [$rawList];
+        }
+        $events = array_map(static fn (array $item): array => [
+            'major' => $item['major'] ?? null,
+            'minor' => $item['minor'] ?? null,
+            'time' => $item['time'] ?? now()->toIso8601String(),
+            'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
+            'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
+            'name' => $item['name'] ?? null,
+            'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
+            'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
+            'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
+            'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
+        ], array_filter($rawList, 'is_array'));
+
+        return [
+            'status' => true,
+            'statusCode' => 1,
+            'total' => count($events),
+            'total_device_matches' => (int) ($container['totalMatches'] ?? count($events)),
+            'events' => $events,
+            'data' => $json,
+            'error' => null,
+        ];
     }
 
     /**

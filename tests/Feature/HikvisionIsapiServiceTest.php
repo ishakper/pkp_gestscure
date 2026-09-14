@@ -345,6 +345,118 @@ XML;
         $this->assertStringContainsString('Device busy', $result['error']);
     }
 
+    public function test_fetch_events_identifies_legacy_not_support_response(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*/AccessControl/AcsEvent' => Http::response([
+            'ResponseStatus' => ['subStatusCode' => 'notSupport', 'errorCode' => '0x40000001'],
+        ], 400)]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertTrue($result['unsupported']);
+        $this->assertSame('Device event search unsupported.', $result['error']);
+    }
+
+    public function test_fetch_events_probes_bad_xml_format_once_and_returns_successful_json_events(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/AcsEvent?format=json' => Http::response([
+                'AcsEvent' => [
+                    'numOfMatches' => 1,
+                    'totalMatches' => 22762,
+                    'InfoList' => ['employeeNoString' => 'EMP-001', 'verifyMethod' => 'Card'],
+                ],
+            ], 200),
+            '*/AccessControl/AcsEvent' => Http::response([
+                'ResponseStatus' => ['statusString' => 'Invalid Format', 'subStatusCode' => 'badXmlFormat', 'errorMsg' => '0x50000001'],
+            ], 400),
+        ]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame(1, $result['total']);
+        $this->assertSame(22762, $result['total_device_matches']);
+        $this->assertSame('EMP-001', $result['events'][0]['employee_no']);
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/AccessControl/AcsEvent?format=json'));
+    }
+
+    public function test_fetch_events_returns_successful_probe_for_opaque_legacy_failure(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/AcsEvent?format=json' => Http::response([
+                'AcsEvent' => ['totalMatches' => 1, 'InfoList' => [['employeeNoString' => 'EMP-002']]],
+            ], 200),
+            '*/AccessControl/AcsEvent' => Http::response(['errorCode' => '0x60000001'], 400),
+        ]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame('EMP-002', $result['events'][0]['employee_no']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_events_probe_failure_returns_probe_error(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/AcsEvent?format=json' => Http::response(['errorMsg' => 'Probe device busy.'], 503),
+            '*/AccessControl/AcsEvent' => Http::response(['errorCode' => '0x60000001'], 400),
+        ]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertSame(503, $result['statusCode']);
+        $this->assertSame('HTTP 503: Probe device busy.', $result['error']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_events_probes_opaque_legacy_failure_once_and_identifies_unsupported(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/AcsEvent?format=json' => Http::response([
+                'ResponseStatus' => ['subStatusCode' => 'notSupport', 'errorCode' => '0x40000001'],
+            ], 400),
+            '*/AccessControl/AcsEvent' => Http::response(['errorCode' => '0x60000001'], 400),
+        ]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertTrue($result['unsupported']);
+        $this->assertSame('Device event search unsupported.', $result['error']);
+        Http::assertSentCount(2);
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/AccessControl/AcsEvent'));
+        Http::assertSent(fn ($request) => $request->method() === 'POST'
+            && str_ends_with($request->url(), '/AccessControl/AcsEvent?format=json'));
+    }
+
+    public function test_fetch_events_does_not_globally_classify_opaque_legacy_code_as_unsupported(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*/AccessControl/AcsEvent' => Http::response([
+            'errorCode' => '0x60000001',
+            'errorMsg' => 'Device busy processing another search.',
+        ], 503)]);
+
+        $result = $this->service->fetchEvents(10, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertFalse($result['unsupported']);
+        $this->assertStringContainsString('Device busy', $result['error']);
+        Http::assertSentCount(1);
+    }
+
     /**
      * Test setUser and pingDevice backward compatibility.
      */
