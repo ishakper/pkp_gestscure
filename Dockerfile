@@ -3,7 +3,7 @@
 # Based on PHP 8.2 FPM Alpine + Nginx + Supervisord
 # ==============================================================================
 
-FROM php:8.2-fpm-alpine
+FROM php:8.2-fpm-alpine AS base
 
 # Set build & runtime environment
 ENV TZ=Asia/Jakarta
@@ -43,6 +43,18 @@ COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 
 # Set working directory
 WORKDIR /var/www/html
+
+# Verification-only target with dev dependencies and CLI entrypoint.
+# Build using: docker build --target verification -t pkp-securegate-verify:<sha> .
+FROM base AS verification
+COPY composer.json composer.lock ./
+RUN composer install --prefer-dist --no-interaction --no-scripts
+COPY . .
+RUN composer dump-autoload --optimize
+ENTRYPOINT ["php"]
+CMD ["artisan", "--version"]
+
+FROM base AS production
 
 # 4. Copy Composer Manifests & Install Dependencies First (Layer Caching)
 COPY composer.json composer.lock ./

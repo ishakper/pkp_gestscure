@@ -79,7 +79,7 @@ build_docker:
     - validate_syntax
   script:
     - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
-    - docker build -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
+    - docker build --target production -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
         echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" || true
@@ -88,6 +88,23 @@ build_docker:
         docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
         docker push "${CI_REGISTRY_IMAGE}:latest" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
       fi
+
+build_verification_image:
+  stage: build
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - validate_composer
+    - validate_syntax
+  script:
+    - echo "Building verification-only image with dev dependencies..."
+    - docker build --target verification -t pkp-securegate-verify:${IMAGE_TAG} .
+    - docker run --rm --network none pkp-securegate-verify:${IMAGE_TAG} -v
+    - docker run --rm --network none --entrypoint composer pkp-securegate-verify:${IMAGE_TAG} --version
+    - docker run --rm --network none pkp-securegate-verify:${IMAGE_TAG} artisan --version
+    - docker run --rm --network none --entrypoint sh pkp-securegate-verify:${IMAGE_TAG} -c 'test -x vendor/bin/phpunit'
 
 # ------------------------------------------------------------------------------
 # Stage 3: Automated Quality Test Suite (Clean Container)
@@ -99,11 +116,10 @@ test_suite:
   rules:
     - if: $CI_COMMIT_BRANCH
   needs:
-    - build_docker
+    - build_verification_image
   script:
-    - echo "Executing full automated feature & regression test suite in clean container..."
-    - docker run --rm --entrypoint /bin/sh -v "$(pwd):/var/www/html" -w /var/www/html -e APP_ENV=testing pkp-securegate:${IMAGE_TAG} -c "composer install --prefer-dist --no-interaction && php artisan test --colors=never"
-    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
+    - echo "Executing full automated feature & regression test suite in verification image..."
+    - docker run --rm --network none -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
   artifacts:
     when: on_failure
     expire_in: 3 days
