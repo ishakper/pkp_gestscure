@@ -342,7 +342,8 @@ XML;
         $this->assertEquals(503, $result['statusCode']);
         $this->assertEquals(0, $result['total']);
         $this->assertEmpty($result['events']);
-        $this->assertStringContainsString('Device busy', $result['error']);
+        $this->assertSame('HTTP 503: Device event search failed.', $result['error']);
+        $this->assertNull($result['data']);
     }
 
     public function test_fetch_events_identifies_legacy_not_support_response(): void
@@ -415,7 +416,8 @@ XML;
 
         $this->assertFalse($result['status']);
         $this->assertSame(503, $result['statusCode']);
-        $this->assertSame('HTTP 503: Probe device busy.', $result['error']);
+        $this->assertSame('HTTP 503: Device event search failed.', $result['error']);
+        $this->assertNull($result['data']);
         Http::assertSentCount(2);
     }
 
@@ -453,7 +455,8 @@ XML;
 
         $this->assertFalse($result['status']);
         $this->assertFalse($result['unsupported']);
-        $this->assertStringContainsString('Device busy', $result['error']);
+        $this->assertSame('HTTP 503: Device event search failed.', $result['error']);
+        $this->assertNull($result['data']);
         Http::assertSentCount(1);
     }
 

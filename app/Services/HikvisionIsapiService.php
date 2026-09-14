@@ -568,8 +568,8 @@ class HikvisionIsapiService
                 'statusCode' => $response->status(),
                 'total' => 0,
                 'events' => [],
-                'data' => $json,
-                'error' => $unsupported ? 'Device event search unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $response->body()),
+                'data' => null,
+                'error' => $unsupported ? 'Device event search unsupported.' : "HTTP {$response->status()}: Device event search failed.",
             ];
         } catch (\Throwable $e) {
             Log::error("ISAPI fetchEvents failed ({$url}): " . $e->getMessage());
