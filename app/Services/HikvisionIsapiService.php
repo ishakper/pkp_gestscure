@@ -425,72 +425,45 @@ class HikvisionIsapiService
 
         try {
             $client = $this->buildHttpClient($door);
-<<<<<<< HEAD
-            $response = $client->post($url, $payload);
-            $json = $response->json() ?? [];
-
-            if (!$response->successful()) {
-                $error = $json['ResponseStatus'] ?? $json;
-                $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
-                    || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
-
-                // Some legacy Hikvision terminals return an opaque 0x60000001
-                // for the JSON-formatted user search. Probe the legacy endpoint
-                // exactly once before deciding whether the directory is unsupported.
-                $requiresCompatibilityProbe = $response->status() === 400
-                    && str_contains($response->body(), '0x60000001');
-
-                if (!$unsupported && $requiresCompatibilityProbe) {
-                    $compatUrl = $this->buildUrl('/AccessControl/UserInfo/Search', $door);
-                    $response = $client->post($compatUrl, $payload);
-                    $json = $response->json() ?? [];
-
-                    if (!$response->successful()) {
-                        $error = $json['ResponseStatus'] ?? $json;
-                        $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
-                            || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
-                    }
-                }
-
-                if (!$response->successful()) {
-                    $error = $json['ResponseStatus'] ?? $json;
-
-                    return [
-                        'status' => false,
-                        'unsupported' => $unsupported,
-                        'total_device_matches' => 0,
-                        'inspected_users' => 0,
-                        'users' => [],
-                        'error' => $unsupported
-                            ? 'User directory unsupported.'
-                            : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
-                    ];
-                }
-            }
-=======
+            $compatibilityProbed = false;
 
             while (count($users) < $limit) {
-                $response = $client->post($url, ['UserInfoSearchCond' => [
+                $payload = ['UserInfoSearchCond' => [
                     'searchID' => $searchId,
                     'searchResultPosition' => $position,
                     'maxResults' => 10,
-                ]]);
+                ]];
+                $response = $client->post($url, $payload);
                 $json = $response->json() ?? [];
->>>>>>> c26d3c0 (fix(hikvision): support compatible user inventory pagination)
 
                 if (!$response->successful()) {
                     $error = $json['ResponseStatus'] ?? $json;
                     $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
                         || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+                    $requiresCompatibilityProbe = !$compatibilityProbed
+                        && !$unsupported
+                        && $response->status() === 400
+                        && str_contains($response->body(), '0x60000001');
 
-                    return [
-                        'status' => false,
-                        'unsupported' => $unsupported,
-                        'total_device_matches' => 0,
-                        'inspected_users' => 0,
-                        'users' => [],
-                        'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
-                    ];
+                    if ($requiresCompatibilityProbe) {
+                        $compatibilityProbed = true;
+                        $response = $client->post($this->buildUrl('/AccessControl/UserInfo/Search', $door), $payload);
+                        $json = $response->json() ?? [];
+                        $error = $json['ResponseStatus'] ?? $json;
+                        $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                            || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+                    }
+
+                    if (!$response->successful()) {
+                        return [
+                            'status' => false,
+                            'unsupported' => $unsupported,
+                            'total_device_matches' => 0,
+                            'inspected_users' => 0,
+                            'users' => [],
+                            'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
+                        ];
+                    }
                 }
 
                 $container = $json['UserInfoSearch'] ?? $json;
@@ -521,6 +494,7 @@ class HikvisionIsapiService
 
             return [
                 'status' => true,
+                'unsupported' => false,
                 'total_device_matches' => $totalMatches,
                 'inspected_users' => count($users),
                 'users' => $users,
@@ -528,7 +502,7 @@ class HikvisionIsapiService
             ];
         } catch (\Throwable $e) {
             Log::error("ISAPI fetchUsers failed ({$url}): " . $e->getMessage());
-            return ['status' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'ISAPI user inventory request failed.'];
+            return ['status' => false, 'unsupported' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'ISAPI user inventory request failed.'];
         }
     }
 
