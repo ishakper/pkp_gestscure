@@ -209,6 +209,93 @@ class HikvisionInventoryTest extends TestCase
             && !str_contains($request->url(), 'RemoteControl'));
     }
 
+    public function test_fetch_users_probes_legacy_compatibility_once(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search')) {
+                return Http::response([
+                    'UserInfoSearch' => [
+                        'totalMatches' => 1,
+                        'UserInfo' => [[
+                            'employeeNo' => 'DEVICE-001',
+                            'name' => 'Compatibility User',
+                            'Valid' => ['enable' => true],
+                            'numOfCard' => 0,
+                        ]],
+                    ],
+                ], 200);
+            }
+
+            return Http::response([], 500);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame(1, $result['total_device_matches']);
+        $this->assertSame('DEVICE-001', $result['users'][0]['employee_no']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_users_marks_not_support_after_compatibility_probe(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            return Http::response([
+                'ResponseStatus' => [
+                    'subStatusCode' => 'notSupport',
+                    'errorCode' => '0x40000001',
+                ],
+            ], 400);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertFalse($result['status']);
+        $this->assertTrue($result['unsupported']);
+        $this->assertSame('User directory unsupported.', $result['error']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_users_does_not_globally_classify_0x60000001_as_unsupported(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            return Http::response([
+                'ResponseStatus' => [
+                    'statusString' => 'Device Busy',
+                    'errorMsg' => 'Compatibility probe failed.',
+                ],
+            ], 503);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertFalse($result['status']);
+        $this->assertFalse($result['unsupported']);
+        $this->assertStringContainsString('Compatibility probe failed.', $result['error']);
+        Http::assertSentCount(2);
+    }
+
     public function test_accesslog_fallback_is_deduplicated_scoped_safe_and_read_only(): void
     {
         Config::set('services.hikvision.use_mock', false);

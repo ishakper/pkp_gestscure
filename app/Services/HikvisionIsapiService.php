@@ -424,21 +424,47 @@ class HikvisionIsapiService
         ]];
 
         try {
-            $response = $this->buildHttpClient($door)->post($url, $payload);
+            $client = $this->buildHttpClient($door);
+            $response = $client->post($url, $payload);
             $json = $response->json() ?? [];
+
             if (!$response->successful()) {
                 $error = $json['ResponseStatus'] ?? $json;
                 $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
                     || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
 
-                return [
-                    'status' => false,
-                    'unsupported' => $unsupported,
-                    'total_device_matches' => 0,
-                    'inspected_users' => 0,
-                    'users' => [],
-                    'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
-                ];
+                // Some legacy Hikvision terminals return an opaque 0x60000001
+                // for the JSON-formatted user search. Probe the legacy endpoint
+                // exactly once before deciding whether the directory is unsupported.
+                $requiresCompatibilityProbe = $response->status() === 400
+                    && str_contains($response->body(), '0x60000001');
+
+                if (!$unsupported && $requiresCompatibilityProbe) {
+                    $compatUrl = $this->buildUrl('/AccessControl/UserInfo/Search', $door);
+                    $response = $client->post($compatUrl, $payload);
+                    $json = $response->json() ?? [];
+
+                    if (!$response->successful()) {
+                        $error = $json['ResponseStatus'] ?? $json;
+                        $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                            || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+                    }
+                }
+
+                if (!$response->successful()) {
+                    $error = $json['ResponseStatus'] ?? $json;
+
+                    return [
+                        'status' => false,
+                        'unsupported' => $unsupported,
+                        'total_device_matches' => 0,
+                        'inspected_users' => 0,
+                        'users' => [],
+                        'error' => $unsupported
+                            ? 'User directory unsupported.'
+                            : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
+                    ];
+                }
             }
 
             $container = $json['UserInfoSearch'] ?? $json;
