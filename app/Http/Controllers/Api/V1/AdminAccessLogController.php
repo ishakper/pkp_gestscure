@@ -62,6 +62,28 @@ class AdminAccessLogController extends Controller
             $query->where('event_type', $eventType);
         }
 
+        // Filter by attendance_state ('PRESENT' / 'LATE' / 'OFF' / 'LEAVE' / 'ABSENT' / 'Belum diproses' / 'Ditolak')
+        if ($request->filled('attendance_state')) {
+            $state = $request->attendance_state;
+            if ($state === 'Ditolak') {
+                $query->where(function ($q) {
+                    $q->where('access_status', 'Denied')
+                      ->orWhere('status', 'Denied');
+                });
+            } elseif ($state === 'Belum diproses') {
+                $query->where(function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('access_status', '!=', 'Denied')
+                            ->orWhereNull('access_status');
+                    })->whereDoesntHave('attendanceEvidence');
+                });
+            } else {
+                $query->whereHas('attendanceEvidence.attendance', function ($q) use ($state) {
+                    $q->where('status', $state);
+                });
+            }
+        }
+
         // Filter by NIK or User
         if ($request->filled('user') || $request->filled('nik')) {
             $nik = $request->get('nik', $request->get('user'));

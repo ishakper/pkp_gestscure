@@ -141,10 +141,19 @@ async function updateMetricCards() {
         ]);
         if (res.status === 'success') {
             const data = res.data;
+            const activeUserMetric = document.getElementById('metricActiveEmployees');
+            if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
             const userMetric = document.getElementById('metricTotalUsers');
-            if (userMetric) userMetric.innerText = data.totalUsers;
+            if (userMetric) userMetric.innerText = data.totalUsers ?? 0;
+
+            const regCredMetric = document.getElementById('metricRegisteredCredentials');
+            if (regCredMetric) regCredMetric.innerText = data.registeredCredentials ?? 0;
+
             const doorMetric = document.getElementById('metricActiveDoors');
-            if (doorMetric) doorMetric.innerText = `${data.activeDoors} / ${data.totalDoors}`;
+            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
+
+            const deniedMetric = document.getElementById('metricDeniedLogs');
+            if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
         }
         if (attendance.success) {
             const today = attendance.data?.today || {};
@@ -194,6 +203,7 @@ function refreshDoorFilters(doors) {
     const filters = [
         [document.getElementById('employeeDoorFilter'), 'Semua Hak Akses Pintu'],
         [document.getElementById('logDoorFilter'), 'Semua Pintu'],
+        [document.getElementById('logDoorFilterTab'), 'Semua Pintu'],
     ];
     filters.forEach(([select, label]) => {
         if (!select) return;
@@ -235,6 +245,8 @@ function renderDoorCards(doors) {
             ? new Date(door.last_checked_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' })
             : 'Belum pernah diperiksa';
 
+        const safeEventCount = Number(door.event_count || 0);
+
         return `
             <article class="card door-card" id="door-card-${safeDoorId}" data-connection-state="${statusLabel.toLowerCase()}">
                 <div class="card-header">
@@ -248,7 +260,8 @@ function renderDoorCards(doors) {
                     <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
                     <div class="spec-item"><span class="spec-label">Hardware</span><span class="spec-val">${safeModel}</span></div>
                     <div class="spec-item"><span class="spec-label">Assigned Users</span><span class="spec-val highlight">${safeTotalUsers} Pegawai</span></div>
-                    <div class="spec-item"><span class="spec-label">Last Checked</span><span class="spec-val">${escapeHtml(lastCheckedStr)}</span></div>
+                    <div class="spec-item"><span class="spec-label">Total Events</span><span class="spec-val highlight">${safeEventCount} Event Logs</span></div>
+                    <div class="spec-item"><span class="spec-label">Last Communication</span><span class="spec-val">${escapeHtml(lastCheckedStr)}</span></div>
                 </div>
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
@@ -494,7 +507,13 @@ function renderEmployeesTable(employees) {
             }).join(' ');
         }
 
-        const safeUserId = escapeHtml(emp.user_id || '-');
+        const statusBadge = (emp.employment_status === 'ACTIVE' || !emp.employment_status)
+            ? `<span class="badge badge-success" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> Aktif</span>`
+            : (emp.employment_status === 'INACTIVE'
+                ? `<span class="badge badge-danger" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> Non-Aktif</span>`
+                : `<span class="badge badge-warning" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> ${escapeHtml(emp.employment_status)}</span>`);
+
+        const safeUserId = escapeHtml(emp.user_id || emp.employee_id || '-');
         const safeNik = escapeHtml(emp.nik || '-');
         const safeName = escapeHtml(emp.name || 'Unnamed');
         const safeCardNo = escapeHtml(emp.card_no || '');
@@ -517,7 +536,12 @@ function renderEmployeesTable(employees) {
                     </div>
                 </td>
                 <td>${safeDept}</td>
-                <td>${safeRole}</td>
+                <td>
+                    <div style="display:flex;flex-direction:column;gap:0.3rem;align-items:flex-start;">
+                        <span>${safeRole}</span>
+                        ${statusBadge}
+                    </div>
+                </td>
                 <td>
                     <div class="bio-pill-group">
                         ${fpBadge}
@@ -532,12 +556,12 @@ function renderEmployeesTable(employees) {
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
                         <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Atur Akses Pintu Fisik">
-                            🚪 Assign Doors
+                            🚪 Akses
                         </button>
                         <button class="btn-sm btn-edit" onclick="openEditEmployeeModal(${empId})" title="Edit Profil & Biometrik">
                             ✏️ Edit
                         </button>
-                        <button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Karyawan">
+                        <button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Pengguna">
                             🗑️
                         </button>
                     </div>
@@ -812,14 +836,39 @@ async function deleteEmployee(id, name) {
 // ==========================================
 // Section 3: Security Access Logs & Filters
 // ==========================================
+function syncLogFilters(sourceEl) {
+    if (!sourceEl) return;
+    const val = sourceEl.value;
+    const idMap = {
+        'logDoorFilter': 'logDoorFilterTab',
+        'logDoorFilterTab': 'logDoorFilter',
+        'logStatusFilter': 'logStatusFilterTab',
+        'logStatusFilterTab': 'logStatusFilter',
+        'logAttendanceStateFilter': 'logAttendanceStateFilterTab',
+        'logAttendanceStateFilterTab': 'logAttendanceStateFilter',
+        'logUserSearch': 'logUserSearchTab',
+        'logUserSearchTab': 'logUserSearch',
+        'logStartDate': 'logStartDateTab',
+        'logStartDateTab': 'logStartDate',
+        'logEndDate': 'logEndDateTab',
+        'logEndDateTab': 'logEndDate'
+    };
+    const targetId = idMap[sourceEl.id];
+    if (targetId) {
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) targetEl.value = val;
+    }
+}
+
 async function loadAccessLogs() {
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
-    const doorFilter = document.getElementById('logDoorFilter')?.value || '';
-    const statusFilter = document.getElementById('logStatusFilter')?.value || '';
-    const userSearch = document.getElementById('logUserSearch')?.value.trim() || '';
-    const startDate = document.getElementById('logStartDate')?.value || '';
-    const endDate = document.getElementById('logEndDate')?.value || '';
+    const doorFilter = document.getElementById('logDoorFilter')?.value || document.getElementById('logDoorFilterTab')?.value || '';
+    const statusFilter = document.getElementById('logStatusFilter')?.value || document.getElementById('logStatusFilterTab')?.value || '';
+    const attendanceStateFilter = document.getElementById('logAttendanceStateFilter')?.value || document.getElementById('logAttendanceStateFilterTab')?.value || '';
+    const userSearch = (document.getElementById('logUserSearch')?.value || document.getElementById('logUserSearchTab')?.value || '').trim();
+    const startDate = document.getElementById('logStartDate')?.value || document.getElementById('logStartDateTab')?.value || '';
+    const endDate = document.getElementById('logEndDate')?.value || document.getElementById('logEndDateTab')?.value || '';
 
     if (tbody) {
             tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
@@ -829,6 +878,7 @@ async function loadAccessLogs() {
         let url = `/admin/access-logs?limit=40`;
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
         if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+        if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
         if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
         if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
         if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
@@ -1080,11 +1130,12 @@ function renderAccessLogsTable(logs) {
 }
 
 function resetLogFilters() {
-    if (document.getElementById('logDoorFilter')) document.getElementById('logDoorFilter').value = '';
-    if (document.getElementById('logStatusFilter')) document.getElementById('logStatusFilter').value = '';
-    if (document.getElementById('logUserSearch')) document.getElementById('logUserSearch').value = '';
-    if (document.getElementById('logStartDate')) document.getElementById('logStartDate').value = '';
-    if (document.getElementById('logEndDate')) document.getElementById('logEndDate').value = '';
+    ['logDoorFilter', 'logDoorFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logStatusFilter', 'logStatusFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logAttendanceStateFilter', 'logAttendanceStateFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logUserSearch', 'logUserSearchTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logStartDate', 'logStartDateTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logEndDate', 'logEndDateTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     loadAccessLogs();
 }
 
@@ -1294,6 +1345,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'attendanceRequestsTab') loadAttendanceRequestsData();
     if (tabId === 'attendanceCorrectionsTab') loadAttendanceCorrectionsData();
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
+    if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
 }
 
 // ==========================================
@@ -6679,3 +6731,237 @@ window.submitApproveOvertime = submitApproveOvertime;
 window.openRejectOvertimeModal = openRejectOvertimeModal;
 window.submitRejectOvertime = submitRejectOvertime;
 window.cancelOvertimeRequest = cancelOvertimeRequest;
+
+// ==========================================
+// Setup Gedung & Facility Hierarchy Manager
+// ==========================================
+async function loadBuildingHierarchy() {
+    const container = document.getElementById('buildingHierarchyContainer');
+    if (!container) return;
+
+    container.innerHTML = `<div class="table-container" style="padding: 2.5rem; text-align: center;"><div class="spinner"></div> Memuat hierarki gedung dan perangkat pintu...</div>`;
+
+    try {
+        const [bldRes, doorRes] = await Promise.all([
+            apiFetch('/admin/buildings'),
+            apiFetch('/admin/doors')
+        ]);
+
+        const buildings = (bldRes.status === 'success' && Array.isArray(bldRes.data)) ? bldRes.data : [];
+        const doors = (doorRes.status === 'success' && Array.isArray(doorRes.data)) ? doorRes.data : [];
+
+        if (buildings.length === 0 && doors.length === 0) {
+            container.innerHTML = `
+                <div class="table-container" style="padding: 3rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
+                    <div style="font-size: 3rem; margin-bottom: 0.75rem;">🏢</div>
+                    <h3 style="color: var(--text-main); margin-bottom: 0.5rem;">Belum Ada Master Gedung Registered</h3>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;">Tambahkan gedung induk untuk mulai menyusun hierarki lokasi pintu fisik.</p>
+                    <button class="btn-primary" onclick="openAddBuildingModal()">+ Tambah Gedung Pertama</button>
+                </div>
+            `;
+            return;
+        }
+
+        const doorsByBuilding = {};
+        doors.forEach(d => {
+            const bKey = d.building_id || d.location || 'UNASSIGNED';
+            if (!doorsByBuilding[bKey]) doorsByBuilding[bKey] = [];
+            doorsByBuilding[bKey].push(d);
+        });
+
+        let html = '';
+
+        buildings.forEach(bld => {
+            const bldDoors = doorsByBuilding[bld.id] || doorsByBuilding[bld.name] || doors.filter(d => d.building_id === bld.id || d.location === bld.name);
+            const zones = Array.isArray(bld.zones) ? bld.zones : [];
+
+            html += `
+                <div style="margin-bottom: 2rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.5rem; transition: border-color 0.2s ease;">
+                    <!-- LEVEL 1: BUILDING HEADER -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.25rem;">
+                                <span style="font-size: 1.35rem;">🏢</span>
+                                <h3 style="font-size: 1.25rem; font-weight: 700; color: #ffffff; margin: 0;">${escapeHtml(bld.name)}</h3>
+                                <span class="badge badge-neutral" style="font-size: 0.75rem;">Kode: ${escapeHtml(bld.code || 'BLD')}</span>
+                                ${bld.is_active ? '<span class="badge badge-granted">Aktif</span>' : '<span class="badge badge-dim">Non-Aktif</span>'}
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-left: 2rem;">
+                                ${escapeHtml(bld.description || 'Gedung fasilitas operasional PKP SecureGate')}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span class="badge badge-info">${zones.length} Zona</span>
+                            <span class="badge badge-success">${bldDoors.length} Perangkat Pintu</span>
+                        </div>
+                    </div>
+
+                    <!-- LEVEL 2: FLOOR (DERIVED / PROPOSAL BLUEPRINT) -->
+                    <div style="margin-left: 1rem; padding-left: 1.25rem; border-left: 2px dashed rgba(56, 189, 248, 0.3); margin-bottom: 1.25rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                            <span style="font-size: 1.1rem;">🧱</span>
+                            <strong style="color: var(--primary); font-size: 0.95rem;">Lantai 1 (Floor 1 - Main Floor)</strong>
+                            <span class="badge badge-neutral" style="font-size: 0.65rem; background: rgba(255, 255, 255, 0.05);">[Floor Schema Proposal Pending]</span>
+                        </div>
+
+                        <!-- LEVEL 3: ZONES -->
+                        <div style="display: flex; flex-direction: column; gap: 1rem; margin-left: 1.25rem;">
+                            ${zones.length > 0 ? zones.map(z => {
+                                const zDoors = bldDoors.filter(d => d.zone_id === z.id);
+                                return renderZoneBlock(z, zDoors);
+                            }).join('') : renderDefaultZoneBlock(bldDoors)}
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<div class="table-container" style="padding: 2rem; color: var(--danger); text-align: center;">Gagal memuat hierarki gedung: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderZoneBlock(zone, zoneDoors) {
+    return `
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1rem;">📍</span>
+                    <strong style="font-size: 0.9rem; color: #f8fafc;">${escapeHtml(zone.name)}</strong>
+                    <span class="badge badge-dim" style="font-size: 0.65rem;">${escapeHtml(zone.code)}</span>
+                </div>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">${zoneDoors.length} Terminal</span>
+            </div>
+
+            <!-- LEVEL 4: DEVICES / DOORS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                ${zoneDoors.length > 0 ? zoneDoors.map(d => renderDoorDeviceChip(d)).join('') : '<div style="font-size: 0.8rem; color: var(--text-dim); font-style: italic;">Belum ada perangkat pintu dialokasikan pada zona ini.</div>'}
+            </div>
+        </div>
+    `;
+}
+
+function renderDefaultZoneBlock(doors) {
+    return `
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1rem;">📍</span>
+                    <strong style="font-size: 0.9rem; color: #f8fafc;">Zona Akses Pintu Standar</strong>
+                    <span class="badge badge-dim" style="font-size: 0.65rem;">ZN-DEFAULT</span>
+                </div>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">${doors.length} Terminal</span>
+            </div>
+
+            <!-- LEVEL 4: DEVICES / DOORS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                ${doors.length > 0 ? doors.map(d => renderDoorDeviceChip(d)).join('') : '<div style="font-size: 0.8rem; color: var(--text-dim); font-style: italic;">Belum ada perangkat pintu dialokasikan.</div>'}
+            </div>
+        </div>
+    `;
+}
+
+function renderDoorDeviceChip(door) {
+    const isOnline = (door.connection_status === 'online' || door.status === 'online');
+    const isSourceOfTruth = (door.door_id === 'DOOR-B' || door.device_ip === '192.168.90.15');
+
+    return `
+        <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid ${isOnline ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'}; border-radius: 0.5rem; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 0.85rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.35rem;">
+                    🚪 ${escapeHtml(door.door_name || door.name || door.door_id)}
+                </div>
+                ${isOnline ? '<span class="badge badge-granted" style="font-size: 0.65rem;">ONLINE</span>' : '<span class="badge badge-denied" style="font-size: 0.65rem;">OFFLINE</span>'}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.15rem;">
+                <div>🆔 Code: <code>${escapeHtml(door.door_id)}</code> ${isSourceOfTruth ? '<span class="badge badge-warning" style="font-size: 0.6rem; padding: 1px 4px;">SOURCE OF TRUTH</span>' : ''}</div>
+                <div>🌐 IP: <code>${escapeHtml(door.device_ip || door.ip_address || '-')}</code></div>
+                <div>📠 Hardware: ${escapeHtml(door.device_model || door.model || 'DS-K1T804AMF')}</div>
+            </div>
+        </div>
+    `;
+}
+
+function openAddBuildingModal() {
+    const modal = document.getElementById('addBuildingModal');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitAddBuilding(e) {
+    e.preventDefault();
+    const code = document.getElementById('buildingCodeInput')?.value.trim();
+    const name = document.getElementById('buildingNameInput')?.value.trim();
+    const description = document.getElementById('buildingDescInput')?.value.trim();
+
+    if (!code || !name) return;
+
+    try {
+        const res = await apiFetch('/admin/buildings', {
+            method: 'POST',
+            body: JSON.stringify({ code, name, description })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Gedung ${escapeHtml(name)} berhasil ditambahkan`, 'success');
+            closeModal('addBuildingModal');
+            document.getElementById('addBuildingForm')?.reset();
+            await Promise.all([loadBuildingHierarchy(), loadDoors()]);
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan gedung: ${err.message}`, 'error');
+    }
+}
+
+async function openAddZoneModal() {
+    const modal = document.getElementById('addZoneModal');
+    const select = document.getElementById('zoneBuildingSelect');
+
+    if (!modal || !select) return;
+
+    select.innerHTML = '<option value="">Memuat data gedung...</option>';
+
+    try {
+        const res = await apiFetch('/admin/buildings');
+        const buildings = (res.status === 'success' && Array.isArray(res.data)) ? res.data : [];
+
+        select.innerHTML = '<option value="">Pilih Gedung Induk...</option>' + buildings.map(b => `
+            <option value="${b.id}">${escapeHtml(b.name)} (${escapeHtml(b.code)})</option>
+        `).join('');
+
+        modal.classList.add('active');
+    } catch (err) {
+        showToast('Gagal memuat opsi gedung', 'error');
+    }
+}
+
+async function submitAddZone(e) {
+    e.preventDefault();
+    const building_id = document.getElementById('zoneBuildingSelect')?.value;
+    const code = document.getElementById('zoneCodeInput')?.value.trim();
+    const name = document.getElementById('zoneNameInput')?.value.trim();
+
+    if (!building_id || !code || !name) return;
+
+    try {
+        const res = await apiFetch('/admin/zones', {
+            method: 'POST',
+            body: JSON.stringify({ building_id: parseInt(building_id), code, name })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Zona ${escapeHtml(name)} berhasil ditambahkan`, 'success');
+            closeModal('addZoneModal');
+            document.getElementById('addZoneForm')?.reset();
+            await loadBuildingHierarchy();
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan zona: ${err.message}`, 'error');
+    }
+}
+
+window.loadBuildingHierarchy = loadBuildingHierarchy;
+window.openAddBuildingModal = openAddBuildingModal;
+window.submitAddBuilding = submitAddBuilding;
+window.openAddZoneModal = openAddZoneModal;
+window.submitAddZone = submitAddZone;

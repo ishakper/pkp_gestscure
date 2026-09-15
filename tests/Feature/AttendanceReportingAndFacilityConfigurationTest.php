@@ -66,6 +66,10 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.code', 'BLD-NEW');
 
         $buildingId = $buildingResponse->json('data.id');
+        $this->actingAs($infra)->postJson('/api/v1/admin/zones', [
+            'building_id' => $buildingId, 'code' => 'zn-new', 'name' => 'Zona Lobby Utama',
+        ])->assertCreated()->assertJsonPath('data.code', 'ZN-NEW');
+
         $this->actingAs($infra)->postJson('/api/v1/admin/doors', [
             'door_id' => 'door-c', 'name' => 'Lobby Baru', 'building_id' => $buildingId,
             'device_ip' => '192.168.90.13', 'gateway' => '192.168.90.1', 'device_model' => 'DS-K1T804AMF',
@@ -81,6 +85,7 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
     {
         $manager = $this->admin('management');
         $this->actingAs($manager)->postJson('/api/v1/admin/buildings', ['code' => 'NO', 'name' => 'Denied'])->assertForbidden();
+        $this->actingAs($manager)->postJson('/api/v1/admin/zones', ['building_id' => 1, 'code' => 'NO', 'name' => 'Denied'])->assertForbidden();
         $this->actingAs($manager)->postJson('/api/v1/admin/doors', [])->assertForbidden();
     }
 

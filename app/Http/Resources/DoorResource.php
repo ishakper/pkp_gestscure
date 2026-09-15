@@ -23,6 +23,7 @@ class DoorResource extends JsonResource
             'connection_status' => $this->connection_status ?? $this->status,
             'health_status' => $this->health_status ?: (($this->connection_status ?? $this->status) === 'online' ? 'online' : 'offline'),
             'total_assigned_users' => (int) ($this->employees_count ?? $this->door_assignments_count ?? $this->employees()->count()),
+            'event_count' => (int) ($this->access_logs_count ?? $this->accessLogs()->count()),
             'is_manual_override' => (bool) $this->is_manual_override,
             'last_checked_at' => $this->last_checked_at ? $this->last_checked_at->toIso8601String() : null,
         ];

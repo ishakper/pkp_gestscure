@@ -68,6 +68,7 @@ Route::prefix('v1')->group(function () {
             Route::put('/doors/{door_id}', [FacilityConfigurationController::class, 'updateDoor']);
             Route::get('/buildings', [FacilityConfigurationController::class, 'buildings']);
             Route::post('/buildings', [FacilityConfigurationController::class, 'storeBuilding']);
+            Route::post('/zones', [FacilityConfigurationController::class, 'storeZone']);
             Route::post('/doors/check-all', [AdminDoorController::class, 'checkAllConnections']);
             Route::post('/doors/{door_id}/check-connection', [AdminDoorController::class, 'checkConnection']);
             Route::post('/doors/{door_id}/open', [AdminDoorController::class, 'openDoor'])->name('admin.doors.open');

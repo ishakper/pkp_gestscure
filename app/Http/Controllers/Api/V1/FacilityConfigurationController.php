@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Building;
 use App\Models\Door;
+use App\Models\Zone;
 use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,8 @@ class FacilityConfigurationController extends Controller
     public function buildings(Request $request): JsonResponse
     {
         $this->authorizePermission($request, 'organization.manage');
-        return response()->json(['status' => 'success', 'data' => Building::orderBy('name')->get()]);
+        $buildings = Building::with(['zones', 'doors'])->orderBy('name')->get();
+        return response()->json(['status' => 'success', 'data' => $buildings]);
     }
 
     public function storeBuilding(Request $request): JsonResponse
@@ -32,6 +34,19 @@ class FacilityConfigurationController extends Controller
         $building = Building::create([...$data, 'code' => strtoupper($data['code']), 'is_active' => true]);
         $this->audit($request, 'building_created', 'Building', $building->id, "Building {$building->code} registered");
         return response()->json(['status' => 'success', 'data' => $building], 201);
+    }
+
+    public function storeZone(Request $request): JsonResponse
+    {
+        $this->authorizePermission($request, 'organization.manage');
+        $data = $request->validate([
+            'building_id' => ['required', 'integer', 'exists:buildings,id'],
+            'code' => ['required', 'string', 'max:100', 'regex:/^[A-Za-z0-9_-]+$/', 'unique:zones,code'],
+            'name' => ['required', 'string', 'max:255'],
+        ]);
+        $zone = Zone::create([...$data, 'code' => strtoupper($data['code']), 'is_active' => true]);
+        $this->audit($request, 'zone_created', 'Zone', $zone->id, "Zone {$zone->code} registered for Building #{$zone->building_id}");
+        return response()->json(['status' => 'success', 'data' => $zone], 201);
     }
 
     public function storeDoor(Request $request): JsonResponse
