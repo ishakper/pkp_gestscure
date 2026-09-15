@@ -312,12 +312,14 @@ Route::prefix('v1')->group(function () {
         });
 
         Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
-        Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent']);
+        Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent'])
+            ->name('isapi.simulate-event');
     });
 
     // ISAPI Physical Device Push Webhook (Protected via IP Whitelist & X-Device-Secret)
     Route::post('/isapi/event-notification', [IsapiWebhookController::class, 'handleEventNotification'])
-        ->middleware([VerifyDeviceWebhook::class, 'throttle:isapi-webhook']);
+        ->middleware([VerifyDeviceWebhook::class, 'throttle:isapi-webhook'])
+        ->name('isapi.event-notification');
 });
 
 /*

@@ -135,6 +135,20 @@ async function apiFetch(endpoint, options = {}) {
     }
 }
 
+async function apiFetchForm(endpoint, formData) {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/json',
+            ...(APP_TOKEN ? { 'Authorization': `Bearer ${APP_TOKEN}` } : {}),
+        },
+        body: formData,
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || `Request failed with status ${response.status}`);
+    return data;
+}
+
 // ==========================================
 // Metric Cards Updater
 // ==========================================
@@ -1561,8 +1575,10 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAccessLogs();
     loadActivityLogs();
 
-    // Initialize Real-time SSE connection
-    initLiveAccessStream();
+    // Testing uses deterministic polling without reconnect noise; production keeps SSE.
+    if (window.APP_CONFIG?.sseEnabled !== false) {
+        initLiveAccessStream();
+    }
 
     // Auto-refresh doors and logs periodically every 60 seconds (fallback)
     setInterval(() => {
@@ -5464,7 +5480,7 @@ async function loadFieldAttendanceData() {
 
     try {
         // 1. Fetch Today's status & assignment
-        const statusRes = await apiFetch('/api/v1/field-attendance/status-today');
+        const statusRes = await apiFetch('/field-attendance/status-today');
         const data = statusRes.data || statusRes;
 
         currentFieldAssignment = data.assignment;
@@ -5548,7 +5564,7 @@ async function loadFieldAttendanceData() {
         // 3. Fetch Evidence Records
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat riwayat...</td></tr>';
-            const recRes = await apiFetch('/api/v1/field-attendance/records');
+            const recRes = await apiFetch('/field-attendance/records');
             const records = recRes.data?.data || recRes.data || [];
 
             if (!records.length) {
@@ -5926,7 +5942,7 @@ async function submitFieldOverride(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/field-attendance/records/${evidenceId}/override`, {
+        const res = await apiFetch(`/field-attendance/records/${evidenceId}/override`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -5957,7 +5973,7 @@ async function loadAttendanceRequestsData() {
 
     try {
         // 1. Fetch Metrics
-        const metricsRes = await apiFetch('/api/v1/attendance-requests/metrics').catch(() => null);
+        const metricsRes = await apiFetch('/attendance-requests/metrics').catch(() => null);
         if (metricsRes && metricsRes.data) {
             const m = metricsRes.data;
             const pEl = document.getElementById('reqMetricPending');
@@ -5979,7 +5995,7 @@ async function loadAttendanceRequestsData() {
         const fromDate = document.getElementById('reqFilterFrom')?.value || '';
         const toDate = document.getElementById('reqFilterTo')?.value || '';
 
-        let url = '/api/v1/attendance-requests?per_page=50';
+        let url = '/attendance-requests?per_page=50';
         if (type) url += `&request_type=${encodeURIComponent(type)}`;
         if (status) url += `&status=${encodeURIComponent(status)}`;
         if (fromDate) url += `&from_date=${encodeURIComponent(fromDate)}`;
@@ -5994,9 +6010,9 @@ async function loadAttendanceRequestsData() {
             return;
         }
 
-        const currentAdminId = window.APP_CONFIG?.adminId || null;
-        const currentEmpId = window.APP_CONFIG?.employeeId || null;
-        const currentRole = (window.APP_CONFIG?.role || '').toLowerCase();
+        const currentAdminId = window.APP_CONFIG?.admin?.id || null;
+        const currentEmpId = window.APP_CONFIG?.admin?.employeeId || null;
+        const currentRole = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canManage = ['super_admin', 'hrd', 'management', 'supervisor'].includes(currentRole);
 
         tbody.innerHTML = items.map(req => {
@@ -6166,7 +6182,7 @@ async function approveAttendanceRequest(id) {
     if (!confirm('Konfirmasi: Setujui permohonan absensi ini?')) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/approve`, {
+        const res = await apiFetch(`/attendance-requests/${id}/approve`, {
             method: 'POST'
         });
         if (res.success) {
@@ -6203,7 +6219,7 @@ async function submitRejectAttendanceRequest(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/reject`, {
+        const res = await apiFetch(`/attendance-requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6224,7 +6240,7 @@ async function cancelAttendanceRequest(id) {
     if (reason === null) return; // cancelled prompt
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/cancel`, {
+        const res = await apiFetch(`/attendance-requests/${id}/cancel`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6257,7 +6273,7 @@ async function loadAttendanceCorrectionsData() {
 
     // 1. Load metrics
     try {
-        const mRes = await apiFetch('/api/v1/attendance-corrections/metrics');
+        const mRes = await apiFetch('/attendance-corrections/metrics');
         if (mRes.success && mRes.data) {
             const d = mRes.data;
             const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -6283,13 +6299,13 @@ async function loadAttendanceCorrectionsData() {
     if (to) params.append('to_date', to);
 
     try {
-        const res = await apiFetch('/api/v1/attendance-corrections?' + params.toString());
+        const res = await apiFetch('/attendance-corrections?' + params.toString());
         if (!res.success || !res.data || res.data.length === 0) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan koreksi presensi yang sesuai.</td></tr>`;
             return;
         }
 
-        const role = (window.currentUserRole || '').toLowerCase();
+        const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
 
         tbody.innerHTML = res.data.map(item => {
@@ -6399,7 +6415,7 @@ async function submitNewAttendanceCorrection(e) {
     }
 
     try {
-        const res = await apiFetchForm('/api/v1/attendance-corrections', formData);
+        const res = await apiFetchForm('/attendance-corrections', formData);
         if (res.success) {
             showToast(res.message || 'Pengajuan koreksi presensi berhasil dibuat.', 'success');
             closeModal('newAttendanceCorrectionModal');
@@ -6416,7 +6432,7 @@ async function approveAttendanceCorrection(id) {
     if (!confirm(`Setujui pengajuan koreksi presensi #${id}? Perubahan akan langsung diaplikasikan pada rekap presensi harian.`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/approve`, { method: 'POST' });
+        const res = await apiFetch(`/attendance-corrections/${id}/approve`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Koreksi presensi berhasil disetujui.', 'success');
             await loadAttendanceCorrectionsData();
@@ -6449,7 +6465,7 @@ async function submitRejectAttendanceCorrection(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/reject`, {
+        const res = await apiFetch(`/attendance-corrections/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6469,7 +6485,7 @@ async function cancelAttendanceCorrection(id) {
     if (!confirm(`Batalkan pengajuan koreksi presensi #${id}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/cancel`, { method: 'POST' });
+        const res = await apiFetch(`/attendance-corrections/${id}/cancel`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Pengajuan koreksi berhasil dibatalkan.', 'success');
             await loadAttendanceCorrectionsData();
@@ -6490,7 +6506,7 @@ async function loadOvertimeRequestsData() {
 
     // 1. Metrics
     try {
-        const mRes = await apiFetch('/api/v1/overtime-requests/metrics');
+        const mRes = await apiFetch('/overtime-requests/metrics');
         if (mRes.success && mRes.data) {
             const d = mRes.data;
             const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -6515,13 +6531,13 @@ async function loadOvertimeRequestsData() {
     if (to) params.append('to_date', to);
 
     try {
-        const res = await apiFetch('/api/v1/overtime-requests?' + params.toString());
+        const res = await apiFetch('/overtime-requests?' + params.toString());
         if (!res.success || !res.data || res.data.length === 0) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan lembur yang sesuai.</td></tr>`;
             return;
         }
 
-        const role = (window.currentUserRole || '').toLowerCase();
+        const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
 
         tbody.innerHTML = res.data.map(item => {
@@ -6613,7 +6629,7 @@ async function submitNewOvertimeRequest(e) {
     }
 
     try {
-        const res = await apiFetchForm('/api/v1/overtime-requests', formData);
+        const res = await apiFetchForm('/overtime-requests', formData);
         if (res.success) {
             showToast(res.message || 'Pengajuan lembur berhasil dibuat.', 'success');
             closeModal('newOvertimeRequestModal');
@@ -6651,7 +6667,7 @@ async function submitApproveOvertime(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Memproses...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/approve`, {
+        const res = await apiFetch(`/overtime-requests/${id}/approve`, {
             method: 'POST',
             body: JSON.stringify({ approved_minutes: minutes })
         });
@@ -6690,7 +6706,7 @@ async function submitRejectOvertime(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/reject`, {
+        const res = await apiFetch(`/overtime-requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6710,7 +6726,7 @@ async function cancelOvertimeRequest(id) {
     if (!confirm(`Batalkan pengajuan lembur #${id}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/cancel`, { method: 'POST' });
+        const res = await apiFetch(`/overtime-requests/${id}/cancel`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Pengajuan lembur berhasil dibatalkan.', 'success');
             await loadOvertimeRequestsData();

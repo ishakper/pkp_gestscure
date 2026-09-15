@@ -73,6 +73,8 @@ class IsapiWebhookTest extends TestCase
             'employee_id' => $this->employee->id,
             'verify_method' => 'Fingerprint',
             'access_status' => 'Granted',
+            'source' => 'HIKVISION_WEBHOOK',
+            'source_format' => 'REQUEST',
         ]);
 
         Log::shouldHaveReceived('info')

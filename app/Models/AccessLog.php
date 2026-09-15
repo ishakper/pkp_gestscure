@@ -22,6 +22,7 @@ class AccessLog extends Model
         'access_status',
         'reason',
         'source',
+        'source_format',
         'scanned_at',
         'timestamp',
         'device_serial',

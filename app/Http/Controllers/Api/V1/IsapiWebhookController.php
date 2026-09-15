@@ -238,6 +238,8 @@ class IsapiWebhookController extends Controller
             'verify_method' => $verifyMethod,
             'access_status' => $accessStatus,
             'reason' => $reason,
+            'source' => $request->routeIs('isapi.event-notification') ? 'HIKVISION_WEBHOOK' : 'SIMULATOR',
+            'source_format' => $parsedEvent['source_format'] ?? 'REQUEST',
             'timestamp' => $eventTimestamp ? date('Y-m-d H:i:s', strtotime($eventTimestamp)) : now(),
             'device_serial' => $serialNo,
         ]);

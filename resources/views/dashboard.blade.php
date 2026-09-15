@@ -5786,6 +5786,7 @@
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),
         permissions: @json($permissions ?? []),
+        sseEnabled: @json(!app()->environment('testing')),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),

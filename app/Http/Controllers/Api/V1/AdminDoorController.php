@@ -326,19 +326,21 @@ class AdminDoorController extends Controller
             $data['last_access_event'] = ['timestamp' => $lastLog->timestamp?->toIso8601String(), 'employee_name' => $lastLog->employee?->name, 'access_status' => $lastLog->access_status];
         }
 
-        $lastWebhook = AccessLog::query()->whereIn('door_id', $doorIds)->where('source', 'HIKVISION')->latest('created_at')->first();
+        $lastWebhook = AccessLog::query()->whereIn('door_id', $doorIds)->where('source', 'HIKVISION_WEBHOOK')->latest('created_at')->first();
         if ($lastWebhook) {
             $receivedAt = $lastWebhook->created_at;
             $age = $receivedAt?->diffInSeconds($serverTime);
             $stale = $age === null || $age > ($webhookFreshMinutes * 60);
-            $data['webhook'] = ['status' => $stale ? 'STALE' : 'HEALTHY', 'received_at' => $receivedAt?->toIso8601String(), 'event_at' => $lastWebhook->timestamp?->toIso8601String(), 'freshness_seconds' => $age, 'stale' => $stale];
+            $data['webhook'] = ['status' => $stale ? 'STALE' : 'ACTIVE', 'received_at' => $receivedAt?->toIso8601String(), 'event_at' => $lastWebhook->timestamp?->toIso8601String(), 'freshness_seconds' => $age, 'stale' => $stale];
         }
 
         $driver = config('queue.default');
         $pending = $driver === 'database' && Schema::hasTable('jobs') ? DB::table('jobs')->count() : null;
         $failed = Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : null;
         $data['queue'] = ['status' => ($failed ?? 0) > 0 ? 'DEGRADED' : ($pending === null ? 'UNKNOWN' : 'HEALTHY'), 'pending_jobs' => $pending, 'failed_jobs' => $failed];
-        $data['app']['status'] = collect([$data['database']['status'], $data['primary_door']['status'], $data['webhook']['status'], $data['queue']['status']])->contains(fn ($status) => in_array($status, ['OFFLINE', 'DEGRADED'], true)) ? 'DEGRADED' : 'HEALTHY';
+        $criticalStatuses = [$data['database']['status'], $data['primary_door']['status'], $data['webhook']['status']];
+        $criticalUnhealthy = collect($criticalStatuses)->contains(fn ($status) => in_array($status, ['OFFLINE', 'DEGRADED', 'STALE', 'UNKNOWN'], true));
+        $data['app']['status'] = $criticalUnhealthy || $data['queue']['status'] === 'DEGRADED' ? 'DEGRADED' : 'HEALTHY';
 
         return response()->json(['status' => 'success', 'data' => $data]);
     }

@@ -101,6 +101,29 @@ class SecureGateUiRefactorTest extends TestCase
         $this->assertStringContainsString("window.location.replace('/login')", $script);
     }
 
+    public function test_all_static_dashboard_ids_are_unique(): void
+    {
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        preg_match_all('/\\bid="([^"]+)"/', $blade, $matches);
+        $duplicates = array_filter(array_count_values($matches[1]), fn (int $count) => $count > 1);
+
+        $this->assertSame([], $duplicates, 'Duplicate DOM IDs: '.json_encode($duplicates));
+    }
+
+    public function test_api_client_never_duplicates_version_prefix_and_keeps_critical_bindings(): void
+    {
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        $this->assertDoesNotMatchRegularExpression('/apiFetch(?:Form)?\\(\\s*[\'`]\\/api\\/v1\\//', $script);
+        foreach (['/field-attendance/status-today', '/attendance-requests/metrics', '/attendance-corrections/metrics', '/overtime-requests/metrics', '/user-management/employees?per_page=100'] as $endpoint) {
+            $this->assertStringContainsString($endpoint, $script);
+        }
+        $this->assertStringContainsString('async function apiFetchForm(endpoint, formData)', $script);
+        $this->assertStringContainsString("const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();", $script);
+        $this->assertStringContainsString("if (window.APP_CONFIG?.sseEnabled !== false)", $script);
+        $this->assertStringContainsString("sseEnabled: @json(!app()->environment('testing'))", file_get_contents(resource_path('views/dashboard.blade.php')));
+    }
+
     private function admin(string $role): Admin
     {
         return Admin::create([
