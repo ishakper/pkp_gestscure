@@ -89,6 +89,8 @@ function showToast(message, type = 'success', duration = 3500) {
     }, duration);
 }
 
+let isRedirectingToLogin = false;
+
 // ==========================================
 // Centralized API Client (Fetch with Auth)
 // ==========================================
@@ -105,12 +107,15 @@ async function apiFetch(endpoint, options = {}) {
     try {
         const response = await fetch(url, { ...options, headers });
 
-        // Handle 401 Unauthorized -> redirect to login
+        // Handle 401 Unauthorized -> redirect to login (debounced to avoid toast stack)
         if (response.status === 401) {
-            showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
-            setTimeout(() => {
-                window.location.href = '/login';
-            }, 1200);
+            if (!isRedirectingToLogin) {
+                isRedirectingToLogin = true;
+                showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
+                setTimeout(() => {
+                    window.location.href = '/login';
+                }, 800);
+            }
             throw new Error('Unauthorized');
         }
 
@@ -1346,6 +1351,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'attendanceCorrectionsTab') loadAttendanceCorrectionsData();
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
+    if (tabId === 'systemStatusTab') loadSystemHealth();
 }
 
 // ==========================================
@@ -6965,3 +6971,105 @@ window.openAddBuildingModal = openAddBuildingModal;
 window.submitAddBuilding = submitAddBuilding;
 window.openAddZoneModal = openAddZoneModal;
 window.submitAddZone = submitAddZone;
+
+async function loadSystemHealth() {
+    try {
+        const json = await apiFetch('/admin/system-health');
+        if (json.status !== 'success' || !json.data) return;
+
+        const data = json.data;
+
+        // App Info
+        if (data.app) {
+            const elBadge = document.getElementById('shAppBadge');
+            const elName = document.getElementById('shAppName');
+            const elSub = document.getElementById('shAppSubtext');
+            const elDetName = document.getElementById('shDetAppName');
+            const elDetEnv = document.getElementById('shDetEnv');
+            const elDetTime = document.getElementById('shDetServerTime');
+
+            if (elBadge) elBadge.textContent = (data.app.status || 'HEALTHY').toUpperCase();
+            if (elName) elName.textContent = data.app.app_name || 'PKP SecureGate';
+            if (elSub) elSub.textContent = `PHP ${data.app.php_version || ''} | v${data.app.laravel_version || ''}`;
+            if (elDetName) elDetName.textContent = data.app.app_name || 'PKP SecureGate';
+            if (elDetEnv) elDetEnv.textContent = (data.app.environment || 'production').toUpperCase();
+            if (elDetTime) elDetTime.textContent = data.app.server_time ? new Date(data.app.server_time).toLocaleString('id-ID') : '-';
+        }
+
+        // DB Info
+        if (data.database) {
+            const elBadge = document.getElementById('shDbBadge');
+            const elDriver = document.getElementById('shDbDriver');
+            const elSub = document.getElementById('shDbSubtext');
+
+            const isConn = data.database.connected;
+            if (elBadge) {
+                elBadge.textContent = isConn ? 'TERHUBUNG' : 'TERPUTUS';
+                elBadge.className = isConn ? 'badge badge-success' : 'badge badge-danger';
+            }
+            if (elDriver) elDriver.textContent = `${(data.database.driver || 'DB').toUpperCase()} Database`;
+            if (elSub) elSub.textContent = `Connection State: ${isConn ? 'Normal' : 'Error'}`;
+        }
+
+        // Doors Info
+        if (data.doors) {
+            const elBadge = document.getElementById('shDoorBadge');
+            const elIp = document.getElementById('shDoorIp');
+            const elSub = document.getElementById('shDoorSubtext');
+            const elDetStatus = document.getElementById('shDetDoorBStatus');
+            const elDetHealth = document.getElementById('shDetDoorBHealth');
+            const elDetRatio = document.getElementById('shDetDoorsRatio');
+
+            const doorB = data.doors.door_b;
+            if (doorB) {
+                const isOnline = doorB.connection_status === 'online';
+                if (elBadge) {
+                    elBadge.textContent = isOnline ? 'ONLINE' : 'OFFLINE';
+                    elBadge.className = isOnline ? 'badge badge-success' : 'badge badge-warning';
+                }
+                if (elIp) elIp.textContent = doorB.device_ip || '192.168.90.15';
+                if (elSub) elSub.textContent = `${doorB.door_id || 'DOOR-B'} (${doorB.name || 'Door B'})`;
+                if (elDetStatus) {
+                    elDetStatus.textContent = (doorB.connection_status || 'offline').toUpperCase();
+                    elDetStatus.className = isOnline ? 'badge badge-success' : 'badge badge-warning';
+                }
+                if (elDetHealth) elDetHealth.textContent = (doorB.health_status || 'unknown').toUpperCase();
+            }
+            if (elDetRatio) {
+                elDetRatio.textContent = `${data.doors.online || 0} / ${data.doors.total || 0} Pintu Online`;
+            }
+        }
+
+        // Queue Info
+        if (data.queue) {
+            const elBadge = document.getElementById('shQueueBadge');
+            const elMode = document.getElementById('shQueueMode');
+            const elSub = document.getElementById('shQueueSubtext');
+            const elDetQueue = document.getElementById('shDetQueueDriver');
+
+            if (elBadge) elBadge.textContent = (data.queue.driver || 'sync').toUpperCase();
+            if (elMode) elMode.textContent = data.queue.mode || 'Direct Execution';
+            if (elSub) elSub.textContent = `${data.queue.pending_jobs || 0} Pending / ${data.queue.failed_jobs || 0} Failed`;
+            if (elDetQueue) elDetQueue.textContent = `${data.queue.driver || 'sync'} (${data.queue.mode || 'Direct Execution'})`;
+        }
+
+        // Last Event & Webhook Info
+        if (data.last_access_event) {
+            const elDetLast = document.getElementById('shDetLastLog');
+            if (elDetLast) {
+                if (data.last_access_event.timestamp) {
+                    const dtStr = new Date(data.last_access_event.timestamp).toLocaleString('id-ID');
+                    const emp = data.last_access_event.employee_name || '';
+                    elDetLast.textContent = `${dtStr} ${emp ? '(' + emp + ')' : ''}`;
+                } else {
+                    elDetLast.textContent = 'Belum ada log';
+                }
+            }
+        }
+
+    } catch (e) {
+        console.error('Error loading system health:', e);
+    }
+}
+
+window.loadSystemHealth = loadSystemHealth;

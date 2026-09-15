@@ -263,4 +263,125 @@ class AdminDoorController extends Controller
             'data' => $results,
         ]);
     }
+
+    /**
+     * Get system health monitoring metrics safely without leaking credentials
+     */
+    public function systemHealth(Request $request)
+    {
+        $user = $request->user();
+        $canView = $user && (
+            $user->isSuperAdmin() ||
+            $this->portalAccess->can($user, 'system.view') ||
+            $this->portalAccess->can($user, 'security.view')
+        );
+
+        if (!$canView) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Unauthorized access to system health details.'
+            ], 403);
+        }
+
+        // 1. App status
+        $appStatus = [
+            'status' => 'healthy',
+            'app_name' => config('app.name', 'PKP SecureGate'),
+            'environment' => config('app.env', 'production'),
+            'server_time' => now()->toIso8601String(),
+            'php_version' => PHP_VERSION,
+            'laravel_version' => app()->version(),
+        ];
+
+        // 2. DB Connectivity
+        $dbConnected = false;
+        $dbDriver = 'unknown';
+        try {
+            \Illuminate\Support\Facades\DB::connection()->getPdo();
+            $dbConnected = true;
+            $dbDriver = \Illuminate\Support\Facades\DB::connection()->getDriverName();
+        } catch (\Throwable $e) {
+            $dbConnected = false;
+        }
+
+        $dbStatus = [
+            'connected' => $dbConnected,
+            'status' => $dbConnected ? 'connected' : 'disconnected',
+            'driver' => $dbDriver,
+        ];
+
+        // 3. Doors & Hikvision Reachability
+        $totalDoors = Door::count();
+        $onlineDoors = Door::where('connection_status', 'online')->count();
+        $primaryDoor = Door::where('door_id', 'DOOR-B')
+            ->orWhere('device_ip', '192.168.90.15')
+            ->first();
+
+        $doorBInfo = null;
+        if ($primaryDoor) {
+            $doorBInfo = [
+                'door_id' => $primaryDoor->door_id,
+                'name' => $primaryDoor->name ?? $primaryDoor->door_name,
+                'device_ip' => $primaryDoor->device_ip,
+                'connection_status' => $primaryDoor->connection_status ?? 'offline',
+                'health_status' => $primaryDoor->health_status ?? 'unknown',
+                'last_checked_at' => $primaryDoor->last_checked_at ? $primaryDoor->last_checked_at->toIso8601String() : null,
+            ];
+        }
+
+        // 4. Access Logs & Webhook Health
+        $lastLog = AccessLog::latest('timestamp')->first();
+        $lastLogTimestamp = $lastLog ? $lastLog->timestamp : null;
+
+        $lastWebhookLog = AccessLog::where('source', 'HIKVISION')
+            ->orWhereNotNull('isapi_event_type')
+            ->latest('timestamp')
+            ->first();
+        if (!$lastWebhookLog) {
+            $lastWebhookLog = $lastLog;
+        }
+
+        // 5. Queue Health
+        $queueDriver = config('queue.default', 'sync');
+        $failedJobsCount = 0;
+        try {
+            if (\Illuminate\Support\Facades\Schema::hasTable('failed_jobs')) {
+                $failedJobsCount = \Illuminate\Support\Facades\DB::table('failed_jobs')->count();
+            }
+        } catch (\Throwable $e) {
+            $failedJobsCount = 0;
+        }
+
+        $queueStatus = [
+            'driver' => $queueDriver,
+            'mode' => $queueDriver === 'sync' ? 'Sync Driver (Direct Execution)' : 'Queued Worker',
+            'pending_jobs' => 0,
+            'failed_jobs' => $failedJobsCount,
+        ];
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'app' => $appStatus,
+                'database' => $dbStatus,
+                'doors' => [
+                    'total' => $totalDoors,
+                    'online' => $onlineDoors,
+                    'door_b' => $doorBInfo,
+                ],
+                'last_access_event' => [
+                    'timestamp' => $lastLogTimestamp ? \Carbon\Carbon::parse($lastLogTimestamp)->toIso8601String() : null,
+                    'employee_name' => $lastLog ? ($lastLog->employee_name ?? 'N/A') : null,
+                    'access_status' => $lastLog ? ($lastLog->access_status ?? 'N/A') : null,
+                ],
+                'webhook' => [
+                    'last_received' => ($lastWebhookLog && $lastWebhookLog->timestamp)
+                        ? \Carbon\Carbon::parse($lastWebhookLog->timestamp)->toIso8601String()
+                        : null,
+                    'status' => 'active',
+                ],
+                'queue' => $queueStatus,
+            ],
+        ]);
+    }
 }

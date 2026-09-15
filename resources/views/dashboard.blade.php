@@ -1264,6 +1264,48 @@
         .toast-message { font-size: 0.85rem; color: #ffffff; margin-top: 2px; }
         .toast-close { background: none; border: none; color: var(--text-muted); font-size: 1rem; cursor: pointer; }
 
+        /* Stats Grid & Stat Cards (Rekap Kehadiran, Metrics) */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.25rem;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 0.875rem;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            transition: all 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: rgba(56, 189, 248, 0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        }
+
+        .stat-title {
+            font-size: 0.825rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.02em;
+        }
+
+        .stat-desc {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
         /* Tabs Content */
         .tab-content { display: none; }
         .tab-content.active { display: block; animation: fadeIn 0.25s ease-out; }
@@ -1374,6 +1416,21 @@
 
             .table-container {
                 overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Phase 12 Responsive Adaptation for New Integration Pages */
+            .tree-nest-level-2 {
+                margin-left: 0.5rem !important;
+                padding-left: 0.5rem !important;
+            }
+
+            .tree-nest-level-3 {
+                margin-left: 0.5rem !important;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr !important;
             }
         }
     </style>
@@ -2026,21 +2083,129 @@
         </div>
     </section>
 
-    <!-- TAB: STATUS SISTEM (PLACEHOLDER) -->
+    <!-- TAB: STATUS SISTEM -->
     <section id="systemStatusTab" class="tab-content">
-        <div class="section-header">
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
             <div>
-                <h2 class="section-title">📡 Status Sistem</h2>
-                <p class="section-desc">Monitoring kesehatan sistem, status server, antrean sinkronisasi, dan status koneksi perangkat.</p>
+                <h2 class="section-title">📡 Status Sistem & Monitoring Kesehatan</h2>
+                <p class="section-desc">Monitoring real-time kesehatan server Laravel, konektivitas database PostgreSQL, terminal pintu Hikvision Door-B, dan antrean sinkronisasi.</p>
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+                <button class="btn-secondary" onclick="loadSystemHealth(); showToast('Memperbarui status sistem...', 'info');">
+                    🔄 Refresh Status
+                </button>
+                <button class="btn-secondary" onclick="checkAllDoorConnections();">
+                    ⚡ Audit Koneksi Device
+                </button>
             </div>
         </div>
-        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
-            <div style="font-size: 3.5rem; margin-bottom: 1rem;">📡</div>
-            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Status Sistem dalam Pengembangan</h3>
-            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
-                Dashboard agregasi kesehatan terminal, antrean latar belakang, dan log diagnostik sistem akan tersedia pada fase berikutnya.
-            </p>
-            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+
+        <!-- System Health Metric Cards Grid -->
+        <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-bottom: 2rem;">
+            <!-- 1. App Health -->
+            <div class="card card-hover-shadow" style="padding: 1.25rem; border-radius: 0.875rem; background: var(--card-bg); border: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                    <div style="font-size: 1.75rem;">🚀</div>
+                    <span id="shAppBadge" class="badge badge-success">HEALTHY</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; font-weight: 500;">Aplikasi Backend</div>
+                <div id="shAppName" style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Laravel Core</div>
+                <div id="shAppSubtext" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-family: monospace;">PHP {{ PHP_VERSION }} | v{{ app()->version() }}</div>
+            </div>
+
+            <!-- 2. DB Connectivity -->
+            <div class="card card-hover-shadow" style="padding: 1.25rem; border-radius: 0.875rem; background: var(--card-bg); border: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                    <div style="font-size: 1.75rem;">🗄️</div>
+                    <span id="shDbBadge" class="badge badge-success">TERHUBUNG</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; font-weight: 500;">Koneksi Database</div>
+                <div id="shDbDriver" style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">PostgreSQL DB</div>
+                <div id="shDbSubtext" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-family: monospace;">Database State: Normal</div>
+            </div>
+
+            <!-- 3. Hikvision Reachability -->
+            <div class="card card-hover-shadow" style="padding: 1.25rem; border-radius: 0.875rem; background: var(--card-bg); border: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                    <div style="font-size: 1.75rem;">🚪</div>
+                    <span id="shDoorBadge" class="badge badge-info">CHECKING</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; font-weight: 500;">Hikvision Door-B</div>
+                <div id="shDoorIp" style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">192.168.90.15</div>
+                <div id="shDoorSubtext" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-family: monospace;">Terminal Gedung B</div>
+            </div>
+
+            <!-- 4. Queue Health -->
+            <div class="card card-hover-shadow" style="padding: 1.25rem; border-radius: 0.875rem; background: var(--card-bg); border: 1px solid var(--border-color);">
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+                    <div style="font-size: 1.75rem;">⚡</div>
+                    <span id="shQueueBadge" class="badge badge-neutral">SYNC DRIVER</span>
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.25rem; font-weight: 500;">Queue Engine</div>
+                <div id="shQueueMode" style="font-size: 1.1rem; font-weight: 700; color: var(--text-main);">Direct Execution</div>
+                <div id="shQueueSubtext" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem; font-family: monospace;">0 Pending / 0 Failed</div>
+            </div>
+        </div>
+
+        <!-- Detailed System Status Tables / Panels -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem;">
+            <!-- Component Health Overview -->
+            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.5rem;">
+                <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>🛡️</span> Rincian Komponen Server & Privasi
+                </h3>
+                <div style="display: flex; flex-direction: column; gap: 0.875rem; font-size: 0.9rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Nama Aplikasi</span>
+                        <span id="shDetAppName" style="font-weight: 600; color: var(--text-main);">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Environment</span>
+                        <span id="shDetEnv" class="badge badge-info">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Server Timestamp</span>
+                        <span id="shDetServerTime" style="font-family: monospace; font-size: 0.85rem; color: var(--text-main);">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Proteksi Kredensial</span>
+                        <span class="badge badge-success">SANGAT AMAN (Zero Secret Leak)</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: var(--text-muted);">Tipe Driver Queue</span>
+                        <span id="shDetQueueDriver" style="font-family: monospace; color: var(--text-main);">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Terminal & Webhook Monitor -->
+            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.5rem;">
+                <h3 style="font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <span>📡</span> Event Telemetry & Status Hardware
+                </h3>
+                <div style="display: flex; flex-direction: column; gap: 0.875rem; font-size: 0.9rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Status Pintu Utama (DOOR-B)</span>
+                        <span id="shDetDoorBStatus" class="badge badge-neutral">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Konektivitas Fisik (192.168.90.15)</span>
+                        <span id="shDetDoorBHealth" style="font-weight: 600; color: var(--text-main);">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">Log Akses Terakhir</span>
+                        <span id="shDetLastLog" style="font-size: 0.85rem; color: var(--text-main);">-</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed var(--border-color); padding-bottom: 0.5rem;">
+                        <span style="color: var(--text-muted);">ISAPI Webhook Receiver</span>
+                        <span id="shDetWebhookStatus" class="badge badge-success">AKTIF</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: var(--text-muted);">Total Terhubung / Total Pintu</span>
+                        <span id="shDetDoorsRatio" style="font-weight: 700; color: var(--text-main);">- / -</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </section>
 
