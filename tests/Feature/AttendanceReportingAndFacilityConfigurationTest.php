@@ -89,6 +89,16 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
         $this->actingAs($manager)->postJson('/api/v1/admin/doors', [])->assertForbidden();
     }
 
+    public function test_management_can_read_building_zone_door_hierarchy(): void
+    {
+        $building = Building::create(['code' => 'BLD-A', 'name' => 'Gedung A', 'is_active' => true]);
+        $zone = $building->zones()->create(['code' => 'ZN-A', 'name' => 'Zone A', 'is_active' => true]);
+        Door::create(['door_id' => 'DOOR-A', 'name' => 'Door A', 'building_id' => $building->id, 'zone_id' => $zone->id, 'location' => $building->name, 'device_ip' => '192.168.90.21']);
+
+        $this->actingAs($this->admin('management'))->getJson('/api/v1/admin/buildings')
+            ->assertOk()->assertJsonPath('data.0.zones.0.doors.0.door_id', 'DOOR-A');
+    }
+
     public function test_zone_code_is_normalized_before_duplicate_validation(): void
     {
         $infra = $this->admin('infra_admin');

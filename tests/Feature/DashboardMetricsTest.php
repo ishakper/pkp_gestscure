@@ -96,6 +96,28 @@ class DashboardMetricsTest extends TestCase
             ->assertJsonPath('data.deniedLogs', 0);
     }
 
+    public function test_system_accounts_are_explicitly_redacted_and_planned(): void
+    {
+        Sanctum::actingAs($this->admin, ['*']);
+
+        $this->getJson('/api/v1/admin/system-accounts')->assertOk()
+            ->assertJsonPath('lifecycle', 'PLANNED')
+            ->assertJsonPath('data.0.status', null)
+            ->assertJsonPath('data.0.last_login', null)
+            ->assertJsonMissingPath('data.0.password')
+            ->assertJsonMissingPath('data.0.remember_token');
+    }
+
+    public function test_system_health_preserves_primary_door_and_adds_aggregates(): void
+    {
+        Sanctum::actingAs($this->admin, ['*']);
+
+        $this->getJson('/api/v1/admin/system-health')->assertOk()
+            ->assertJsonPath('data.primary_door.door_id', 'DOOR-B')
+            ->assertJsonPath('data.doors.total', 2)
+            ->assertJsonCount(2, 'data.buildings');
+    }
+
     private function createAccessLog(Door $door, string $logId, string $status): void
     {
         AccessLog::create([

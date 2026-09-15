@@ -14,10 +14,11 @@ class ActivityLogController extends Controller
 
     public function index(Request $request)
     {
-        abort_unless($this->portalAccess->can($request->user(), 'audit.view'), 403);
-        $logs = ActivityLog::with('admin')
+        $actor = $request->user();
+        abort_unless($actor && $actor->isSuperAdmin() && $this->portalAccess->can($actor, 'audit.view'), 403);
+        $logs = ActivityLog::with('admin:id,name,email')
             ->orderBy('timestamp', 'desc')
-            ->paginate($request->get('per_page', 20));
+            ->paginate(min(max((int) $request->get('per_page', 20), 1), 100));
 
         return response()->json([
             'status' => 'success',

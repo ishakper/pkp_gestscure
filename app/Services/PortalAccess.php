@@ -110,8 +110,13 @@ class PortalAccess
                 $perms[] = 'access.approve';
                 $perms[] = 'device.sync.view';
             }
-            if (in_array($role, ['hrd', 'security'], true)) {
+            if (in_array($role, ['hrd', 'security', 'building_admin'], true)) {
                 $perms[] = 'credential.view';
+            }
+            if ($role === 'building_admin') {
+                $perms[] = 'access.manage';
+                $perms[] = 'credential.manage';
+                $perms[] = 'credential.sync';
             }
             if (in_array($role, ['hrd', 'building_admin'], true)) {
                 $perms[] = 'asset.manage';

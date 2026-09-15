@@ -6,6 +6,7 @@ use App\Models\AccessProfile;
 use App\Models\AccessRequest;
 use App\Models\ActivityLog;
 use App\Models\Admin;
+use App\Models\Building;
 use App\Models\CredentialDeviceSync;
 use App\Models\CredentialRecord;
 use App\Models\Door;
@@ -391,6 +392,14 @@ class AccessProvisioningTest extends TestCase
             'masked_identifier' => '******4455',
             'status' => 'ACTIVE',
         ]);
+        CredentialDeviceSync::create([
+            'credential_record_id' => $cred->id,
+            'employee_id' => $employee->id,
+            'door_id' => $this->doorA->id,
+            'operation' => 'ADD',
+            'status' => 'SUCCESS',
+            'idempotency_key' => 'employee-active-door-a',
+        ]);
 
         Sanctum::actingAs($superadmin);
 
@@ -460,5 +469,107 @@ class AccessProvisioningTest extends TestCase
 
         // Verify credential revoked
         $this->assertEquals('REVOKED', $cred->fresh()->status);
+    }
+
+    public function test_building_scope_allows_same_forbids_cross_and_super_admin_bypasses(): void
+    {
+        $pusat = Building::create(['code' => 'PUSAT', 'name' => 'Kantor Pusat PKP', 'is_active' => true]);
+        $cabang = Building::create(['code' => 'SBY', 'name' => 'Gedung Cabang Surabaya', 'is_active' => true]);
+        $this->doorA->update(['building_id' => $pusat->id]);
+        $this->doorC->update(['building_id' => $cabang->id]);
+
+        $adminEmployee = Employee::create([
+            'employee_id' => 'EMP-ADMIN-PUSAT', 'nik' => '3201010101010101', 'name' => 'Admin Pusat',
+            'email' => 'admin.pusat.employee@pkp.co.id', 'department' => 'Facility', 'role' => 'Admin',
+            'building_id' => $pusat->id, 'employment_type' => 'PERMANENT', 'employment_status' => 'ACTIVE',
+        ]);
+        $sameEmployee = Employee::create([
+            'employee_id' => 'EMP-SAME', 'nik' => '3201010101010102', 'name' => 'Pegawai Pusat',
+            'email' => 'same@pkp.co.id', 'department' => 'IT', 'role' => 'Staff',
+            'building_id' => $pusat->id, 'employment_type' => 'PERMANENT', 'employment_status' => 'ACTIVE',
+        ]);
+        $crossEmployee = Employee::create([
+            'employee_id' => 'EMP-CROSS', 'nik' => '3201010101010103', 'name' => 'Pegawai Cabang',
+            'email' => 'cross@pkp.co.id', 'department' => 'IT', 'role' => 'Staff',
+            'building_id' => $cabang->id, 'employment_type' => 'PERMANENT', 'employment_status' => 'ACTIVE',
+        ]);
+        $buildingAdmin = Admin::create([
+            'name' => 'Building Admin', 'email' => 'scope.admin@pkp.co.id', 'password' => Hash::make('password'),
+            'role' => 'building_admin', 'employee_id' => $adminEmployee->id,
+            'assigned_building' => 'Gedung Cabang Surabaya',
+        ]);
+        $superAdmin = Admin::create([
+            'name' => 'Super Admin Scope', 'email' => 'scope.super@pkp.co.id',
+            'password' => Hash::make('password'), 'role' => 'super_admin',
+        ]);
+        $sameCredential = CredentialRecord::create([
+            'credential_number' => 'CRD-SAME', 'employee_id' => $sameEmployee->id,
+            'credential_type' => 'CARD', 'masked_identifier' => '****SAME', 'status' => 'ACTIVE',
+        ]);
+        $crossCredential = CredentialRecord::create([
+            'credential_number' => 'CRD-CROSS', 'employee_id' => $crossEmployee->id,
+            'credential_type' => 'CARD', 'masked_identifier' => '****CROSS', 'status' => 'ACTIVE',
+        ]);
+
+        Sanctum::actingAs($buildingAdmin);
+        $this->getJson("/api/v1/access/credentials/{$sameCredential->id}")->assertOk();
+        $this->getJson("/api/v1/access/credentials/{$crossCredential->id}")->assertForbidden();
+        $this->postJson('/api/v1/access/profiles', [
+            'code' => 'EMPTY_SCOPE', 'name' => 'Empty Scope', 'allowed_doors' => [],
+        ])->assertUnprocessable();
+        $this->postJson('/api/v1/access/profiles', [
+            'code' => 'CROSS_SCOPE', 'name' => 'Cross Scope', 'allowed_doors' => ['DOOR-C'],
+        ])->assertForbidden();
+        $this->postJson('/api/v1/access/profiles', [
+            'code' => 'SAME_SCOPE', 'name' => 'Same Scope', 'allowed_doors' => ['DOOR-A'],
+        ])->assertCreated();
+
+        Sanctum::actingAs($superAdmin);
+        $this->getJson("/api/v1/access/credentials/{$crossCredential->id}")->assertOk();
+        $this->postJson('/api/v1/access/profiles', [
+            'code' => 'SUPER_CROSS_SCOPE', 'name' => 'Super Cross Scope',
+            'building_name' => 'Gedung Cabang Surabaya', 'allowed_doors' => ['DOOR-C'],
+        ])->assertCreated();
+    }
+
+    public function test_device_retry_is_scoped_and_only_requeues_without_fake_success(): void
+    {
+        $pusat = Building::create(['code' => 'PUSAT-Q', 'name' => 'Pusat Queue', 'is_active' => true]);
+        $cabang = Building::create(['code' => 'CABANG-Q', 'name' => 'Cabang Queue', 'is_active' => true]);
+        $this->doorA->update(['building_id' => $pusat->id]);
+        $this->doorC->update(['building_id' => $cabang->id]);
+        $adminEmployee = Employee::create([
+            'employee_id' => 'EMP-QUEUE-ADMIN', 'nik' => '3201010101010111', 'name' => 'Queue Admin',
+            'email' => 'queue.admin.employee@pkp.co.id', 'department' => 'Facility', 'role' => 'Admin',
+            'building_id' => $pusat->id, 'employment_type' => 'PERMANENT', 'employment_status' => 'ACTIVE',
+        ]);
+        $admin = Admin::create([
+            'name' => 'Queue Admin', 'email' => 'queue.admin@pkp.co.id', 'password' => Hash::make('password'),
+            'role' => 'building_admin', 'employee_id' => $adminEmployee->id,
+        ]);
+        $credential = CredentialRecord::create([
+            'credential_number' => 'CRD-QUEUE', 'credential_type' => 'CARD',
+            'masked_identifier' => '****QUEUE', 'status' => 'ACTIVE',
+        ]);
+        $sameSync = CredentialDeviceSync::create([
+            'credential_record_id' => $credential->id, 'door_id' => $this->doorA->id,
+            'operation' => 'ADD', 'status' => 'FAILED', 'attempt_count' => 2,
+            'error_summary' => 'offline', 'completed_at' => now(), 'idempotency_key' => 'same-retry',
+        ]);
+        $crossSync = CredentialDeviceSync::create([
+            'credential_record_id' => $credential->id, 'door_id' => $this->doorC->id,
+            'operation' => 'ADD', 'status' => 'FAILED', 'attempt_count' => 1,
+            'error_summary' => 'offline', 'idempotency_key' => 'cross-retry',
+        ]);
+
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/v1/access/device-syncs/{$crossSync->id}/retry")->assertForbidden();
+        $this->postJson("/api/v1/access/device-syncs/{$sameSync->id}/retry")
+            ->assertOk()->assertJsonPath('data.status', 'QUEUED');
+        $sameSync->refresh();
+        $this->assertSame('QUEUED', $sameSync->status);
+        $this->assertSame(3, $sameSync->attempt_count);
+        $this->assertNull($sameSync->completed_at);
+        $this->assertNull($sameSync->error_summary);
     }
 }

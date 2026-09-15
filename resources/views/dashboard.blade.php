@@ -1433,12 +1433,14 @@
         @endif
         @if(in_array('security.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Log Akses" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Akses</span></button></li>
-        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
+        @endif
+        @if(($admin?->role ?? null) === 'super_admin' && in_array('audit.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('auditLogTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
 
         <!-- GROUP 2: KONFIGURASI -->
         <li class="nav-section-label" aria-hidden="true">KONFIGURASI</li>
-        @if(in_array('device.manage', $permissions ?? []) || in_array('organization.manage', $permissions ?? []))
+        @if(in_array('organization.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Setup Gedung" onclick="switchTab('buildingSetupTab', this)"><span class="nav-icon">🏢</span><span class="nav-text">Setup Gedung</span></button></li>
         @endif
         @if(in_array('system.manage', $permissions ?? []) || in_array('system.view', $permissions ?? []))
@@ -1850,13 +1852,16 @@
                 </tbody>
             </table>
         </div>
+    </section>
 
-        @if(in_array('audit.view', $permissions ?? []))
-        <div class="section-header" style="margin-top:1.5rem;">
+    @if(($admin?->role ?? null) === 'super_admin' && in_array('audit.view', $permissions ?? []))
+    <section id="auditLogTab" class="tab-content">
+        <div class="section-header">
             <div>
-                <h3 class="section-title" style="font-size:1rem;">Operational Audit Timeline</h3>
+                <h2 class="section-title">🛡️ Audit Log</h2>
                 <p class="section-desc">Aktivitas administratif terstruktur; payload mentah dan kredensial tidak pernah ditampilkan.</p>
             </div>
+            <button class="btn-secondary" onclick="loadActivityLogs()">↻ Refresh Audit</button>
         </div>
         <div class="table-container">
             <table aria-label="Operational audit timeline">
@@ -1864,8 +1869,8 @@
                 <tbody id="activityLogsTableBody"><tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat audit timeline...</td></tr></tbody>
             </table>
         </div>
-        @endif
     </section>
+    @endif
 
     <!-- TAB 5: ISAPI HARDWARE EVENT SIMULATOR -->
     @if (app()->environment('local', 'testing'))
@@ -1985,12 +1990,14 @@
                 <p class="section-desc">Tata kelola Master Gedung, Lantai, Zona Akses, dan Pemetaan Perangkat Kontrol Pintu (Hikvision DS-K1T804AMF).</p>
             </div>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                @if(in_array('organization.manage', $permissions ?? []))
                 <button class="btn-primary" onclick="openAddBuildingModal()">
                     + Tambah Gedung
                 </button>
                 <button class="btn-secondary" onclick="openAddZoneModal()">
                     + Tambah Zona Akses
                 </button>
+                @endif
                 <button class="btn-secondary" onclick="loadBuildingHierarchy()">
                     🔄 Refresh Hierarki
                 </button>
@@ -2014,21 +2021,20 @@
         </div>
     </section>
 
-    <!-- TAB: AKUN SISTEM (PLACEHOLDER) -->
+    <!-- TAB: AKUN SISTEM -->
     <section id="systemAccountsTab" class="tab-content">
         <div class="section-header">
             <div>
                 <h2 class="section-title">👤 Akun Sistem</h2>
-                <p class="section-desc">Manajemen akun pengguna sistem, hak akses portal, dan kredensial administrasi.</p>
+                <p class="section-desc">Inventaris akun portal. Data ditampilkan read-only tanpa kredensial.</p>
             </div>
+            <span id="systemAccountsLifecycle" class="badge-warning">Lifecycle: PLANNED · Tambah, ubah, role assignment, dan reset kredensial belum tersedia</span>
         </div>
-        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
-            <div style="font-size: 3.5rem; margin-bottom: 1rem;">👤</div>
-            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Akun Sistem dalam Pengembangan</h3>
-            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
-                Fitur manajemen akun administrator, role assignment, dan reset kredensial portal akan tersedia pada fase berikutnya.
-            </p>
-            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        <div class="table-container">
+            <table aria-label="Inventaris akun sistem">
+                <thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Gedung</th><th>Employee ID</th><th>Status</th><th>Login Terakhir</th><th>Dibuat</th><th>Aksi Lifecycle</th></tr></thead>
+                <tbody id="systemAccountsTableBody"><tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat akun sistem...</td></tr></tbody>
+            </table>
         </div>
     </section>
 
@@ -2045,6 +2051,7 @@
             <div class="stat-card"><span class="stat-title">Aplikasi</span><strong class="stat-value" id="healthApp">Memuat...</strong><span class="stat-desc" id="healthTime">-</span></div>
             <div class="stat-card"><span class="stat-title">Database</span><strong class="stat-value" id="healthDatabase">UNKNOWN</strong></div>
             <div class="stat-card"><span class="stat-title">DOOR-B</span><strong class="stat-value" id="healthDoor">UNKNOWN</strong><span class="stat-desc" id="healthDoorFreshness">Belum diperiksa</span></div>
+            <div class="stat-card"><span class="stat-title">Semua Pintu</span><strong class="stat-value" id="healthDoorsTotal">0</strong><span class="stat-desc" id="healthDoorsAggregate">Healthy: 0 · Offline: 0 · Stale: 0 · Unknown: 0</span></div>
             <div class="stat-card"><span class="stat-title">Webhook</span><strong class="stat-value" id="healthWebhook">UNKNOWN</strong><span class="stat-desc" id="healthWebhookFreshness">Belum ada bukti penerimaan</span></div>
             <div class="stat-card"><span class="stat-title">Queue</span><strong class="stat-value" id="healthQueue">UNKNOWN</strong><span class="stat-desc" id="healthQueueCounts">-</span></div>
             <div class="stat-card"><span class="stat-title">Event Terakhir</span><strong class="stat-value" id="healthLastEvent">-</strong><span class="stat-desc" id="healthLastEventDetail">Belum ada data</span></div>

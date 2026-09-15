@@ -22,23 +22,34 @@ class AdminDoorController extends Controller
         $admin = $request->user();
         $doors = Door::query();
 
-        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $doors->where('location', $admin->assigned_building);
+        if ($admin && $admin->isBuildingAdmin()) {
+            $buildingId = $admin->employee?->building_id;
+            abort_unless($buildingId || $admin->assigned_building, 403);
+            $doors->where(fn ($query) => $query
+                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
+                ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhere('location', $admin->assigned_building)));
         }
 
         $scopedDoors = $doors->get();
         $doorIds = $scopedDoors->pluck('id');
 
-        $totalUsers = Employee::count();
-        $activeEmployees = Employee::where('employment_status', 'ACTIVE')->count();
+        $employees = Employee::query();
+        if ($admin && $admin->isBuildingAdmin()) {
+            $buildingId = $admin->employee?->building_id;
+            abort_unless($buildingId || $admin->assigned_building, 403);
+            $employees->where(fn ($query) => $query
+                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
+                ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhereHas('doors', fn ($doors) => $doors->where('location', $admin->assigned_building))));
+        }
+        $totalUsers = (clone $employees)->count();
+        $activeEmployees = (clone $employees)->where('employment_status', 'ACTIVE')->count();
         if ($activeEmployees === 0 && $totalUsers > 0) {
             $activeEmployees = $totalUsers;
         }
 
-        $registeredCredentials = Employee::where(function ($q) {
-            $q->whereNotNull('card_no')->where('card_no', '!=', '');
-        })->orWhereHas('biometricStatus', function ($q) {
-            $q->where('has_fingerprint', true)->orWhere('card_enrolled', true);
+        $registeredCredentials = (clone $employees)->where(function ($query) {
+            $query->where(fn ($q) => $q->whereNotNull('card_no')->where('card_no', '!=', ''))
+                ->orWhereHas('biometricStatus', fn ($q) => $q->where('has_fingerprint', true)->orWhere('card_enrolled', true));
         })->count();
 
         return response()->json([
@@ -297,18 +308,58 @@ class AdminDoorController extends Controller
         }
 
         $doors = Door::query();
-        if ($admin->isBuildingAdmin() && $admin->assigned_building) {
-            $doors->where('location', $admin->assigned_building);
+        if ($admin->isBuildingAdmin()) {
+            $buildingId = $admin->employee?->building_id;
+            abort_unless($buildingId || $admin->assigned_building, 403);
+            $doors->where(function ($query) use ($buildingId, $admin) {
+                if ($buildingId) {
+                    $query->where('building_id', $buildingId);
+                    if ($admin->assigned_building) {
+                        $query->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
+                    }
+                } else {
+                    $query->whereNull('building_id')->where('location', $admin->assigned_building);
+                }
+            });
         }
-        $doorIds = (clone $doors)->pluck('id');
-        $primaryDoor = (clone $doors)->where('door_id', 'DOOR-B')->first();
+        $scopedDoors = (clone $doors)->with('building:id,name')->get();
+        $doorIds = $scopedDoors->pluck('id');
+        $primaryDoor = $scopedDoors->firstWhere('door_id', 'DOOR-B');
+        $classifyDoor = function ($door) use ($serverTime, $doorFreshMinutes): string {
+            if (!$door->last_checked_at) return 'UNKNOWN';
+            if ($door->last_checked_at->diffInSeconds($serverTime) > ($doorFreshMinutes * 60)) return 'STALE';
+
+            return match (strtolower((string) $door->connection_status)) {
+                'online' => 'HEALTHY',
+                'offline' => 'OFFLINE',
+                default => 'UNKNOWN',
+            };
+        };
+        $summarize = function ($items) use ($classifyDoor): array {
+            $statuses = $items->map($classifyDoor);
+            $healthy = $statuses->filter(fn ($status) => $status === 'HEALTHY')->count();
+
+            return [
+                'total' => $items->count(),
+                'online' => $healthy,
+                'healthy' => $healthy,
+                'offline' => $statuses->filter(fn ($status) => $status === 'OFFLINE')->count(),
+                'stale' => $statuses->filter(fn ($status) => $status === 'STALE')->count(),
+                'unknown' => $statuses->filter(fn ($status) => $status === 'UNKNOWN')->count(),
+            ];
+        };
+        $data['doors'] = $summarize($scopedDoors);
+        $data['buildings'] = $scopedDoors->groupBy(fn ($door) => $door->building_id ?: 'legacy:' . ($door->location ?: 'unknown'))->map(function ($items) use ($summarize) {
+            $door = $items->first();
+            return ['building_id' => $door->building_id, 'building_name' => $door->building?->name ?? $door->location] + $summarize($items);
+        })->values();
 
         if ($primaryDoor) {
             $checkedAt = $primaryDoor->last_checked_at;
             $age = $checkedAt ? $checkedAt->diffInSeconds($serverTime) : null;
-            $stale = $age === null || $age > ($doorFreshMinutes * 60);
+            $health = $classifyDoor($primaryDoor);
+            $stale = in_array($health, ['STALE', 'UNKNOWN'], true);
             $connection = strtolower((string) $primaryDoor->connection_status);
-            $health = $stale ? ($checkedAt ? 'STALE' : 'UNKNOWN') : ($connection === 'online' ? 'HEALTHY' : ($connection === 'offline' ? 'OFFLINE' : 'UNKNOWN'));
             $data['primary_door'] = [
                 'door_id' => $primaryDoor->door_id,
                 'name' => $primaryDoor->door_name ?? $primaryDoor->name,
@@ -340,7 +391,8 @@ class AdminDoorController extends Controller
         $data['queue'] = ['status' => ($failed ?? 0) > 0 ? 'DEGRADED' : ($pending === null ? 'UNKNOWN' : 'HEALTHY'), 'pending_jobs' => $pending, 'failed_jobs' => $failed];
         $criticalStatuses = [$data['database']['status'], $data['primary_door']['status'], $data['webhook']['status']];
         $criticalUnhealthy = collect($criticalStatuses)->contains(fn ($status) => in_array($status, ['OFFLINE', 'DEGRADED', 'STALE', 'UNKNOWN'], true));
-        $data['app']['status'] = $criticalUnhealthy || $data['queue']['status'] === 'DEGRADED' ? 'DEGRADED' : 'HEALTHY';
+        $unhealthyDoors = $data['doors']['offline'] + $data['doors']['stale'] + $data['doors']['unknown'];
+        $data['app']['status'] = $criticalUnhealthy || $unhealthyDoors > 0 || $data['queue']['status'] === 'DEGRADED' ? 'DEGRADED' : 'HEALTHY';
 
         return response()->json(['status' => 'success', 'data' => $data]);
     }

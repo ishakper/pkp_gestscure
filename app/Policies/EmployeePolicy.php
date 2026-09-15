@@ -18,8 +18,9 @@ class EmployeePolicy
         if ($admin->isSuperAdmin() || in_array($admin->role, ['hrd', 'management'], true)) return true;
         if (in_array($admin->role, ['employee', 'intern'], true)) return (int) $admin->employee_id === (int) $employee->id;
         if ($admin->role === 'supervisor') return (int) $employee->supervisor_id === (int) $admin->employee_id;
-        if (!$admin->assigned_building) return false;
-        return $employee->doors()->where('location', $admin->assigned_building)->exists();
+        if (!$admin->isBuildingAdmin() || (!$admin->employee?->building_id && !$admin->assigned_building)) return false;
+        return ($admin->employee?->building_id && (int) $employee->building_id === (int) $admin->employee->building_id)
+            || ($admin->assigned_building && $employee->doors()->where('location', $admin->assigned_building)->exists());
     }
     public function create(Admin $admin): bool
     {
@@ -32,12 +33,12 @@ class EmployeePolicy
             return true;
         }
 
-        if (!$admin->assigned_building) {
-            return true;
+        if (!$admin->isBuildingAdmin() || (!$admin->employee?->building_id && !$admin->assigned_building)) {
+            return false;
         }
 
-        // building_admin can only manage employees associated with their building
-        return $employee->doors()->where('location', $admin->assigned_building)->exists();
+        return ($admin->employee?->building_id && (int) $employee->building_id === (int) $admin->employee->building_id)
+            || ($admin->assigned_building && $employee->doors()->where('location', $admin->assigned_building)->exists());
     }
 
     public function delete(Admin $admin, Employee $employee): bool
@@ -51,7 +52,8 @@ class EmployeePolicy
             return true;
         }
 
-        // building_admin can only assign access to doors in their assigned building
-        return $admin->assigned_building === $door->location;
+        if (!$admin->isBuildingAdmin()) return false;
+        return ($admin->employee?->building_id && (int) $door->building_id === (int) $admin->employee->building_id)
+            || ($admin->assigned_building && $admin->assigned_building === $door->location);
     }
 }

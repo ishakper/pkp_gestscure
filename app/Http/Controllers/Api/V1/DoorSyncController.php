@@ -37,6 +37,14 @@ class DoorSyncController extends Controller
             $query->whereIn('sync_status', ['pending', 'failed']);
         }
 
+        $actor = $request->user();
+        if ($actor->isBuildingAdmin()) {
+            $buildingId = $actor->employee?->building_id;
+            abort_unless($buildingId || $actor->assigned_building, 403);
+            $query->whereHas('door', fn ($doors) => $doors
+                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
+                ->when($actor->assigned_building, fn ($scoped) => $scoped->orWhere('location', $actor->assigned_building)));
+        }
         $assignments = $query->get();
         $assignments->each(fn (DoorAssignment $assignment) => $this->authorize('physicalControl', $assignment->door));
         $dispatchedCount = 0;

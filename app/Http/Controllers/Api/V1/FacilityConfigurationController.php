@@ -18,9 +18,22 @@ class FacilityConfigurationController extends Controller
 
     public function buildings(Request $request): JsonResponse
     {
-        $this->authorizePermission($request, 'organization.manage');
-        $buildings = Building::with(['zones', 'doors'])->orderBy('name')->get();
-        return response()->json(['status' => 'success', 'data' => $buildings]);
+        $this->authorizePermission($request, 'organization.view');
+        $actor = $request->user();
+        $buildings = Building::query()->with([
+            'zones' => fn ($query) => $query->orderBy('name'),
+            'zones.doors' => fn ($query) => $query->orderBy('name'),
+        ]);
+        if ($actor->isBuildingAdmin()) {
+            $buildings->where(function ($query) use ($actor) {
+                $query->whereHas('employees', fn ($employees) => $employees->whereKey($actor->employee_id));
+                if ($actor->assigned_building) {
+                    $query->orWhere('name', $actor->assigned_building)
+                        ->orWhereHas('doors', fn ($doors) => $doors->where('location', $actor->assigned_building));
+                }
+            });
+        }
+        return response()->json(['status' => 'success', 'data' => $buildings->orderBy('name')->get(['id', 'code', 'name', 'description', 'is_active'])]);
     }
 
     public function storeBuilding(Request $request): JsonResponse

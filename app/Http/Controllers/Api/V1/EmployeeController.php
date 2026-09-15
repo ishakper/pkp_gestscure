@@ -26,8 +26,12 @@ class EmployeeController extends Controller
         if ($request->filled('search')) { $search = $request->input('search'); $query->where(fn ($q) => $q->where('name','like',"%{$search}%")->orWhere('nik','like',"%{$search}%")->orWhere('employee_id','like',"%{$search}%")); }
         foreach (['building_id','division_id','position_id','employment_status'] as $filter) { if ($request->filled($filter)) $query->where($filter, $request->input($filter)); }
         if ($request->filled('door_id')) { $doorId=$request->input('door_id'); $query->whereHas('doors', fn($q) => $q->where('doors.door_id',$doorId)->orWhere('doors.id',$doorId)); }
-        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $query->where(fn($q) => $q->whereHas('building', fn($b) => $b->where('name',$admin->assigned_building))->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building)));
+        if ($admin && $admin->isBuildingAdmin()) {
+            $buildingId = $admin->employee?->building_id;
+            abort_unless($buildingId || $admin->assigned_building, 403);
+            $query->where(fn($q) => $q
+                ->when($buildingId, fn($scoped) => $scoped->where('building_id',$buildingId))
+                ->when($admin->assigned_building, fn($scoped) => $scoped->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building))));
         }
         $employees=$query->paginate(min(max((int)$request->get('per_page',10),1),100));
         return response()->json(['status'=>'success','pagination'=>['current_page'=>$employees->currentPage(),'per_page'=>$employees->perPage(),'total_records'=>$employees->total(),'total_pages'=>$employees->lastPage()],'data'=>EmployeeResource::collection($employees)]);

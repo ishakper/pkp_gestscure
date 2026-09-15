@@ -917,7 +917,9 @@ async function loadAccessLogs() {
 
 async function loadActivityLogs() {
     const tbody = document.getElementById('activityLogsTableBody');
-    if (!tbody || !(window.APP_CONFIG?.permissions || []).includes('audit.view')) return;
+    const isSuperAdmin = window.APP_CONFIG?.admin?.role === 'super_admin';
+    if (!tbody || !isSuperAdmin || !(window.APP_CONFIG?.permissions || []).includes('audit.view')) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat audit timeline...</td></tr>';
     try {
         const res = await apiFetch('/admin/activity-logs?per_page=30');
         state.activityLogs = Array.isArray(res.data) ? res.data : [];
@@ -1352,7 +1354,8 @@ function switchTab(tabId, btn) {
     if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
     if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
-    if (tabId === 'logsTab') loadActivityLogs();
+    if (tabId === 'auditLogTab') loadActivityLogs();
+    if (tabId === 'systemAccountsTab') loadSystemAccounts();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
@@ -6773,12 +6776,13 @@ async function loadBuildingHierarchy() {
         const doors = (doorRes.status === 'success' && Array.isArray(doorRes.data)) ? doorRes.data : [];
 
         if (buildings.length === 0 && doors.length === 0) {
+            const canManageOrganization = (window.APP_CONFIG?.permissions || []).includes('organization.manage');
             container.innerHTML = `
                 <div class="table-container" style="padding: 3rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
                     <div style="font-size: 3rem; margin-bottom: 0.75rem;">🏢</div>
                     <h3 style="color: var(--text-main); margin-bottom: 0.5rem;">Belum Ada Master Gedung Registered</h3>
-                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;">Tambahkan gedung induk untuk mulai menyusun hierarki lokasi pintu fisik.</p>
-                    <button class="btn-primary" onclick="openAddBuildingModal()">+ Tambah Gedung Pertama</button>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;">Belum ada hierarki gedung tersimpan di database.</p>
+                    ${canManageOrganization ? '<button class="btn-primary" onclick="openAddBuildingModal()">+ Tambah Gedung Pertama</button>' : ''}
                 </div>
             `;
             return;
@@ -6978,6 +6982,39 @@ window.submitAddBuilding = submitAddBuilding;
 window.openAddZoneModal = openAddZoneModal;
 window.submitAddZone = submitAddZone;
 
+async function loadSystemAccounts() {
+    const tbody = document.getElementById('systemAccountsTableBody');
+    const lifecycle = document.getElementById('systemAccountsLifecycle');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat akun sistem...</td></tr>';
+    try {
+        const response = await apiFetch('/admin/system-accounts');
+        const accounts = Array.isArray(response.data) ? response.data : [];
+        if (lifecycle) lifecycle.textContent = `Lifecycle: ${response.lifecycle || 'PLANNED'} · Tambah, ubah, role assignment, dan reset kredensial belum tersedia`;
+        if (accounts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-td">Belum ada akun sistem.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = accounts.map(account => `
+            <tr>
+                <td>${escapeHtml(account.name || '-')}</td>
+                <td>${escapeHtml(account.email || '-')}</td>
+                <td>${escapeHtml(account.role || '-')}</td>
+                <td>${escapeHtml(account.assigned_building || '-')}</td>
+                <td>${escapeHtml(account.employee_id || '-')}</td>
+                <td>${escapeHtml(account.status || 'Belum tersedia')}</td>
+                <td>${escapeHtml(account.last_login ? formatDateTime(account.last_login) : 'Belum tersedia')}</td>
+                <td>${escapeHtml(account.created_at ? formatDateTime(account.created_at) : '-')}</td>
+                <td><span class="badge badge-warning">PLANNED</span></td>
+            </tr>`).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" class="error-td">Gagal memuat akun sistem: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+window.loadSystemAccounts = loadSystemAccounts;
+
 function healthAge(seconds) {
     if (seconds === null || seconds === undefined) return 'Belum ada bukti pemeriksaan';
     if (seconds < 60) return `${seconds} detik lalu`;
@@ -6998,6 +7035,9 @@ async function loadSystemHealth() {
         set('healthDatabase', data.database?.status || 'UNKNOWN');
         set('healthDoor', data.primary_door?.status || 'UNKNOWN');
         set('healthDoorFreshness', data.primary_door?.last_checked_at ? `Terakhir diperiksa ${new Date(data.primary_door.last_checked_at).toLocaleString('id-ID')} (${healthAge(data.primary_door.freshness_seconds)})` : healthAge(null));
+        const doors = data.doors || {};
+        set('healthDoorsTotal', doors.total ?? 0);
+        set('healthDoorsAggregate', `Healthy: ${doors.healthy ?? doors.online ?? 0} · Offline: ${doors.offline ?? 0} · Stale: ${doors.stale ?? 0} · Unknown: ${doors.unknown ?? 0}`);
         set('healthWebhook', data.webhook?.status === 'HEALTHY' ? 'ACTIVE' : (data.webhook?.status || 'UNKNOWN'));
         set('healthWebhookFreshness', data.webhook?.received_at ? `Terakhir diterima ${new Date(data.webhook.received_at).toLocaleString('id-ID')} (${healthAge(data.webhook.freshness_seconds)})` : 'Belum ada bukti penerimaan');
         set('healthQueue', data.queue?.status || 'UNKNOWN');

@@ -92,13 +92,36 @@ class SecureGateUiRefactorTest extends TestCase
         $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
         $script = file_get_contents(public_path('js/dashboard.js'));
 
-        foreach (['systemHealthCards', 'healthApp', 'healthDatabase', 'healthDoor', 'healthWebhook', 'healthQueue', 'healthLastEvent', 'systemHealthError'] as $id) {
+        foreach (['systemHealthCards', 'healthApp', 'healthDatabase', 'healthDoor', 'healthDoorsTotal', 'healthDoorsAggregate', 'healthWebhook', 'healthQueue', 'healthLastEvent', 'systemHealthError'] as $id) {
             $this->assertSame(1, substr_count($blade, 'id="'.$id.'"'), $id);
         }
         $this->assertStringContainsString("if (tabId === 'systemStatusTab') loadSystemHealth();", $script);
         $this->assertStringContainsString('function loadSystemHealth()', $script);
+        $this->assertStringContainsString('data.doors || {}', $script);
+        $this->assertStringContainsString('doors.healthy ?? doors.online ?? 0', $script);
         $this->assertStringContainsString('let isRedirectingToLogin = false;', $script);
         $this->assertStringContainsString("window.location.replace('/login')", $script);
+    }
+
+    public function test_phase_sixteen_frontend_contracts_are_read_only_and_permission_aware(): void
+    {
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        foreach (['systemAccountsTableBody', 'systemAccountsLifecycle', 'auditLogTab', 'activityLogsTableBody'] as $id) {
+            $this->assertSame(1, substr_count($blade, 'id="'.$id.'"'), $id);
+        }
+        $this->assertStringContainsString("switchTab('auditLogTab', this)", $blade);
+        $this->assertStringNotContainsString("data-tooltip=\"Audit Log\" onclick=\"switchTab('logsTab', this)\"", $blade);
+        $this->assertStringContainsString("in_array('organization.view', \$permissions ?? [])", $blade);
+        $this->assertStringContainsString("in_array('organization.manage', \$permissions ?? [])", $blade);
+        $this->assertStringContainsString("if (tabId === 'auditLogTab') loadActivityLogs();", $script);
+        $this->assertStringContainsString("if (tabId === 'systemAccountsTab') loadSystemAccounts();", $script);
+        $this->assertStringContainsString("apiFetch('/admin/system-accounts')", $script);
+        $this->assertStringContainsString('function loadSystemAccounts()', $script);
+        $this->assertStringContainsString('Lifecycle: ${response.lifecycle || \'PLANNED\'}', $script);
+        $this->assertStringNotContainsString('Modul Akun Sistem dalam Pengembangan', $blade);
+        $this->assertStringNotContainsString("method: 'POST',\n            body: JSON.stringify({", substr($script, strpos($script, 'async function loadSystemAccounts()'), strpos($script, 'function healthAge(') - strpos($script, 'async function loadSystemAccounts()')));
     }
 
     public function test_all_static_dashboard_ids_are_unique(): void

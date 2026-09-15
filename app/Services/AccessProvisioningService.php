@@ -135,6 +135,11 @@ class AccessProvisioningService
         $this->ensureStandardProfiles();
         $query = AccessProfile::query();
 
+        if ($actor?->isBuildingAdmin()) {
+            $profiles = $query->get()->filter(fn (AccessProfile $profile) => $this->profileBelongsToActor($profile, $actor));
+            $query->whereKey($profiles->modelKeys());
+        }
+
         if (!empty($filters['building_name'])) {
             $query->where('building_name', $filters['building_name']);
         }
@@ -155,12 +160,16 @@ class AccessProvisioningService
 
     public function createProfile(array $data, ?Admin $actor = null): AccessProfile
     {
+        $doors = $this->resolveDoors($data['allowed_doors'] ?? []);
+        $this->assertDoorsBelongToActor($doors, $actor);
+        $buildingName = $this->actorBuildingName($actor) ?? ($data['building_name'] ?? 'Kantor Pusat PKP');
+
         $profile = AccessProfile::create([
             'code' => strtoupper($data['code']),
             'name' => $data['name'],
             'description' => $data['description'] ?? null,
-            'building_name' => $data['building_name'] ?? 'Kantor Pusat PKP',
-            'allowed_doors' => $data['allowed_doors'] ?? [],
+            'building_name' => $buildingName,
+            'allowed_doors' => $doors->pluck('door_id')->all(),
             'schedule_type' => $data['schedule_type'] ?? 'BUSINESS_HOURS',
             'start_time' => $data['start_time'] ?? '08:00',
             'end_time' => $data['end_time'] ?? '18:00',
@@ -182,6 +191,13 @@ class AccessProvisioningService
 
     public function updateProfile(AccessProfile $profile, array $data, ?Admin $actor = null): AccessProfile
     {
+        $this->assertProfileAccess($profile, $actor);
+        $doors = $this->resolveDoors($data['allowed_doors'] ?? $profile->allowed_doors ?? []);
+        $this->assertDoorsBelongToActor($doors, $actor);
+        $data['allowed_doors'] = $doors->pluck('door_id')->all();
+        if ($buildingName = $this->actorBuildingName($actor)) {
+            $data['building_name'] = $buildingName;
+        }
         $profile->update($data);
 
         ActivityLog::create([
@@ -205,8 +221,17 @@ class AccessProvisioningService
         $query = AccessRequest::with(['employee', 'internship', 'accessProfile', 'requestedByAdmin', 'approvedByAdmin']);
 
         // Building Admin Scope Enforcement
-        if ($actor && $actor->isBuildingAdmin() && $actor->assigned_building) {
-            $query->where('building_name', $actor->assigned_building);
+        if ($actor && $actor->isBuildingAdmin()) {
+            $buildingId = $actor->employee?->building_id;
+            if ($buildingId) {
+                $query->whereHas('employee', fn ($employees) => $employees->where('building_id', $buildingId));
+            } elseif ($actor->assigned_building) {
+                $query->whereHas('employee', fn ($employees) => $employees
+                    ->whereNull('building_id')
+                    ->whereHas('building', fn ($buildings) => $buildings->where('name', $actor->assigned_building)));
+            } else {
+                $query->whereRaw('1 = 0');
+            }
         }
 
         // Employee / Intern Self-Service Scope
@@ -252,24 +277,24 @@ class AccessProvisioningService
             $count = AccessRequest::whereYear('created_at', $year)->count() + 1;
             $reqNumber = sprintf('REQ-%s-%04d', $year, $count);
 
-            $profile = null;
-            if (!empty($data['access_profile_id'])) {
-                $profile = AccessProfile::find($data['access_profile_id']);
+            $profile = !empty($data['access_profile_id']) ? AccessProfile::findOrFail($data['access_profile_id']) : null;
+            $employee = !empty($data['employee_id']) ? Employee::findOrFail($data['employee_id']) : null;
+            $doorIds = $data['specific_doors'] ?? ($profile?->allowed_doors ?? []);
+            $doors = $this->resolveDoors($doorIds);
+            $this->assertEmployeeAccess($employee, $actor);
+            if ($profile) {
+                $this->assertProfileAccess($profile, $actor);
             }
-
-            $buildingName = $data['building_name'] ?? $profile?->building_name ?? 'Kantor Pusat PKP';
-
-            // Scoping check if building admin creates request: must match assigned building
-            if ($actor && $actor->isBuildingAdmin() && $actor->assigned_building) {
-                $buildingName = $actor->assigned_building;
-            }
+            $this->assertDoorsBelongToActor($doors, $actor);
+            $this->assertDoorsBelongToEmployee($doors, $employee);
+            $buildingName = $this->actorBuildingName($actor) ?? ($data['building_name'] ?? $profile?->building_name ?? $employee?->building?->name ?? 'Kantor Pusat PKP');
 
             $request = AccessRequest::create([
                 'request_number' => $reqNumber,
                 'employee_id' => $data['employee_id'] ?? null,
                 'internship_id' => $data['internship_id'] ?? null,
                 'access_profile_id' => $data['access_profile_id'] ?? null,
-                'specific_doors' => $data['specific_doors'] ?? ($profile?->allowed_doors ?? []),
+                'specific_doors' => $doors->pluck('door_id')->all(),
                 'building_name' => $buildingName,
                 'business_reason' => $data['business_reason'],
                 'status' => 'PENDING_APPROVAL',
@@ -297,12 +322,7 @@ class AccessProvisioningService
      */
     public function approveRequest(AccessRequest $request, ?Admin $actor = null, ?string $notes = null): AccessRequest
     {
-        // 1. Building Admin Scoping Check
-        if ($actor && $actor->isBuildingAdmin() && $actor->assigned_building) {
-            if ($request->building_name && $request->building_name !== $actor->assigned_building) {
-                throw new AuthorizationException("Akses Ditolak: Anda hanya berwenang menyetujui hak akses gedung {$actor->assigned_building}.");
-            }
-        }
+        $this->assertRequestAccess($request, $actor);
 
         if ($request->status === 'APPROVED' || $request->status === 'ACTIVE') {
             return $request; // Idempotent approval
@@ -335,7 +355,7 @@ class AccessProvisioningService
                         'masked_identifier' => $masked,
                         'biometric_status' => $employee->biometricStatus?->fingerprint_enrolled ? 'ENROLLED' : 'NOT_ENROLLED',
                         'status' => 'ACTIVE',
-                    ], $actor);
+                    ], $actor?->isBuildingAdmin() ? null : $actor);
                 }
             } elseif ($request->internship_id) {
                 $credential = CredentialRecord::where('internship_id', $request->internship_id)
@@ -350,7 +370,7 @@ class AccessProvisioningService
                         'masked_identifier' => 'CRD-INT-' . $intern->id,
                         'biometric_status' => 'NOT_ENROLLED',
                         'status' => 'ACTIVE',
-                    ], $actor);
+                    ], $actor?->isBuildingAdmin() ? null : $actor);
                 }
             }
 
@@ -379,11 +399,7 @@ class AccessProvisioningService
 
     public function rejectRequest(AccessRequest $request, string $reason, ?Admin $actor = null): AccessRequest
     {
-        if ($actor && $actor->isBuildingAdmin() && $actor->assigned_building) {
-            if ($request->building_name && $request->building_name !== $actor->assigned_building) {
-                throw new AuthorizationException("Akses Ditolak: Anda hanya berwenang memproses hak akses gedung {$actor->assigned_building}.");
-            }
-        }
+        $this->assertRequestAccess($request, $actor);
 
         $request->status = 'REJECTED';
         $request->rejection_reason = $reason;
@@ -410,6 +426,19 @@ class AccessProvisioningService
     public function getCredentials(array $filters = [], ?Admin $actor = null)
     {
         $query = CredentialRecord::with(['employee', 'internship', 'deviceSyncs.door']);
+
+        if ($actor && $actor->isBuildingAdmin()) {
+            $buildingId = $actor->employee?->building_id;
+            if ($buildingId) {
+                $query->whereHas('employee', fn ($employees) => $employees->where('building_id', $buildingId));
+            } elseif ($actor->assigned_building) {
+                $query->whereHas('employee', fn ($employees) => $employees
+                    ->whereNull('building_id')
+                    ->whereHas('building', fn ($buildings) => $buildings->where('name', $actor->assigned_building)));
+            } else {
+                $query->whereRaw('1 = 0');
+            }
+        }
 
         // Scope for Employee / Intern: only own credentials
         if ($actor && in_array(strtolower((string)$actor->role), ['employee', 'intern'], true)) {
@@ -445,6 +474,9 @@ class AccessProvisioningService
 
     public function issueCredential(array $data, ?Admin $actor = null): CredentialRecord
     {
+        $employee = !empty($data['employee_id']) ? Employee::findOrFail($data['employee_id']) : null;
+        $this->assertEmployeeAccess($employee, $actor);
+
         return DB::transaction(function () use ($data, $actor) {
             // Duplicate prevention for card or active identifier
             $rawCard = $data['card_number'] ?? null;
@@ -502,8 +534,14 @@ class AccessProvisioningService
             $credential->revocation_reason = $reason;
             $credential->save();
 
-            // Queue device revocation for all doors where this credential was previously synced
-            $doors = Door::all();
+            // Queue only doors previously associated through a non-revocation sync.
+            $doors = $credential->deviceSyncs()
+                ->where('operation', '!=', 'REVOKE')
+                ->with('door')
+                ->get()
+                ->pluck('door')
+                ->filter()
+                ->unique('id');
             foreach ($doors as $door) {
                 $this->enqueueDeviceSync($credential, $door, 'REVOKE');
             }
@@ -552,10 +590,15 @@ class AccessProvisioningService
         $query = CredentialDeviceSync::with(['door', 'credentialRecord', 'employee']);
 
         // Building Admin Scope
-        if ($actor && $actor->isBuildingAdmin() && $actor->assigned_building) {
-            $query->whereHas('door', function ($q) use ($actor) {
-                $q->where('location', $actor->assigned_building);
-            });
+        if ($actor && $actor->isBuildingAdmin()) {
+            $buildingId = $actor->employee?->building_id;
+            if ($buildingId) {
+                $query->whereHas('door', fn ($doors) => $doors->where('building_id', $buildingId));
+            } elseif ($actor->assigned_building) {
+                $query->whereHas('door', fn ($doors) => $doors->whereNull('building_id')->where('location', $actor->assigned_building));
+            } else {
+                $query->whereRaw('1 = 0');
+            }
         }
 
         if (!empty($filters['status'])) {
@@ -573,10 +616,11 @@ class AccessProvisioningService
 
     public function retryDeviceSync(CredentialDeviceSync $sync, ?Admin $actor = null): CredentialDeviceSync
     {
-        $sync->status = 'SUCCESS';
-        $sync->attempt_count += 1;
+        $this->assertDoorAccess($sync->door, $actor);
+        $sync->status = 'QUEUED';
+        $sync->attempt_count++;
         $sync->last_attempt_at = now();
-        $sync->completed_at = now();
+        $sync->completed_at = null;
         $sync->error_summary = null;
         $sync->save();
 
@@ -585,7 +629,7 @@ class AccessProvisioningService
             'action' => 'device_sync_retried',
             'subject_type' => 'CredentialDeviceSync',
             'subject_id' => $sync->id,
-            'description' => "Sinkronisasi kredensial ke pintu {$sync->door?->name} ({$sync->operation}) berhasil diproses ulang.",
+            'description' => "Sinkronisasi kredensial ke pintu {$sync->door?->name} ({$sync->operation}) dijadwalkan ulang.",
             'timestamp' => now(),
         ]);
 
@@ -821,18 +865,126 @@ class AccessProvisioningService
     // HELPERS
     // -------------------------------------------------------------
 
+    public function assertProfileAccess(AccessProfile $profile, ?Admin $actor): void
+    {
+        if ($actor?->isBuildingAdmin() && !$this->profileBelongsToActor($profile, $actor)) {
+            throw new AuthorizationException('Access profile is outside your building scope.');
+        }
+    }
+
+    public function assertCredentialAccess(CredentialRecord $credential, ?Admin $actor): void
+    {
+        $this->assertEmployeeAccess($credential->employee, $actor);
+    }
+
+    public function assertRequestAccess(AccessRequest $request, ?Admin $actor): void
+    {
+        if (!$actor?->isBuildingAdmin()) {
+            return;
+        }
+        $employee = $request->employee;
+        if ($actor->employee?->building_id) {
+            $this->assertEmployeeAccess($employee, $actor);
+        } elseif (!$actor->assigned_building || $request->building_name !== $actor->assigned_building) {
+            throw new AuthorizationException('Access request is outside your building scope.');
+        }
+        if ($request->accessProfile) {
+            $this->assertProfileAccess($request->accessProfile, $actor);
+        }
+        $doors = $this->resolveDoors($request->specific_doors ?? $request->accessProfile?->allowed_doors ?? []);
+        $this->assertDoorsBelongToActor($doors, $actor);
+        $this->assertDoorsBelongToEmployee($doors, $employee);
+    }
+
     private function resolveDoorsForRequest(AccessRequest $request): array
     {
-        $doorIds = $request->specific_doors ?? [];
-        if (empty($doorIds) && $request->accessProfile) {
-            $doorIds = $request->accessProfile->allowed_doors ?? [];
-        }
+        return $this->resolveDoors($request->specific_doors ?? $request->accessProfile?->allowed_doors ?? [])->all();
+    }
 
-        if (empty($doorIds)) {
-            return Door::where('status', 'online')->get()->all();
+    private function resolveDoors(array $identifiers)
+    {
+        $identifiers = array_values(array_unique(array_map('strval', $identifiers)));
+        if ($identifiers === []) {
+            throw ValidationException::withMessages(['allowed_doors' => ['Minimal satu pintu wajib dipilih.']]);
         }
+        $doors = Door::whereIn('door_id', $identifiers)->orWhereIn('id', $identifiers)->get();
+        if ($doors->count() !== count($identifiers)) {
+            throw ValidationException::withMessages(['allowed_doors' => ['Semua pintu harus valid.']]);
+        }
+        return $doors;
+    }
 
-        return Door::whereIn('door_id', $doorIds)->orWhereIn('id', $doorIds)->get()->all();
+    private function actorBuildingName(?Admin $actor): ?string
+    {
+        if (!$actor?->isBuildingAdmin()) {
+            return null;
+        }
+        return $actor->employee?->building?->name ?? ($actor->employee?->building_id === null ? $actor->assigned_building : null);
+    }
+
+    private function employeeBelongsToActor(?Employee $employee, Admin $actor): bool
+    {
+        if (!$employee) {
+            return false;
+        }
+        $buildingId = $actor->employee?->building_id;
+        if ($buildingId) {
+            return (int) $employee->building_id === (int) $buildingId;
+        }
+        return $employee->building_id === null && $actor->assigned_building && $employee->building?->name === $actor->assigned_building;
+    }
+
+    private function doorBelongsToActor(?Door $door, Admin $actor): bool
+    {
+        if (!$door) {
+            return false;
+        }
+        $buildingId = $actor->employee?->building_id;
+        if ($buildingId) {
+            return (int) $door->building_id === (int) $buildingId;
+        }
+        return $door->building_id === null && $actor->assigned_building && $door->location === $actor->assigned_building;
+    }
+
+    private function assertEmployeeAccess(?Employee $employee, ?Admin $actor): void
+    {
+        if ($actor?->isBuildingAdmin() && !$this->employeeBelongsToActor($employee, $actor)) {
+            throw new AuthorizationException('Employee is outside your building scope.');
+        }
+    }
+
+    private function assertDoorAccess(?Door $door, ?Admin $actor): void
+    {
+        if ($actor?->isBuildingAdmin() && !$this->doorBelongsToActor($door, $actor)) {
+            throw new AuthorizationException('Door is outside your building scope.');
+        }
+    }
+
+    private function assertDoorsBelongToActor($doors, ?Admin $actor): void
+    {
+        if ($actor?->isBuildingAdmin() && $doors->contains(fn (Door $door) => !$this->doorBelongsToActor($door, $actor))) {
+            throw new AuthorizationException('Door is outside your building scope.');
+        }
+    }
+
+    private function assertDoorsBelongToEmployee($doors, ?Employee $employee): void
+    {
+        if (!$employee?->building_id) {
+            return;
+        }
+        if ($doors->contains(fn (Door $door) => (int) $door->building_id !== (int) $employee->building_id)) {
+            throw ValidationException::withMessages(['allowed_doors' => ['Pintu harus berada di gedung karyawan.']]);
+        }
+    }
+
+    private function profileBelongsToActor(AccessProfile $profile, Admin $actor): bool
+    {
+        try {
+            $doors = $this->resolveDoors($profile->allowed_doors ?? []);
+        } catch (ValidationException $e) {
+            return false;
+        }
+        return $doors->every(fn (Door $door) => $this->doorBelongsToActor($door, $actor));
     }
 
     private function maskIdentifier(string $identifier): string

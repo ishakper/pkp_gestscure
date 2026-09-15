@@ -79,7 +79,8 @@ class AccessProvisioningController extends Controller
             'name' => 'required|string|max:100',
             'description' => 'nullable|string',
             'building_name' => 'nullable|string|max:100',
-            'allowed_doors' => 'nullable|array',
+            'allowed_doors' => 'required|array|min:1',
+            'allowed_doors.*' => 'required',
             'schedule_type' => 'nullable|string|in:ALL_DAY,BUSINESS_HOURS,CUSTOM_WINDOW',
             'start_time' => 'nullable|string',
             'end_time' => 'nullable|string',
@@ -104,6 +105,7 @@ class AccessProvisioningController extends Controller
         }
 
         $profile = AccessProfile::with('accessRequests')->findOrFail($id);
+        $this->service->assertProfileAccess($profile, $actor);
 
         return response()->json([
             'success' => true,
@@ -119,11 +121,13 @@ class AccessProvisioningController extends Controller
         }
 
         $profile = AccessProfile::findOrFail($id);
+        $this->service->assertProfileAccess($profile, $actor);
         $validated = $request->validate([
             'name' => 'sometimes|string|max:100',
             'description' => 'nullable|string',
             'building_name' => 'nullable|string|max:100',
-            'allowed_doors' => 'nullable|array',
+            'allowed_doors' => 'sometimes|array|min:1',
+            'allowed_doors.*' => 'required_with:allowed_doors',
             'schedule_type' => 'nullable|string|in:ALL_DAY,BUSINESS_HOURS,CUSTOM_WINDOW',
             'start_time' => 'nullable|string',
             'end_time' => 'nullable|string',
@@ -205,6 +209,7 @@ class AccessProvisioningController extends Controller
         if (!$this->policy->viewRequest($actor, $accessRequest)) {
             return response()->json(['message' => 'Unauthorized to view this access request.'], 403);
         }
+        $this->service->assertRequestAccess($accessRequest, $actor);
 
         return response()->json([
             'success' => true,
@@ -321,6 +326,7 @@ class AccessProvisioningController extends Controller
         if (!$this->policy->viewCredentials($actor)) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
+        $this->service->assertCredentialAccess($credential, $actor);
 
         if (in_array(strtolower((string)$actor->role), ['employee', 'intern'], true) && $credential->employee_id !== $actor->id) {
             return response()->json(['message' => 'Unauthorized to view this credential.'], 403);
@@ -343,7 +349,8 @@ class AccessProvisioningController extends Controller
             'reason' => 'required|string|min:3',
         ]);
 
-        $credential = CredentialRecord::findOrFail($id);
+        $credential = CredentialRecord::with('employee')->findOrFail($id);
+        $this->service->assertCredentialAccess($credential, $actor);
         $revoked = $this->service->revokeCredential($credential, $request->reason, $actor);
 
         return response()->json([
@@ -384,7 +391,7 @@ class AccessProvisioningController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sinkronisasi perangkat berhasil dijalankan ulang.',
+            'message' => 'Sinkronisasi perangkat dijadwalkan ulang.',
             'data' => $retried,
         ]);
     }

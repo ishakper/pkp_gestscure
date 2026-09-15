@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\V1\DoorSyncController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\IsapiWebhookController;
 use App\Http\Controllers\Api\V1\OrganizationController;
+use App\Http\Controllers\Api\V1\SystemAccountController;
 use App\Http\Controllers\Mock\HikvisionMockController;
 use App\Http\Middleware\VerifyDeviceWebhook;
 use Illuminate\Support\Facades\Route;
@@ -76,6 +77,7 @@ Route::prefix('v1')->group(function () {
             Route::patch('/doors/{door_id}/status', [AdminDoorController::class, 'overrideStatus']);
             Route::get('/dashboard-metrics', [AdminDoorController::class, 'metrics']);
             Route::get('/system-health', [AdminDoorController::class, 'systemHealth']);
+            Route::get('/system-accounts', [SystemAccountController::class, 'index']);
             Route::get('/access-logs', [AdminAccessLogController::class, 'index']);
             Route::post('/access-logs/sync-hardware', [AdminAccessLogController::class, 'syncHardware']);
             Route::get('/activity-logs', [ActivityLogController::class, 'index']);

@@ -4,8 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\AccessLog;
 use App\Models\Admin;
+use App\Models\Building;
 use App\Models\Door;
+use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class SystemHealthTest extends TestCase
@@ -95,6 +98,55 @@ class SystemHealthTest extends TestCase
             ->assertJsonPath('data.webhook.stale', false)
             ->assertJsonPath('data.queue.status', 'HEALTHY')
             ->assertJsonPath('data.app.status', 'HEALTHY');
+    }
+
+    public function test_door_summary_uses_freshness_and_any_unhealthy_door_degrades_app(): void
+    {
+        Carbon::setTestNow('2026-09-15 12:00:00');
+        config(['queue.default' => 'database', 'securegate_health.door_fresh_minutes' => 15]);
+        $primary = $this->door(['connection_status' => 'online', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'DOOR-OFF', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'DOOR-STALE', 'connection_status' => 'online', 'last_checked_at' => now()->subSeconds(901)]);
+        $this->door(['door_id' => 'DOOR-UNKNOWN', 'connection_status' => 'online', 'last_checked_at' => null]);
+        AccessLog::create(['log_id' => 'WEBHOOK-SUMMARY', 'door_id' => $primary->id, 'event_type' => 'AccessGranted', 'source' => 'HIKVISION_WEBHOOK', 'access_status' => 'Granted', 'timestamp' => now()]);
+
+        $this->actingAs($this->admin('super_admin'))->getJson('/api/v1/admin/system-health')
+            ->assertJsonPath('data.doors.total', 4)
+            ->assertJsonPath('data.doors.online', 1)
+            ->assertJsonPath('data.doors.healthy', 1)
+            ->assertJsonPath('data.doors.offline', 1)
+            ->assertJsonPath('data.doors.stale', 1)
+            ->assertJsonPath('data.doors.unknown', 1)
+            ->assertJsonPath('data.primary_door.door_id', 'DOOR-B')
+            ->assertJsonPath('data.primary_door.status', 'HEALTHY')
+            ->assertJsonPath('data.primary_door.device_ip', '192.168.90.15')
+            ->assertJsonPath('data.app.status', 'DEGRADED');
+    }
+
+    public function test_building_admin_uses_canonical_scope_with_null_id_legacy_fallback(): void
+    {
+        $buildingA = Building::create(['code' => 'A', 'name' => 'Gedung A', 'is_active' => true]);
+        $buildingB = Building::create(['code' => 'B', 'name' => 'Gedung B', 'is_active' => true]);
+        $employee = Employee::create(['employee_id' => 'EMP-A', 'nik' => 'NIK-A', 'name' => 'Admin A', 'department' => 'Ops', 'building_id' => $buildingA->id]);
+        $admin = $this->admin('building_admin');
+        $admin->update(['employee_id' => $employee->id, 'assigned_building' => 'Gedung A']);
+        $this->door(['door_id' => 'DOOR-B', 'building_id' => $buildingA->id, 'location' => 'Renamed Location', 'connection_status' => 'online', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'LEGACY-A', 'building_id' => null, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'WRONG-CANONICAL', 'building_id' => $buildingB->id, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'LEGACY-B', 'building_id' => null, 'location' => 'Gedung B', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+
+        $response = $this->actingAs($admin)->getJson('/api/v1/admin/system-health')
+            ->assertOk()
+            ->assertJsonPath('data.doors.total', 2)
+            ->assertJsonPath('data.doors.healthy', 1)
+            ->assertJsonPath('data.doors.offline', 1)
+            ->assertJsonPath('data.primary_door.status', 'HEALTHY');
+        $this->assertSame(2, collect($response->json('data.buildings'))->sum('total'));
+    }
+
+    public function test_building_admin_without_canonical_or_legacy_scope_is_forbidden(): void
+    {
+        $this->actingAs($this->admin('building_admin'))->getJson('/api/v1/admin/system-health')->assertForbidden();
     }
 
     private function admin(string $role): Admin
