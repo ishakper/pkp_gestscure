@@ -27,10 +27,24 @@ class AdminDoorController extends Controller
         $scopedDoors = $doors->get();
         $doorIds = $scopedDoors->pluck('id');
 
+        $totalUsers = Employee::count();
+        $activeEmployees = Employee::where('employment_status', 'ACTIVE')->count();
+        if ($activeEmployees === 0 && $totalUsers > 0) {
+            $activeEmployees = $totalUsers;
+        }
+
+        $registeredCredentials = Employee::where(function ($q) {
+            $q->whereNotNull('card_no')->where('card_no', '!=', '');
+        })->orWhereHas('biometricStatus', function ($q) {
+            $q->where('has_fingerprint', true)->orWhere('card_enrolled', true);
+        })->count();
+
         return response()->json([
             'status' => 'success',
             'data' => [
-                'totalUsers' => Employee::count(),
+                'totalUsers' => $totalUsers,
+                'activeEmployees' => $activeEmployees,
+                'registeredCredentials' => $registeredCredentials,
                 'activeDoors' => $scopedDoors->where('connection_status', 'online')->count(),
                 'totalDoors' => $scopedDoors->count(),
                 'grantedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Granted')->count(),
@@ -42,7 +56,7 @@ class AdminDoorController extends Controller
     public function index(Request $request)
     {
         $admin = $request->user();
-        $query = Door::with('building:id,name')->withCount(['employees', 'doorAssignments']);
+        $query = Door::with('building:id,name')->withCount(['employees', 'doorAssignments', 'accessLogs']);
 
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
             $query->where('location', $admin->assigned_building);

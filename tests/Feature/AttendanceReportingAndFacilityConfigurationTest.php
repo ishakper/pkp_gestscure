@@ -66,6 +66,10 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
         ])->assertCreated()->assertJsonPath('data.code', 'BLD-NEW');
 
         $buildingId = $buildingResponse->json('data.id');
+        $this->actingAs($infra)->postJson('/api/v1/admin/zones', [
+            'building_id' => $buildingId, 'code' => 'zn-new', 'name' => 'Zona Lobby Utama',
+        ])->assertCreated()->assertJsonPath('data.code', 'ZN-NEW');
+
         $this->actingAs($infra)->postJson('/api/v1/admin/doors', [
             'door_id' => 'door-c', 'name' => 'Lobby Baru', 'building_id' => $buildingId,
             'device_ip' => '192.168.90.13', 'gateway' => '192.168.90.1', 'device_model' => 'DS-K1T804AMF',
@@ -81,7 +85,30 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
     {
         $manager = $this->admin('management');
         $this->actingAs($manager)->postJson('/api/v1/admin/buildings', ['code' => 'NO', 'name' => 'Denied'])->assertForbidden();
+        $this->actingAs($manager)->postJson('/api/v1/admin/zones', ['building_id' => 1, 'code' => 'NO', 'name' => 'Denied'])->assertForbidden();
         $this->actingAs($manager)->postJson('/api/v1/admin/doors', [])->assertForbidden();
+    }
+
+    public function test_zone_code_is_normalized_before_duplicate_validation(): void
+    {
+        $infra = $this->admin('infra_admin');
+        $building = Building::create(['code' => 'BLD-A', 'name' => 'Gedung A', 'is_active' => true]);
+
+        $this->actingAs($infra)->postJson('/api/v1/admin/zones', [
+            'building_id' => $building->id, 'code' => 'zn-main', 'name' => 'Zona Utama',
+        ])->assertCreated();
+
+        $this->actingAs($infra)->postJson('/api/v1/admin/zones', [
+            'building_id' => $building->id, 'code' => 'ZN-MAIN', 'name' => 'Duplikat',
+        ])->assertUnprocessable()->assertJsonValidationErrors('code');
+    }
+
+    public function test_access_log_rejects_unknown_attendance_state(): void
+    {
+        $this->actingAs($this->admin('super_admin'))
+            ->getJson('/api/v1/admin/access-logs?attendance_state=UNKNOWN')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('attendance_state');
     }
 
     private function admin(string $role, ?string $building = null): Admin

@@ -16,11 +16,10 @@ class SecureGateUiRefactorTest extends TestCase
         $response = $this->actingAs($this->admin('super_admin'))->get('/');
 
         $response->assertOk()
-            ->assertSee('ACCESS CONTROL')
-            ->assertSee('ATTENDANCE')
-            ->assertSee('SECURITY')
-            ->assertSeeInOrder(['Dashboard Absensi', 'Terminal Gedung B', 'Data Karyawan', 'Rekap Kehadiran', 'Log Fingerprint', 'Audit Log'], false)
-            ->assertSee('ADVANCED / FUTURE MODULES', false);
+            ->assertSee('OPERASIONAL')
+            ->assertSee('KONFIGURASI')
+            ->assertSeeInOrder(['Dashboard', 'Pengguna', 'Perangkat Pintu', 'Hak Akses', 'Rekap Kehadiran', 'Log Akses', 'Audit Log'], false)
+            ->assertSee('MODUL TAMBAHAN', false);
 
         $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
         $script = file_get_contents(public_path('js/dashboard.js'));
@@ -65,6 +64,19 @@ class SecureGateUiRefactorTest extends TestCase
         $this->assertStringContainsString('updateMetricCards()', $match['body']);
         $this->assertStringNotContainsString('checkAllDoors', $match['body']);
         $this->assertStringNotContainsString('pingSingleDoor', $match['body']);
+    }
+
+    public function test_phase_nine_facility_dom_contract_preserves_existing_door_editor(): void
+    {
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        foreach (['buildingHierarchyContainer', 'addBuildingModal', 'addBuildingForm', 'buildingCodeInput', 'buildingNameInput', 'addZoneModal', 'addZoneForm', 'zoneBuildingSelect', 'zoneCodeInput', 'zoneNameInput', 'facilityModal', 'facilityDoorBuilding', 'facilityOriginalDoorId'] as $id) {
+            $this->assertStringContainsString('id="'.$id.'"', $blade);
+        }
+        $this->assertStringContainsString('function loadBuildingHierarchy()', $script);
+        $this->assertStringContainsString('function openFacilityModal(', $script);
+        $this->assertStringNotContainsString('Floor 1 - Main Floor', $script);
     }
 
     public function test_employee_portal_cannot_read_security_or_trigger_device_actions(): void
