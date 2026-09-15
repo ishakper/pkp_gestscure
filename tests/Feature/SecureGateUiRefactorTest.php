@@ -87,6 +87,20 @@ class SecureGateUiRefactorTest extends TestCase
         $this->actingAs($employee)->postJson('/api/v1/admin/doors/check-all')->assertForbidden();
     }
 
+    public function test_system_status_dom_and_loader_contract_are_unique(): void
+    {
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        foreach (['systemHealthCards', 'healthApp', 'healthDatabase', 'healthDoor', 'healthWebhook', 'healthQueue', 'healthLastEvent', 'systemHealthError'] as $id) {
+            $this->assertSame(1, substr_count($blade, 'id="'.$id.'"'), $id);
+        }
+        $this->assertStringContainsString("if (tabId === 'systemStatusTab') loadSystemHealth();", $script);
+        $this->assertStringContainsString('function loadSystemHealth()', $script);
+        $this->assertStringContainsString('let isRedirectingToLogin = false;', $script);
+        $this->assertStringContainsString("window.location.replace('/login')", $script);
+    }
+
     private function admin(string $role): Admin
     {
         return Admin::create([

@@ -1320,9 +1320,15 @@
             color: var(--text-muted);
         }
         .error-td { color: #fca5a5; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; }
+        .stat-card { min-width: 0; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: 0.875rem; background: var(--card-bg); display: flex; flex-direction: column; gap: 0.4rem; }
+        .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+        .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
         /* Responsive Breakpoints (< 768px Mobile & Tablet) */
         @media (max-width: 768px) {
+            .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .stats-grid { grid-template-columns: 1fr; }
             .floating-logo {
                 top: 18px;
                 left: 16px;
@@ -2026,22 +2032,24 @@
         </div>
     </section>
 
-    <!-- TAB: STATUS SISTEM (PLACEHOLDER) -->
+    <!-- TAB: STATUS SISTEM -->
     <section id="systemStatusTab" class="tab-content">
         <div class="section-header">
             <div>
                 <h2 class="section-title">📡 Status Sistem</h2>
-                <p class="section-desc">Monitoring kesehatan sistem, status server, antrean sinkronisasi, dan status koneksi perangkat.</p>
+                <p class="section-desc">Status berbasis bukti terakhir; UNKNOWN dan STALE bukan ONLINE.</p>
             </div>
+            <button class="btn-secondary" onclick="loadSystemHealth()">↻ Refresh Status</button>
         </div>
-        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
-            <div style="font-size: 3.5rem; margin-bottom: 1rem;">📡</div>
-            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Status Sistem dalam Pengembangan</h3>
-            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
-                Dashboard agregasi kesehatan terminal, antrean latar belakang, dan log diagnostik sistem akan tersedia pada fase berikutnya.
-            </p>
-            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        <div class="stats-grid" id="systemHealthCards">
+            <div class="stat-card"><span class="stat-title">Aplikasi</span><strong class="stat-value" id="healthApp">Memuat...</strong><span class="stat-desc" id="healthTime">-</span></div>
+            <div class="stat-card"><span class="stat-title">Database</span><strong class="stat-value" id="healthDatabase">UNKNOWN</strong></div>
+            <div class="stat-card"><span class="stat-title">DOOR-B</span><strong class="stat-value" id="healthDoor">UNKNOWN</strong><span class="stat-desc" id="healthDoorFreshness">Belum diperiksa</span></div>
+            <div class="stat-card"><span class="stat-title">Webhook</span><strong class="stat-value" id="healthWebhook">UNKNOWN</strong><span class="stat-desc" id="healthWebhookFreshness">Belum ada bukti penerimaan</span></div>
+            <div class="stat-card"><span class="stat-title">Queue</span><strong class="stat-value" id="healthQueue">UNKNOWN</strong><span class="stat-desc" id="healthQueueCounts">-</span></div>
+            <div class="stat-card"><span class="stat-title">Event Terakhir</span><strong class="stat-value" id="healthLastEvent">-</strong><span class="stat-desc" id="healthLastEventDetail">Belum ada data</span></div>
         </div>
+        <div class="error-td" id="systemHealthError" hidden></div>
     </section>
 
     <!-- TAB: RECRUITMENT & ATS -->

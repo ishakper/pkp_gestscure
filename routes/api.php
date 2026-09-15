@@ -75,6 +75,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('admin.doors.unlock');
             Route::patch('/doors/{door_id}/status', [AdminDoorController::class, 'overrideStatus']);
             Route::get('/dashboard-metrics', [AdminDoorController::class, 'metrics']);
+            Route::get('/system-health', [AdminDoorController::class, 'systemHealth']);
             Route::get('/access-logs', [AdminAccessLogController::class, 'index']);
             Route::post('/access-logs/sync-hardware', [AdminAccessLogController::class, 'syncHardware']);
             Route::get('/activity-logs', [ActivityLogController::class, 'index']);

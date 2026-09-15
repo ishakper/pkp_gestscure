@@ -92,6 +92,8 @@ function showToast(message, type = 'success', duration = 3500) {
 // ==========================================
 // Centralized API Client (Fetch with Auth)
 // ==========================================
+let isRedirectingToLogin = false;
+
 async function apiFetch(endpoint, options = {}) {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
 
@@ -105,12 +107,15 @@ async function apiFetch(endpoint, options = {}) {
     try {
         const response = await fetch(url, { ...options, headers });
 
-        // Handle 401 Unauthorized -> redirect to login
+        // Handle concurrent 401 responses once to avoid toast and redirect loops.
         if (response.status === 401) {
-            showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
-            setTimeout(() => {
-                window.location.href = '/login';
-            }, 1200);
+            if (!isRedirectingToLogin) {
+                isRedirectingToLogin = true;
+                APP_TOKEN = '';
+                sessionStorage.removeItem('api_token');
+                showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
+                setTimeout(() => window.location.replace('/login'), 800);
+            }
             throw new Error('Unauthorized');
         }
 
@@ -1346,6 +1351,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'attendanceCorrectionsTab') loadAttendanceCorrectionsData();
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
+    if (tabId === 'systemStatusTab') loadSystemHealth();
 }
 
 // ==========================================
@@ -3833,7 +3839,7 @@ function switchAccessSubTab(subTab, btn) {
 
 async function loadAccessMetrics() {
     try {
-        const res = await apiFetch('/api/v1/access/metrics');
+        const res = await apiFetch('/access/metrics');
         if (res && res.success) {
             const d = res.data;
             const elPending = document.getElementById('metricPendingAccessRequests');
@@ -3862,7 +3868,7 @@ async function loadAccessRequests() {
         if (search) params.append('search', search);
         if (status) params.append('status', status);
 
-        const res = await apiFetch(`/api/v1/access/requests?${params.toString()}`);
+        const res = await apiFetch(`/access/requests?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada permohonan hak akses yang diajukan.</td></tr>`;
             return;
@@ -3911,7 +3917,7 @@ async function loadAccessProfiles() {
         const params = new URLSearchParams();
         if (search) params.append('search', search);
 
-        const res = await apiFetch(`/api/v1/access/profiles?${params.toString()}`);
+        const res = await apiFetch(`/access/profiles?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada profil hak akses yang terdaftar.</td></tr>`;
             return;
@@ -3949,7 +3955,7 @@ async function loadCredentials() {
         if (search) params.append('search', search);
         if (type) params.append('credential_type', type);
 
-        const res = await apiFetch(`/api/v1/access/credentials?${params.toString()}`);
+        const res = await apiFetch(`/access/credentials?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada data kredensial terdaftar.</td></tr>`;
             return;
@@ -3997,7 +4003,7 @@ async function loadDeviceSyncs() {
         const params = new URLSearchParams();
         if (status) params.append('status', status);
 
-        const res = await apiFetch(`/api/v1/access/device-syncs?${params.toString()}`);
+        const res = await apiFetch(`/access/device-syncs?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Antrean sinkronisasi perangkat kosong. Semua terminal dalam status tersinkron.</td></tr>`;
             return;
@@ -4050,7 +4056,7 @@ async function loadEmoneyCards() {
         if (search) params.append('search', search);
         if (provider) params.append('provider', provider);
 
-        const res = await apiFetch(`/api/v1/access/emoney?${params.toString()}`);
+        const res = await apiFetch(`/access/emoney?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada instrumen kartu E-Money yang terdaftar.</td></tr>`;
             return;
@@ -4122,7 +4128,7 @@ function getEmoneyStatusBadge(status) {
 // Populate Employee dropdown for access requests, credentials, and emoney
 async function populateAccessEmployees() {
     try {
-        const res = await apiFetch('/api/v1/user-management/employees?per_page=100');
+        const res = await apiFetch('/user-management/employees?per_page=100');
         if (!res || !res.data) return;
 
         const options = res.data.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id || e.nik || 'Staff')})</option>`).join('');
@@ -4137,7 +4143,7 @@ async function populateAccessEmployees() {
         if (emnSelect) emnSelect.innerHTML = `<option value="">-- Tersedia / Belum Ditetapkan --</option>` + options;
 
         // Also populate Profiles dropdown in Access Request modal
-        const profRes = await apiFetch('/api/v1/access/profiles');
+        const profRes = await apiFetch('/access/profiles');
         if (profRes && profRes.success && profRes.data) {
             const profOptions = profRes.data.map(p => `<option value="${p.id}">${escapeHtml(p.code)} - ${escapeHtml(p.name)}</option>`).join('');
             const profSelect = document.getElementById('accessReqProfileId');
@@ -4167,7 +4173,7 @@ async function submitAccessRequest(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/requests', {
+        const res = await apiFetch('/access/requests', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4196,7 +4202,7 @@ async function submitApproveAccessRequest(e) {
     const notes = document.getElementById('approveReqNotes')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/requests/${id}/approve`, {
+        const res = await apiFetch(`/access/requests/${id}/approve`, {
             method: 'POST',
             body: JSON.stringify({ notes })
         });
@@ -4225,7 +4231,7 @@ async function submitRejectAccessRequest(e) {
     const reason = document.getElementById('rejectReqReason')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/requests/${id}/reject`, {
+        const res = await apiFetch(`/access/requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -4257,7 +4263,7 @@ async function submitAccessProfile(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/profiles', {
+        const res = await apiFetch('/access/profiles', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4289,7 +4295,7 @@ async function submitCredential(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/credentials', {
+        const res = await apiFetch('/access/credentials', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4319,7 +4325,7 @@ async function submitRevokeCredential(e) {
     const reason = document.getElementById('revokeCrdReason')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/credentials/${id}/revoke`, {
+        const res = await apiFetch(`/access/credentials/${id}/revoke`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -4340,7 +4346,7 @@ async function submitRevokeCredential(e) {
 
 async function retryDeviceSyncItem(id) {
     try {
-        const res = await apiFetch(`/api/v1/access/device-syncs/${id}/retry`, {
+        const res = await apiFetch(`/access/device-syncs/${id}/retry`, {
             method: 'POST'
         });
 
@@ -4370,7 +4376,7 @@ async function submitEmoneyCard(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/emoney', {
+        const res = await apiFetch('/access/emoney', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4393,7 +4399,7 @@ async function onEmoneyStatusSelectChanged(id, newStatus) {
     if (!confirm(`Ubah status instrumen kartu E-Money ini menjadi ${newStatus}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/access/emoney/${id}/status`, {
+        const res = await apiFetch(`/access/emoney/${id}/status`, {
             method: 'POST',
             body: JSON.stringify({ status: newStatus })
         });
@@ -6955,3 +6961,37 @@ window.openAddBuildingModal = openAddBuildingModal;
 window.submitAddBuilding = submitAddBuilding;
 window.openAddZoneModal = openAddZoneModal;
 window.submitAddZone = submitAddZone;
+
+function healthAge(seconds) {
+    if (seconds === null || seconds === undefined) return 'Belum ada bukti pemeriksaan';
+    if (seconds < 60) return `${seconds} detik lalu`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} menit lalu`;
+    return `${Math.floor(seconds / 3600)} jam lalu`;
+}
+
+async function loadSystemHealth() {
+    const error = document.getElementById('systemHealthError');
+    if (error) error.hidden = true;
+
+    try {
+        const response = await apiFetch('/admin/system-health');
+        const data = response.data || {};
+        const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value ?? '-'; };
+        set('healthApp', data.app?.status || 'UNKNOWN');
+        set('healthTime', data.app?.server_time ? `Waktu server: ${new Date(data.app.server_time).toLocaleString('id-ID')}` : 'Waktu server tidak tersedia');
+        set('healthDatabase', data.database?.status || 'UNKNOWN');
+        set('healthDoor', data.primary_door?.status || 'UNKNOWN');
+        set('healthDoorFreshness', data.primary_door?.last_checked_at ? `Terakhir diperiksa ${new Date(data.primary_door.last_checked_at).toLocaleString('id-ID')} (${healthAge(data.primary_door.freshness_seconds)})` : healthAge(null));
+        set('healthWebhook', data.webhook?.status === 'HEALTHY' ? 'ACTIVE' : (data.webhook?.status || 'UNKNOWN'));
+        set('healthWebhookFreshness', data.webhook?.received_at ? `Terakhir diterima ${new Date(data.webhook.received_at).toLocaleString('id-ID')} (${healthAge(data.webhook.freshness_seconds)})` : 'Belum ada bukti penerimaan');
+        set('healthQueue', data.queue?.status || 'UNKNOWN');
+        set('healthQueueCounts', `Pending: ${data.queue?.pending_jobs ?? 'N/A'} · Gagal: ${data.queue?.failed_jobs ?? 'N/A'}`);
+        set('healthLastEvent', data.last_access_event?.timestamp ? new Date(data.last_access_event.timestamp).toLocaleString('id-ID') : '-');
+        set('healthLastEventDetail', data.last_access_event ? `${data.last_access_event.employee_name || 'Pegawai tidak teridentifikasi'} · ${data.last_access_event.access_status || 'Status tidak tersedia'}` : 'Belum ada data');
+    } catch (err) {
+        if (err.message === 'Unauthorized') return;
+        if (error) { error.textContent = `Status sistem gagal dimuat: ${err.message}`; error.hidden = false; }
+    }
+}
+
+window.loadSystemHealth = loadSystemHealth;
