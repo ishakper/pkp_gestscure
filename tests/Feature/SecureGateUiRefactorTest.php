@@ -16,11 +16,10 @@ class SecureGateUiRefactorTest extends TestCase
         $response = $this->actingAs($this->admin('super_admin'))->get('/');
 
         $response->assertOk()
-            ->assertSee('ACCESS CONTROL')
-            ->assertSee('ATTENDANCE')
-            ->assertSee('SECURITY')
-            ->assertSeeInOrder(['Dashboard Absensi', 'Terminal Gedung B', 'Data Karyawan', 'Rekap Kehadiran', 'Log Fingerprint', 'Audit Log'], false)
-            ->assertSee('ADVANCED / FUTURE MODULES', false);
+            ->assertSee('OPERASIONAL')
+            ->assertSee('KONFIGURASI')
+            ->assertSeeInOrder(['Dashboard', 'Pengguna', 'Perangkat Pintu', 'Hak Akses', 'Rekap Kehadiran', 'Log Akses', 'Audit Log'], false)
+            ->assertSee('MODUL TAMBAHAN', false);
 
         $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
         $script = file_get_contents(public_path('js/dashboard.js'));

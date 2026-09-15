@@ -1410,17 +1410,41 @@
     </div>
 
     <ul class="nav-list">
-        <li class="nav-section-label" aria-hidden="true">ACCESS CONTROL</li>
-        <li class="nav-item"><button class="active" data-tooltip="Dashboard Absensi" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard Absensi</span></button></li>
-        @if(in_array('device.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Terminal Gedung B" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Terminal Gedung B</span></button></li>
-        @endif
+        <!-- GROUP 1: OPERASIONAL -->
+        <li class="nav-section-label" aria-hidden="true">OPERASIONAL</li>
+        <li class="nav-item"><button class="active" data-tooltip="Dashboard" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard</span></button></li>
         @if(in_array('employee.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Data Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Data Karyawan</span></button></li>
+        <li class="nav-item"><button data-tooltip="Pengguna" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Pengguna</span></button></li>
+        @endif
+        @if(in_array('device.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Perangkat Pintu" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Perangkat Pintu</span></button></li>
+        @endif
+        @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Hak Akses" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Hak Akses</span></button></li>
+        @endif
+        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
+        @endif
+        @if(in_array('security.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Log Akses" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Akses</span></button></li>
+        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
 
-        @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
-        <li class="nav-section-label advanced-nav" aria-hidden="true">ADVANCED / FUTURE MODULES</li>
+        <!-- GROUP 2: KONFIGURASI -->
+        <li class="nav-section-label" aria-hidden="true">KONFIGURASI</li>
+        @if(in_array('device.manage', $permissions ?? []) || in_array('organization.manage', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Setup Gedung" onclick="switchTab('buildingSetupTab', this)"><span class="nav-icon">🏢</span><span class="nav-text">Setup Gedung</span></button></li>
+        @endif
+        @if(in_array('system.manage', $permissions ?? []) || in_array('system.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Akun Sistem" onclick="switchTab('systemAccountsTab', this)"><span class="nav-icon">👤</span><span class="nav-text">Akun Sistem</span></button></li>
+        @endif
+        @if(in_array('system.view', $permissions ?? []) || in_array('device.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Status Sistem" onclick="switchTab('systemStatusTab', this)"><span class="nav-icon">📡</span><span class="nav-text">Status Sistem</span></button></li>
+        @endif
+
+        <!-- ADVANCED / FUTURE MODULES (PRESERVED) -->
+        @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
+        <li class="nav-section-label advanced-nav" aria-hidden="true">MODUL TAMBAHAN</li>
         @endif
         @if(in_array('recruitment.view', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Recruitment" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment</span></button></li>
@@ -1431,20 +1455,10 @@
         @if(in_array('onboarding.view', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Onboarding" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding</span></button></li>
         @endif
-        @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
-        <li class="nav-item advanced-nav"><button data-tooltip="Access & Credentials" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Access & Credentials</span></button></li>
-        @endif
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
         @endif
         <li class="nav-item advanced-nav"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
-
-        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []) || in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []) || in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []))
-        <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
-        @endif
-        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
-        @endif
         @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Presensi Lapangan" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
         @endif
@@ -1456,12 +1470,6 @@
         @endif
         @if(in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Pengajuan Lembur" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
-        @endif
-
-        @if(in_array('security.view', $permissions ?? []))
-        <li class="nav-section-label" aria-hidden="true">SECURITY</li>
-        <li class="nav-item"><button data-tooltip="Log Fingerprint" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Fingerprint</span></button></li>
-        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
         @if (app()->environment('local', 'testing'))
         <li class="nav-item advanced-nav"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
@@ -1888,6 +1896,60 @@
         </div>
     </section>
     @endif
+
+    <!-- TAB: SETUP GEDUNG (PLACEHOLDER) -->
+    <section id="buildingSetupTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">🏢 Setup Gedung</h2>
+                <p class="section-desc">Pengaturan master gedung, zona, lantai, dan pemetaan fisik lokasi pintu.</p>
+            </div>
+        </div>
+        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
+            <div style="font-size: 3.5rem; margin-bottom: 1rem;">🏢</div>
+            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Setup Gedung dalam Pengembangan</h3>
+            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
+                Fitur tata kelola gedung, hierarki zona, dan denah lokasi perangkat akan tersedia pada fase berikutnya.
+            </p>
+            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        </div>
+    </section>
+
+    <!-- TAB: AKUN SISTEM (PLACEHOLDER) -->
+    <section id="systemAccountsTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">👤 Akun Sistem</h2>
+                <p class="section-desc">Manajemen akun pengguna sistem, hak akses portal, dan kredensial administrasi.</p>
+            </div>
+        </div>
+        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
+            <div style="font-size: 3.5rem; margin-bottom: 1rem;">👤</div>
+            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Akun Sistem dalam Pengembangan</h3>
+            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
+                Fitur manajemen akun administrator, role assignment, dan reset kredensial portal akan tersedia pada fase berikutnya.
+            </p>
+            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        </div>
+    </section>
+
+    <!-- TAB: STATUS SISTEM (PLACEHOLDER) -->
+    <section id="systemStatusTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">📡 Status Sistem</h2>
+                <p class="section-desc">Monitoring kesehatan sistem, status server, antrean sinkronisasi, dan status koneksi perangkat.</p>
+            </div>
+        </div>
+        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
+            <div style="font-size: 3.5rem; margin-bottom: 1rem;">📡</div>
+            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Status Sistem dalam Pengembangan</h3>
+            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
+                Dashboard agregasi kesehatan terminal, antrean latar belakang, dan log diagnostik sistem akan tersedia pada fase berikutnya.
+            </p>
+            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        </div>
+    </section>
 
     <!-- TAB: RECRUITMENT & ATS -->
     <section id="recruitmentTab" class="tab-content">
