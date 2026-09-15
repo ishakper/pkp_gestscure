@@ -3878,8 +3878,8 @@ async function loadAccessRequests() {
             let actions = '';
             if (r.status === 'PENDING_APPROVAL') {
                 actions = `
-                    <button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; background: #10b981; border-color: #059669;" onclick="openApproveRequestModal(${r.id})">✓ Setujui</button>
-                    <button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" onclick="openRejectRequestModal(${r.id})">✕ Tolak</button>
+                    <button class="btn-primary" disabled style="opacity: 0.6; cursor: not-allowed; padding: 0.35rem 0.65rem; font-size: 0.75rem; background: #10b981; border-color: #059669;" title="PLANNED — Device write approval belum diaktifkan (Read-Only UI)">🔒 Setujui <span class="badge badge-warning" style="font-size:0.6rem;">PLANNED</span></button>
+                    <button class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed; padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" title="PLANNED — Device write rejection belum diaktifkan (Read-Only UI)">🔒 Tolak <span class="badge badge-warning" style="font-size:0.6rem;">PLANNED</span></button>
                 `;
             } else {
                 actions = `<span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(r.status)}</span>`;
@@ -3965,7 +3965,7 @@ async function loadCredentials() {
 
             let actions = '';
             if (c.status === 'ACTIVE') {
-                actions = `<button class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" onclick="openRevokeCredentialModal(${c.id})">Cabut</button>`;
+                actions = `<button class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed; padding: 0.35rem 0.65rem; font-size: 0.75rem; color: #ef4444; border-color: #ef4444;" title="PLANNED — Card/Biometric revocation write ke hardware belum diaktifkan (Read-Only UI)">🔒 Cabut <span class="badge badge-warning" style="font-size:0.6rem;">PLANNED</span></button>`;
             } else {
                 actions = `<span style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(c.revocation_reason || 'Dicabut')}</span>`;
             }
@@ -4016,7 +4016,7 @@ async function loadDeviceSyncs() {
 
             let actions = '';
             if (s.status === 'FAILED' || s.status === 'QUEUED') {
-                actions = `<button class="btn-primary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;" onclick="retryDeviceSyncItem(${s.id})">🔄 Sync Ulang</button>`;
+                actions = `<button class="btn-primary" disabled style="opacity: 0.6; cursor: not-allowed; padding: 0.35rem 0.65rem; font-size: 0.75rem;" title="PLANNED — Hardware ISAPI sync write belum diaktifkan (Read-Only UI)">🔒 Sync Ulang <span class="badge badge-warning" style="font-size:0.6rem;">PLANNED</span></button>`;
             } else {
                 actions = `<span style="font-size: 0.75rem; color: #10b981;">✓ Synced</span>`;
             }

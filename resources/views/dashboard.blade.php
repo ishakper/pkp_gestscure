@@ -2686,28 +2686,34 @@
     <!-- SECTION 10: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY REGISTRY (SPRINT 6) -->
     <section class="tab-content" id="accessTab">
         <!-- Header & Action -->
-        <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
+        <div class="table-toolbar" style="margin-bottom: 1rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
             <div class="toolbar-left">
                 <h2 style="margin: 0; font-size: 1.35rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.65rem;">
-                    <span>🔑</span> Provisi Hak Akses, Kredensial & Registri E-Money
+                    <span>🔑</span> Hak Akses — Matriks Akses & Kredensial Pintu
                 </h2>
                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-top: 0.25rem;">
-                    Pusat manajemen hak akses pintu fisik enterprise, registri kartu RFID, monitoring status biometrik terenkripsi, antrean sinkronisasi ISAPI, dan inventaris instrumen E-Money.
+                    Peta hak akses pintu fisik Karyawan, matriks otorisasi per gedung/zona, monitoring status biometrik terenkripsi, dan registri E-Money.
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial disinkronkan', 'info');">
-                    🔄 Refresh
+                <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial diperbarui', 'info');">
+                    🔄 Refresh Data
                 </button>
-                <button class="btn-primary" onclick="openAddAccessRequestModal()">
-                    + Ajukan Permintaan Akses
+                <button class="btn-primary" disabled style="opacity: 0.65; cursor: not-allowed;" title="PLANNED — Write provisioning ke perangkat belum diaktifkan (Read-Only UI)">
+                    🔒 Ajukan Permintaan Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
                 </button>
-                <button class="btn-secondary" onclick="openAddAccessProfileModal()">
-                    + Buat Profil Akses
+                <button class="btn-secondary" disabled style="opacity: 0.65; cursor: not-allowed;" title="PLANNED — Profil write ke perangkat belum diaktifkan (Read-Only UI)">
+                    🔒 Buat Profil Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
                 </button>
-                <button class="btn-secondary" onclick="openAddEmoneyModal()">
-                    + Registrasi E-Money
-                </button>
+            </div>
+        </div>
+
+        <!-- Read-Only Operational Notice Callout -->
+        <div style="margin-bottom: 1.5rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+            <span style="font-size: 1.25rem;">🔒</span>
+            <div style="font-size: 0.85rem; line-height: 1.5; color: var(--text-main);">
+                <strong>Mode Operational UI Shell (READ-ONLY):</strong> Seluruh matriks hak akses Karyawan, status kredensial biometrik, dan riwayat sinkronisasi ditampilkan secara akurat dari data terintegrasi sistem.<br>
+                <span class="text-muted">Aksi penulisan ke perangkat fisik terminal (UserRight write, CardInfo write/delete, Hardware Sync execution, RemoteControl) sengaja dalam status non-fungsional / <code>DISABLED</code>.</span>
             </div>
         </div>
 
@@ -3956,8 +3962,14 @@
         </div>
 
         <form id="doorAssignForm" onsubmit="submitDoorAssignment(event)">
+            <!-- Read-Only Mode Notice -->
+            <div style="margin-bottom: 1rem; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 0.5rem; padding: 0.75rem; font-size: 0.8rem; color: #fbbf24; display: flex; align-items: center; gap: 0.5rem;">
+                <span>🔒</span>
+                <div><strong>Mode UI Shell (READ-ONLY):</strong> Matriks otorisasi pintu ditampilkan dari database. Penulisan ke perangkat fisik (UserRight write / ISAPI provisioning) belum diaktifkan.</div>
+            </div>
+
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-                Pilih terminal pintu yang diizinkan untuk diakses oleh karyawan ini. Perubahan akan langsung disinkronkan ke hardware melalui ISAPI job queue.
+                Daftar terminal pintu yang terpetakan untuk diakses oleh karyawan ini:
             </p>
 
             <div class="door-checkboxes-grid" id="doorCheckboxesContainer">
@@ -3965,13 +3977,13 @@
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 1.5rem;">
-                <button type="button" class="btn-secondary" style="color: var(--danger); border-color: rgba(239, 68, 68, 0.4);" onclick="revokeAllEmployeeDoors()">
-                    🚫 Cabut Semua Akses
+                <button type="button" class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed; color: var(--danger); border-color: rgba(239, 68, 68, 0.4);" title="Cabut akses ke perangkat belum diaktifkan (Read-Only UI)">
+                    🔒 Cabut Semua Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
                 </button>
                 <div style="display: flex; gap: 0.75rem;">
-                    <button type="button" class="btn-secondary" onclick="closeModal('doorAssignModal')">Batal</button>
-                    <button type="submit" class="btn-primary" id="btnSaveDoorAssignment">
-                        Simpan Hak Akses Pintu
+                    <button type="button" class="btn-secondary" onclick="closeModal('doorAssignModal')">Tutup</button>
+                    <button type="submit" class="btn-primary" id="btnSaveDoorAssignment" disabled style="opacity: 0.6; cursor: not-allowed;" title="Write UserRight ke perangkat belum diaktifkan (Read-Only UI)">
+                        🔒 Simpan Hak Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
                     </button>
                 </div>
             </div>
