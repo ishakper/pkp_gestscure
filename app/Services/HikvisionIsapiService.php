@@ -417,14 +417,15 @@ class HikvisionIsapiService
         }
 
         $url = $this->buildUrl('/AccessControl/UserInfo/Search?format=json', $door);
-        $payload = ['UserInfoSearchCond' => [
-            'searchID' => (string) Str::uuid(),
-            'searchResultPosition' => 0,
-            'maxResults' => max(1, min($limit, 1000)),
-        ]];
+        $limit = max(1, min($limit, 1000));
+        $searchId = str_replace('-', '', (string) Str::uuid());
+        $position = 0;
+        $totalMatches = 0;
+        $users = [];
 
         try {
             $client = $this->buildHttpClient($door);
+<<<<<<< HEAD
             $response = $client->post($url, $payload);
             $json = $response->json() ?? [];
 
@@ -466,22 +467,61 @@ class HikvisionIsapiService
                     ];
                 }
             }
+=======
 
-            $container = $json['UserInfoSearch'] ?? $json;
-            $rows = $container['UserInfo'] ?? [];
-            if (isset($rows['employeeNo'])) {
-                $rows = [$rows];
+            while (count($users) < $limit) {
+                $response = $client->post($url, ['UserInfoSearchCond' => [
+                    'searchID' => $searchId,
+                    'searchResultPosition' => $position,
+                    'maxResults' => 10,
+                ]]);
+                $json = $response->json() ?? [];
+>>>>>>> c26d3c0 (fix(hikvision): support compatible user inventory pagination)
+
+                if (!$response->successful()) {
+                    $error = $json['ResponseStatus'] ?? $json;
+                    $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                        || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+
+                    return [
+                        'status' => false,
+                        'unsupported' => $unsupported,
+                        'total_device_matches' => 0,
+                        'inspected_users' => 0,
+                        'users' => [],
+                        'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
+                    ];
+                }
+
+                $container = $json['UserInfoSearch'] ?? $json;
+                $rows = $container['UserInfo'] ?? [];
+                if (isset($rows['employeeNo'])) {
+                    $rows = [$rows];
+                }
+                $rows = array_values(array_filter($rows, 'is_array'));
+                $numOfMatches = (int) ($container['numOfMatches'] ?? count($rows));
+                $totalMatches = (int) ($container['totalMatches'] ?? $totalMatches ?: count($rows));
+                $remaining = $limit - count($users);
+
+                foreach (array_slice($rows, 0, $remaining) as $user) {
+                    $users[] = [
+                        'employee_no' => (string) ($user['employeeNo'] ?? ''),
+                        'name' => (string) ($user['name'] ?? ''),
+                        'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
+                        'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
+                    ];
+                }
+
+                $position += $numOfMatches;
+                $responseStatus = strtoupper((string) ($container['responseStatusStrg'] ?? ''));
+                if ($numOfMatches <= 0 || $position >= $totalMatches || in_array($responseStatus, ['OK', 'NO MATCH'], true)) {
+                    break;
+                }
             }
-            $users = array_map(static fn (array $user): array => [
-                'employee_no' => (string) ($user['employeeNo'] ?? ''),
-                'name' => (string) ($user['name'] ?? ''),
-                'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
-                'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
-            ], array_filter($rows, 'is_array'));
 
             return [
                 'status' => true,
-                'total_device_matches' => (int) ($container['totalMatches'] ?? count($users)),
+                'total_device_matches' => $totalMatches,
                 'inspected_users' => count($users),
                 'users' => $users,
                 'error' => null,
