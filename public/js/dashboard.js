@@ -3,6 +3,11 @@
  * Interfaces with Laravel Sanctum & RESTful API v1
  */
 
+if (window.__secureGateInitialized) {
+    console.warn('[SecureGate] Dashboard script already initialized. Skipping duplicate execution.');
+} else {
+window.__secureGateInitialized = true;
+
 const API_BASE = '/api/v1';
 let APP_TOKEN = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
 
@@ -146,10 +151,12 @@ async function apiFetch(endpoint, options = {}) {
     const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
     const headers = {
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
         ...(APP_TOKEN ? { 'Authorization': `Bearer ${APP_TOKEN}` } : {}),
         ...options.headers,
     };
+    if (!(options.body instanceof FormData) && !headers['Content-Type'] && options.method !== 'GET' && options.method !== 'HEAD') {
+        headers['Content-Type'] = 'application/json';
+    }
 
     try {
         const response = await fetch(url, { ...options, headers });
@@ -201,17 +208,11 @@ async function apiFetch(endpoint, options = {}) {
 }
 
 async function apiFetchForm(endpoint, formData) {
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    return apiFetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Accept': 'application/json',
-            ...(APP_TOKEN ? { 'Authorization': `Bearer ${APP_TOKEN}` } : {}),
-        },
         body: formData,
+        isBackground: false,
     });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(data.message || `Request failed with status ${response.status}`);
-    return data;
 }
 
 // ==========================================
@@ -1339,25 +1340,20 @@ async function runEventSimulation(e) {
     }
 
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
-        const headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-Simulator': 'true',
-        };
-        if (appToken) headers.Authorization = `Bearer ${appToken}`;
-
-        const res = await fetch('/api/v1/doors/simulate-event', {
+        const res = await apiFetch('/doors/simulate-event', {
             method: 'POST',
-            headers,
+            headers: {
+                'X-Simulator': 'true',
+            },
             body: JSON.stringify(payload),
+            isBackground: false,
         });
 
-        const data = await res.json();
+        const data = res;
         const resBox = document.getElementById('simResult');
         if (resBox) resBox.style.display = 'block';
 
-        if (res.ok) {
+        if (res.status === 'success' || res.data) {
             const simDoor = escapeHtml(data.data?.door_id || doorId);
             const simEmp = escapeHtml(data.data?.employee_name || 'N/A');
             const simStatus = escapeHtml(data.data?.access_status || status);
@@ -3821,22 +3817,10 @@ async function submitUploadDocument(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const headers = csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {};
 
-        const headers = {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken,
-        };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
-
-        const res = await fetch('/api/v1/onboarding/documents', {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
+        const data = await apiFetchForm('/onboarding/documents', formData, { headers });
+        if (data.success) {
             showToast('Dokumen berhasil diunggah ke private storage!', 'success');
             closeModal('modalUploadDocument');
             document.getElementById('formUploadDocument')?.reset();
@@ -6001,47 +5985,31 @@ async function submitFieldAttendance(type) {
     }
 
     const endpoint = type === 'CHECK_IN'
-        ? '/api/v1/field-attendance/check-in'
-        : '/api/v1/field-attendance/check-out';
+        ? '/field-attendance/check-in'
+        : '/field-attendance/check-out';
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const headers = csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {};
 
-        const headers = {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken,
-        };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+        const data = await apiFetchForm(endpoint, formData, { headers });
 
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
+        showToast(data.message || 'Presensi lapangan berhasil dicatat!', 'success');
 
-        const data = await res.json();
+        // Reset photo
+        currentFieldPhotoFile = null;
+        const photoInput = document.getElementById('fieldPhotoInput');
+        if (photoInput) photoInput.value = '';
+        const previewImg = document.getElementById('fieldPhotoPreviewImg');
+        if (previewImg) previewImg.style.display = 'none';
+        const placeholder = document.getElementById('fieldPhotoPlaceholderText');
+        if (placeholder) placeholder.style.display = 'block';
+        const photoBadge = document.getElementById('fieldPhotoStatusBadge');
+        if (photoBadge) { photoBadge.className = 'status-badge status-warning'; photoBadge.innerText = 'FOTO DIPERLUKAN'; }
 
-        if (res.ok) {
-            showToast(data.message || 'Presensi lapangan berhasil dicatat!', 'success');
+        if (notesInput) notesInput.value = '';
 
-            // Reset photo
-            currentFieldPhotoFile = null;
-            const photoInput = document.getElementById('fieldPhotoInput');
-            if (photoInput) photoInput.value = '';
-            const previewImg = document.getElementById('fieldPhotoPreviewImg');
-            if (previewImg) previewImg.style.display = 'none';
-            const placeholder = document.getElementById('fieldPhotoPlaceholderText');
-            if (placeholder) placeholder.style.display = 'block';
-            const photoBadge = document.getElementById('fieldPhotoStatusBadge');
-            if (photoBadge) { photoBadge.className = 'status-badge status-warning'; photoBadge.innerText = 'FOTO DIPERLUKAN'; }
-
-            if (notesInput) notesInput.value = '';
-
-            await loadFieldAttendanceData();
-        } else {
-            showToast(data.message || 'Presensi lapangan gagal disimpan.', 'error');
-        }
+        await loadFieldAttendanceData();
     } catch (e) {
         showToast('Terjadi kesalahan pengiriman: ' + e.message, 'error');
     } finally {
@@ -6315,23 +6283,13 @@ async function submitNewAttendanceRequest(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
-
         const headers = {
-            'X-CSRF-TOKEN': csrfToken,
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
+            ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
+            'X-Requested-With': 'XMLHttpRequest',
         };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
 
-        const res = await fetch('/api/v1/attendance-requests', {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
+        const data = await apiFetchForm('/attendance-requests', formData, { headers });
+        if (data.success) {
             showToast(data.message || 'Permohonan absensi berhasil dikirim.', 'success');
             closeModal('newAttendanceRequestModal');
             await loadAttendanceRequestsData();
@@ -7215,3 +7173,4 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
+} // end of window.__secureGateInitialized guard

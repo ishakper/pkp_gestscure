@@ -65,6 +65,13 @@ return [
             'replace_placeholders' => true,
         ],
 
+        'request_forensics' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/request_forensics.log'),
+            'level' => 'info',
+            'replace_placeholders' => true,
+        ],
+
         'daily' => [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
