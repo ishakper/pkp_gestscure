@@ -38,10 +38,7 @@ class LiveAccessStreamController extends Controller
                 // Break loop after 55 seconds to allow graceful disconnect and worker recycling
                 if (time() - $startTime > 55) {
                     echo "event: reload\ndata: {}\n\n";
-                    if (ob_get_level() > 0) {
-                        ob_flush();
-                    }
-                    flush();
+                    $this->flushStream();
                     break;
                 }
 
@@ -70,11 +67,7 @@ class LiveAccessStreamController extends Controller
 
                 // Send heartbeat comment to keep connection alive
                 echo ": heartbeat\n\n";
-                
-                if (ob_get_level() > 0) {
-                    ob_flush();
-                }
-                flush();
+                $this->flushStream();
 
                 if ($testing) {
                     break;
@@ -90,5 +83,14 @@ class LiveAccessStreamController extends Controller
         $response->headers->set('X-Accel-Buffering', 'no'); // Important for Nginx
 
         return $response;
+    }
+
+    private function flushStream(): void
+    {
+        if (ob_get_level() > 0) {
+            @ob_flush();
+        }
+
+        flush();
     }
 }

@@ -113,6 +113,7 @@ async function apiFetch(endpoint, options = {}) {
                 isRedirectingToLogin = true;
                 APP_TOKEN = '';
                 sessionStorage.removeItem('api_token');
+                if (typeof stopRealtime === 'function') stopRealtime();
                 showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
                 setTimeout(() => window.location.replace('/login'), 800);
             }
@@ -122,13 +123,15 @@ async function apiFetch(endpoint, options = {}) {
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-            const errorMsg = data.message || `Request failed with status ${response.status}`;
-            throw new Error(errorMsg);
+            const error = new Error(data.message || `Request failed with status ${response.status}`);
+            error.status = response.status;
+            error.retryAfter = response.headers.get('Retry-After');
+            throw error;
         }
 
         return data;
     } catch (err) {
-        if (err.message !== 'Unauthorized') {
+        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
@@ -495,13 +498,13 @@ function renderEmployeesTable(employees) {
     const html = employees.map(emp => {
         // Biometric Badges
         const hasFp = emp.biometric_status?.fingerprint_enrolled;
-        const hasCard = emp.biometric_status?.card_enrolled;
+        const hasCard = emp.biometric_status?.card_enrolled || emp.card_registered === 'YES';
         const fpBadge = hasFp
             ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
-            : `<span class="badge badge-dim" title="Belum enroll sidik jari">No FP</span>`;
+            : `<span class="badge badge-dim" title="Status sidik jari tidak diketahui">FP Unknown</span>`;
         const cardBadge = hasCard
-            ? `<span class="badge badge-info" title="Kartu RFID: ${emp.card_no || 'Tercatat'}"><span class="badge-dot"></span> Kartu</span>`
-            : `<span class="badge badge-dim" title="Belum enroll kartu">No Card</span>`;
+            ? `<span class="badge badge-info" title="Kartu terdaftar"><span class="badge-dot"></span> Kartu</span>`
+            : `<span class="badge badge-dim" title="Status kartu tidak diketahui">Card Unknown</span>`;
 
         // Door Assignment Badges
         let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
@@ -537,7 +540,6 @@ function renderEmployeesTable(employees) {
         const safeUserId = escapeHtml(emp.user_id || emp.employee_id || '-');
         const safeNik = escapeHtml(emp.nik || '-');
         const safeName = escapeHtml(emp.name || 'Unnamed');
-        const safeCardNo = escapeHtml(emp.card_no || '');
         const safeDept = escapeHtml(emp.department || '-');
         const safeRole = escapeHtml(emp.role || emp.role_jabatan || 'Staff');
         const empId = Number(emp.id);
@@ -553,7 +555,6 @@ function renderEmployeesTable(employees) {
                 <td>
                     <div class="user-name-box">
                         <span class="name-text">${safeName}</span>
-                        ${safeCardNo ? `<span class="card-no-sub">💳 ${safeCardNo}</span>` : ''}
                     </div>
                 </td>
                 <td>${safeDept}</td>
@@ -797,7 +798,8 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empUserId').value = emp.user_id;
     document.getElementById('empNik').value = emp.nik;
     document.getElementById('empName').value = emp.name;
-    document.getElementById('empCardNo').value = emp.card_no || '';
+    document.getElementById('empCardNo').value = '';
+    document.getElementById('empCardNo').placeholder = emp.card_registered === 'YES' ? 'Kartu terdaftar; isi hanya untuk mengganti' : 'Nomor kartu baru';
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
@@ -811,11 +813,11 @@ function openEditEmployeeModal(empId) {
 async function saveEmployee(e) {
     e.preventDefault();
     const id = document.getElementById('empDbId').value;
+    const rawCardInput = document.getElementById('empCardNo').value.trim();
     const payload = {
         employee_id: document.getElementById('empUserId').value,
         nik: document.getElementById('empNik').value,
         name: document.getElementById('empName').value,
-        card_no: document.getElementById('empCardNo').value,
         email: document.getElementById('empEmail').value, phone: document.getElementById('empPhone').value,
         building_id: document.getElementById('empBuilding').value || null, division_id: document.getElementById('empDivision').value || null, position_id: document.getElementById('empPosition').value || null,
         employment_type: document.getElementById('empEmploymentType').value || null, employment_status: document.getElementById('empEmploymentStatus').value, hire_date: document.getElementById('empHireDate').value || null,
@@ -824,6 +826,10 @@ async function saveEmployee(e) {
         fingerprint_enrolled: document.getElementById('empFp').checked,
         card_enrolled: document.getElementById('empCard').checked,
     };
+
+    if (rawCardInput !== '') {
+        payload.card_no = rawCardInput;
+    }
 
     const method = id ? 'PUT' : 'POST';
     const endpoint = id ? `/user-management/employees/${id}` : '/user-management/employees';
@@ -1082,7 +1088,6 @@ function renderAccessLogsTable(logs) {
             statusBadge = `<span class="badge badge-denied">✕ DENIED</span>`;
         }
 
-        const cardNo = log.user?.card_no || log.card_no;
         let userHtml = '';
 
         if (eventType === 'DOOR_FORCED_OPEN') {
@@ -1093,7 +1098,7 @@ function renderAccessLogsTable(logs) {
             const empName = log.user?.name || log.nik || 'Karyawan';
             userHtml = `<strong>${escapeHtml(empName)}</strong> <span class="badge badge-duress" style="font-size: 0.65rem; padding: 1px 5px;">DURESS</span><br><small class="text-muted">${escapeHtml(log.user?.nik || log.nik || '')} • <em>${escapeHtml(log.reason || 'Akses dibuka di bawah ancaman')}</em></small>`;
         } else if (log.user && (log.user.name || log.user.nik)) {
-            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${cardNo ? `• 💳 ${escapeHtml(cardNo)}` : ''} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
+            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
         } else {
             userHtml = `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Unregistered User')}</span>`;
         }
@@ -1510,61 +1515,100 @@ window.openTaskDetail = openTaskDetail;
 // ==========================================
 // Section 5: Real-Time SSE Stream (Phase 7-13)
 // ==========================================
-let liveEventSource = null;
+const realtime = {
+    source: null,
+    reconnectTimer: null,
+    pollingTimer: null,
+    refreshTimer: null,
+    failures: 0,
+    state: 'OFFLINE',
+};
+
+function stopRealtimeTimers() {
+    clearTimeout(realtime.reconnectTimer);
+    clearInterval(realtime.pollingTimer);
+    realtime.reconnectTimer = null;
+    realtime.pollingTimer = null;
+}
+
+function closeLiveAccessStream() {
+    if (realtime.source) realtime.source.close();
+    realtime.source = null;
+}
+
+function reconcileLiveData() {
+    if (document.hidden || isRedirectingToLogin) return;
+    loadDoors();
+    loadAccessLogs();
+    updateMetricCards();
+    if (state.activeTab === 'attendanceTab') loadAttendanceData();
+    if (state.activeTab === 'logsTab') loadActivityLogs();
+}
+
+function startFallbackPolling() {
+    closeLiveAccessStream();
+    clearInterval(realtime.pollingTimer);
+    realtime.state = 'FALLBACK_POLLING';
+    reconcileLiveData();
+    realtime.pollingTimer = setInterval(reconcileLiveData, 60000);
+}
+
+function scheduleSseReconnect() {
+    closeLiveAccessStream();
+    clearTimeout(realtime.reconnectTimer);
+    realtime.failures++;
+    if (realtime.failures >= 4) {
+        startFallbackPolling();
+        return;
+    }
+    realtime.state = 'BACKOFF';
+    const delay = Math.min(30000, 2000 * (2 ** (realtime.failures - 1)));
+    realtime.reconnectTimer = setTimeout(initLiveAccessStream, delay);
+}
 
 function initLiveAccessStream() {
-    if (liveEventSource) {
-        liveEventSource.close();
-    }
+    if (document.hidden || isRedirectingToLogin || realtime.source) return;
+    clearInterval(realtime.pollingTimer);
+    realtime.pollingTimer = null;
+    realtime.state = 'CONNECTING';
+    const source = new EventSource('/live-stream');
+    realtime.source = source;
 
-    const sseUrl = '/live-stream';
-    liveEventSource = new EventSource(sseUrl);
-
-    liveEventSource.onopen = () => {
-        console.log('[SSE] Connected to real-time access stream');
+    source.onopen = () => {
+        if (realtime.source !== source) return;
+        realtime.failures = 0;
+        realtime.state = 'CONNECTED';
     };
 
-    liveEventSource.onmessage = (event) => {
+    source.onmessage = event => {
+        if (realtime.source !== source) return;
         try {
-            const data = JSON.parse(event.data);
-            handleNewLiveEvent(data);
-        } catch (e) {
-            console.error('[SSE] Failed to parse event', e);
+            handleNewLiveEvent(JSON.parse(event.data));
+        } catch (_) {
+            scheduleSseReconnect();
         }
     };
 
-    liveEventSource.addEventListener('reload', () => {
-        console.log('[SSE] Server requested reconnect to prevent timeout');
-        initLiveAccessStream(); // Reconnect gracefully
-    });
-
-    liveEventSource.onerror = (error) => {
-        console.error('[SSE] Connection error. Attempting to reconnect...', error);
-        liveEventSource.close();
-        setTimeout(initLiveAccessStream, 5000); // Reconnect after 5s
-    };
+    source.addEventListener('reload', scheduleSseReconnect);
+    source.onerror = scheduleSseReconnect;
 }
 
 function handleNewLiveEvent(data) {
-    // 1. Show Toast
     let type = 'success';
     if (data.access_status === 'DENIED') type = 'warning';
     if (data.access_status === 'ERROR') type = 'error';
     if (data.verify_method === 'REMOTE_UNLOCK') type = 'info';
-
     showToast(`🚪 ${data.door_name} - ${data.employee_name} (${data.access_status})`, type, 5000);
 
-    // 2. Reload tables automatically so we don't have to write full row injection logic
-    // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
-    loadAccessLogs();
-    updateMetricCards();
-    if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab' || state.activeTab === 'attendanceTab') {
-        loadActivityLogs();
-        if (state.activeTab === 'attendanceTab') loadAttendanceData();
-    }
+    clearTimeout(realtime.refreshTimer);
+    realtime.refreshTimer = setTimeout(reconcileLiveData, 300);
+}
 
-    // Also refresh door status
-    loadDoors();
+function stopRealtime() {
+    stopRealtimeTimers();
+    clearTimeout(realtime.refreshTimer);
+    closeLiveAccessStream();
+    realtime.state = 'OFFLINE';
 }
 
 // ==========================================
@@ -1580,21 +1624,20 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAccessLogs();
     loadActivityLogs();
 
-    // Testing uses deterministic polling without reconnect noise; production keeps SSE.
+    // Testing disables long-lived transport; production uses one SSE-or-polling lifecycle.
     if (window.APP_CONFIG?.sseEnabled !== false) {
         initLiveAccessStream();
     }
 
-    // Auto-refresh doors and logs periodically every 60 seconds (fallback)
-    setInterval(() => {
-        loadDoors();
-        loadAccessLogs();
-        updateMetricCards();
-        if (state.activeTab === 'attendanceTab') loadAttendanceData();
-        if (state.activeTab === 'logsTab') {
-            loadActivityLogs();
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopRealtime();
+            return;
         }
-    }, 60000);
+        reconcileLiveData();
+        if (window.APP_CONFIG?.sseEnabled !== false) initLiveAccessStream();
+    });
+    window.addEventListener('pagehide', stopRealtime);
 });
 
 // ==========================================

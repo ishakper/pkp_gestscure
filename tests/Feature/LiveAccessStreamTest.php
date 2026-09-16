@@ -32,4 +32,14 @@ class LiveAccessStreamTest extends TestCase
         $this->assertSame('no', $response->headers->get('X-Accel-Buffering'));
         $this->assertStringContainsString(': heartbeat', $response->streamedContent());
     }
+
+    public function test_stream_flush_is_safe_without_an_output_buffer(): void
+    {
+        $source = file_get_contents(app_path('Http/Controllers/LiveAccessStreamController.php'));
+
+        $this->assertStringContainsString('if (ob_get_level() > 0)', $source);
+        $this->assertStringContainsString('@ob_flush();', $source);
+        $this->assertSame(1, substr_count($source, 'ob_flush();'));
+        $this->assertStringContainsString('connection_aborted()', $source);
+    }
 }

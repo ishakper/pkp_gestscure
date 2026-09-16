@@ -165,6 +165,8 @@ class DashboardIntegrationTest extends TestCase
     public function test_admin_can_sync_hardware_access_logs(): void
     {
         Sanctum::actingAs($this->admin, ['*']);
+        Config::set('services.doors.DOOR-A.username', 'configured-user');
+        Config::set('services.doors.DOOR-A.password', 'configured-password');
 
         Http::fake([
             '*/AccessControl/AcsEvent' => Http::response([
@@ -210,6 +212,32 @@ class DashboardIntegrationTest extends TestCase
             'verify_method' => 'Card',
             'access_status' => 'Granted',
         ]);
+    }
+
+    public function test_sync_skips_unconfigured_door_without_device_request(): void
+    {
+        Sanctum::actingAs($this->admin, ['*']);
+        Config::set('services.doors.DOOR-A.username', null);
+        Config::set('services.doors.DOOR-A.password', null);
+        Config::set('services.hikvision.username', null);
+        Config::set('services.hikvision.password', null);
+        Http::fake();
+        Http::preventStrayRequests();
+
+        $this->postJson('/api/v1/admin/access-logs/sync-hardware', [
+            'door_id' => $this->doorA->door_id,
+            'limit' => 10,
+        ])->assertOk()->assertJson([
+            'status' => 'success',
+            'total_fetched' => 0,
+            'inserted_count' => 0,
+        ]);
+
+        Http::assertNothingSent();
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'sync_hardware_access_logs',
+        ]);
+        $this->assertStringContainsString('1 unconfigured devices skipped', (string) \App\Models\ActivityLog::latest('id')->value('description'));
     }
 
     /**

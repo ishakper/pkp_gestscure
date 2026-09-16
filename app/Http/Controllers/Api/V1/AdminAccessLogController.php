@@ -156,8 +156,16 @@ class AdminAccessLogController extends Controller
 
         $totalInserted = 0;
         $totalFetched = 0;
+        $unconfiguredDoors = 0;
 
         foreach ($doors as $door) {
+            try {
+                $isapiService->getDeviceCredentials($door);
+            } catch (\RuntimeException) {
+                $unconfiguredDoors++;
+                continue;
+            }
+
             $res = $isapiService->fetchEvents($limit, $door);
 
             if (!empty($res['status']) && !empty($res['events'])) {
@@ -223,7 +231,7 @@ class AdminAccessLogController extends Controller
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
             'action' => 'sync_hardware_access_logs',
-            'description' => "Pulled ISAPI events: {$totalFetched} fetched, {$totalInserted} new records inserted into database.",
+            'description' => "Pulled ISAPI events: {$totalFetched} fetched, {$totalInserted} new records inserted; {$unconfiguredDoors} unconfigured devices skipped.",
             'timestamp' => now(),
         ]);
 

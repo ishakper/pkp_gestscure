@@ -58,12 +58,14 @@ class SecureGateUiRefactorTest extends TestCase
     public function test_realtime_fallback_never_invokes_physical_connection_checks(): void
     {
         $script = file_get_contents(public_path('js/dashboard.js'));
-        preg_match('/setInterval\(\(\) => \{(?<body>.*?)\},\s*60000\);/s', $script, $match);
+        $start = strpos($script, 'function reconcileLiveData()');
+        $end = strpos($script, 'function startFallbackPolling()', $start);
+        $body = substr($script, $start, $end - $start);
 
-        $this->assertNotEmpty($match['body'] ?? null);
-        $this->assertStringContainsString('updateMetricCards()', $match['body']);
-        $this->assertStringNotContainsString('checkAllDoors', $match['body']);
-        $this->assertStringNotContainsString('pingSingleDoor', $match['body']);
+        $this->assertNotEmpty($body);
+        $this->assertStringContainsString('updateMetricCards()', $body);
+        $this->assertStringNotContainsString('checkAllDoors', $body);
+        $this->assertStringNotContainsString('pingSingleDoor', $body);
     }
 
     public function test_phase_nine_facility_dom_contract_preserves_existing_door_editor(): void
@@ -145,6 +147,30 @@ class SecureGateUiRefactorTest extends TestCase
         $this->assertStringContainsString("const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();", $script);
         $this->assertStringContainsString("if (window.APP_CONFIG?.sseEnabled !== false)", $script);
         $this->assertStringContainsString("sseEnabled: @json(!app()->environment('testing'))", file_get_contents(resource_path('views/dashboard.blade.php')));
+    }
+
+    public function test_realtime_transport_is_singleton_bounded_and_visibility_aware(): void
+    {
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        $this->assertSame(1, substr_count($script, "new EventSource('/live-stream')"));
+        $this->assertStringContainsString("realtime.state = 'FALLBACK_POLLING'", $script);
+        $this->assertStringContainsString('if (realtime.failures >= 4)', $script);
+        $this->assertStringContainsString('Math.min(30000, 2000 * (2 ** (realtime.failures - 1)))', $script);
+        $this->assertStringContainsString("document.addEventListener('visibilitychange'", $script);
+        $this->assertStringContainsString("window.addEventListener('pagehide', stopRealtime)", $script);
+        $this->assertStringContainsString("err.status !== 403 && err.status !== 429", $script);
+        $this->assertStringNotContainsString("setTimeout(initLiveAccessStream, 5000)", $script);
+    }
+
+    public function test_dashboard_never_reads_raw_card_identifiers(): void
+    {
+        $script = file_get_contents(public_path('js/dashboard.js'));
+
+        $this->assertStringNotContainsString('emp.card_no', $script);
+        $this->assertStringNotContainsString('log.user?.card_no', $script);
+        $this->assertStringNotContainsString('log.card_no', $script);
+        $this->assertStringNotContainsString('biometric_template', $script);
     }
 
     private function admin(string $role): Admin
