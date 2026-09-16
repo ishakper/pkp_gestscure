@@ -507,6 +507,92 @@ class HikvisionIsapiService
     }
 
     /**
+     * Read device card inventory metadata without exposing plaintext credential values or card numbers.
+     * Returns only privacy-safe aggregates and presence mappings per employeeNo.
+     */
+    public function fetchCards(Door $door, int $limit = 100): array
+    {
+        if ($this->isMockMode()) {
+            return ['status' => false, 'total_device_matches' => 0, 'inspected_cards' => 0, 'cards' => [], 'error' => 'Device card inventory requires non-mock mode.'];
+        }
+
+        $url = $this->buildUrl('/AccessControl/CardInfo/Search?format=json', $door);
+        $limit = max(1, min($limit, 1000));
+        $searchId = str_replace('-', '', (string) Str::uuid());
+        $position = 0;
+        $totalMatches = 0;
+        $cards = [];
+
+        try {
+            $client = $this->buildHttpClient($door);
+
+            while (count($cards) < $limit) {
+                $payload = ['CardInfoSearchCond' => [
+                    'searchID' => $searchId,
+                    'searchResultPosition' => $position,
+                    'maxResults' => 10,
+                ]];
+                $response = $client->post($url, $payload);
+                $json = $response->json() ?? [];
+
+                if (!$response->successful()) {
+                    $error = $json['ResponseStatus'] ?? $json;
+                    $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                        || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
+
+                    return [
+                        'status' => false,
+                        'unsupported' => $unsupported,
+                        'total_device_matches' => 0,
+                        'inspected_cards' => 0,
+                        'cards' => [],
+                        'error' => $unsupported ? 'Card directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'Card inventory failed.'),
+                    ];
+                }
+
+                $container = $json['CardInfoSearch'] ?? $json;
+                $rows = $container['CardInfo'] ?? [];
+                if (isset($rows['cardNo']) || isset($rows['employeeNo'])) {
+                    $rows = [$rows];
+                }
+                $rows = array_values(array_filter($rows, 'is_array'));
+                $numOfMatches = (int) ($container['numOfMatches'] ?? count($rows));
+                $totalMatches = (int) ($container['totalMatches'] ?? $totalMatches ?: count($rows));
+                $remaining = $limit - count($cards);
+
+                foreach (array_slice($rows, 0, $remaining) as $card) {
+                    $employeeNo = trim((string) ($card['employeeNo'] ?? ''));
+                    $cardType = (string) ($card['cardType'] ?? 'normalCard');
+                    // Immediately drop cardNo; only store boolean presence and safe type descriptor
+                    $cards[] = [
+                        'employee_no' => $employeeNo,
+                        'card_registered' => true,
+                        'card_type' => $cardType,
+                    ];
+                }
+
+                $position += $numOfMatches;
+                $responseStatus = strtoupper((string) ($container['responseStatusStrg'] ?? ''));
+                if ($numOfMatches <= 0 || $position >= $totalMatches || in_array($responseStatus, ['OK', 'NO MATCH'], true)) {
+                    break;
+                }
+            }
+
+            return [
+                'status' => true,
+                'unsupported' => false,
+                'total_device_matches' => $totalMatches,
+                'inspected_cards' => count($cards),
+                'cards' => $cards,
+                'error' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI fetchCards failed ({$url}): " . $e->getMessage());
+            return ['status' => false, 'unsupported' => false, 'total_device_matches' => 0, 'inspected_cards' => 0, 'cards' => [], 'error' => 'ISAPI card inventory request failed.'];
+        }
+    }
+
+    /**
      * Fetch access events / tap logs from /AccessControl/AcsEvent (POST).
      * In mock mode, directly invokes HikvisionMockController.
      */
