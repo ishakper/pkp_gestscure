@@ -53,9 +53,10 @@ class IsapiWebhookController extends Controller
 
             $cardNo = $parsedEvent['card_reference'] ?? '';
             $employeeId = $parsedEvent['employee_no'] ?? '';
-            
-            $verifyMethod = !empty($cardNo) ? 'Card' : 'Fingerprint';
-            
+            $verifyMethod = $parsedEvent['verification_method'] !== 'UNKNOWN'
+                ? $parsedEvent['verification_method']
+                : (!empty($cardNo) ? 'Card' : 'UNKNOWN');
+
             $timestamp = $parsedEvent['event_time'] ?: now()->toIso8601String();
             
             $deviceIp = $parsedEvent['device_ip'] ?: $request->ip();
@@ -106,6 +107,7 @@ class IsapiWebhookController extends Controller
             'timestamp' => 'nullable|date',
             'reason' => 'nullable|string|max:255|regex:/^[^<>]*$/',
             'direction' => 'nullable|in:ENTRY,EXIT,UNKNOWN',
+            'serial_no' => 'nullable|string|max:100|regex:/^[^<>]*$/',
         ], [
             'door_id.regex' => 'Parameter door_id mengandung karakter terlarang (< atau >).',
             'card_number.regex' => 'Parameter card_number mengandung karakter terlarang (< atau >).',
@@ -124,7 +126,7 @@ class IsapiWebhookController extends Controller
         $nikOrEmployeeId = $validated['user'] ?? ($validated['nik'] ?? ($validated['employee_id'] ?? $cardNo));
         $eventType = strtoupper($validated['event_type'] ?? 'STANDARD_TAP');
         $eventTimestamp = $validated['timestamp'] ?? now()->toIso8601String();
-        $serialNo = $request->input('serial_no');
+        $serialNo = $validated['serial_no'] ?? null;
         $direction = $validated['direction'] ?? 'UNKNOWN';
 
 
@@ -189,10 +191,10 @@ class IsapiWebhookController extends Controller
                 $employee = Employee::where('card_no', $cardNo)->first();
             }
 
-            $rawVerify = $validated['verify_method'] ?? ($cardNo ? 'Card' : 'Fingerprint');
-            $verifyMethod = in_array(ucfirst(strtolower($rawVerify)), ['Card', 'Fingerprint', 'Face', 'Pin'])
-                ? ucfirst(strtolower($rawVerify))
-                : ($cardNo ? 'Card' : 'Fingerprint');
+            $rawVerify = $validated['verify_method'] ?? null;
+            $verifyMethod = $rawVerify !== null
+                ? \App\Services\HikvisionPayloadParser::normalizeVerificationMethod($rawVerify)
+                : (!empty($cardNo) ? 'Card' : 'UNKNOWN');
 
             if (isset($validated['access_status'])) {
                 $accessStatus = ucfirst(strtolower($validated['access_status']));

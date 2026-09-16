@@ -541,7 +541,7 @@ class HikvisionIsapiService
                         'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
                         'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
                         'name' => $item['name'] ?? null,
-                        'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
+                        'verify_method' => HikvisionPayloadParser::normalizeVerificationMethod($item['verifyMethod'] ?? $item['currentVerifyMode'] ?? null),
                         'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
                         'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
                         'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
@@ -553,7 +553,6 @@ class HikvisionIsapiService
                     'statusCode' => 1,
                     'total' => count($formattedEvents),
                     'events' => $formattedEvents,
-                    'data' => $data,
                     'error' => null,
                 ];
             } catch (\Throwable $e) {
@@ -638,7 +637,7 @@ class HikvisionIsapiService
             'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
             'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
             'name' => $item['name'] ?? null,
-            'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
+            'verify_method' => HikvisionPayloadParser::normalizeVerificationMethod($item['verifyMethod'] ?? $item['currentVerifyMode'] ?? null),
             'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
             'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
             'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
@@ -650,7 +649,6 @@ class HikvisionIsapiService
             'total' => count($events),
             'total_device_matches' => (int) ($container['totalMatches'] ?? count($events)),
             'events' => $events,
-            'data' => $json,
             'error' => null,
         ];
     }

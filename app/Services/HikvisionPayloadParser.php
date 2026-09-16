@@ -6,6 +6,29 @@ use Illuminate\Support\Facades\Log;
 
 class HikvisionPayloadParser
 {
+    public static function normalizeVerificationMethod(mixed $value): string
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return 'UNKNOWN';
+        }
+
+        $normalized = strtoupper((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $raw));
+        $normalized = strtoupper((string) preg_replace('/[^A-Z0-9]+/', '_', $normalized));
+        $normalized = trim($normalized, '_');
+
+        return match ($normalized) {
+            'FINGERPRINT', 'FINGER_PRINT', 'FP' => 'Fingerprint',
+            'CARD', 'NORMAL_CARD', 'PATROL_CARD', 'SUPER_CARD' => 'Card',
+            'FACE', 'FACE_RECOGNITION' => 'Face',
+            'PIN' => 'PIN',
+            'PASSWORD', 'PASSWD' => 'Password',
+            'MULTI_FACTOR', 'MULTIFACTOR', 'CARD_AND_FACE', 'CARD_AND_FINGERPRINT',
+            'CARD_OR_FACE_OR_FP', 'CARD_OR_FACE_OR_FINGERPRINT' => 'Multi_Factor',
+            default => 'UNKNOWN',
+        };
+    }
+
     /**
      * Parses and normalizes various Hikvision payload formats (JSON, XML, Multipart).
      *
@@ -25,8 +48,8 @@ class HikvisionPayloadParser
             'minor_event' => null,
             'device_serial' => '',
             'direction' => 'UNKNOWN',
+            'verification_method' => 'UNKNOWN',
             'is_valid_event' => false,
-            'raw_payload' => $rawContent
         ];
 
         // 1. Try parsing as JSON first
@@ -43,6 +66,9 @@ class HikvisionPayloadParser
             $normalized['employee_no'] = $eventData['employeeNoString'] ?? $eventData['employeeNo'] ?? '';
             $normalized['device_serial'] = $eventData['serialNo'] ?? '';
             $normalized['direction'] = strtoupper((string) ($eventData['direction'] ?? $eventData['readerDirection'] ?? $eventData['attendanceDirection'] ?? 'UNKNOWN'));
+            $normalized['verification_method'] = self::normalizeVerificationMethod(
+                $eventData['verifyMethod'] ?? $eventData['currentVerifyMode'] ?? $eventData['verificationMethod'] ?? null
+            );
             $normalized['is_valid_event'] = true;
             return $normalized;
         }
@@ -81,6 +107,9 @@ class HikvisionPayloadParser
                     $normalized['employee_no'] = (string) ($eventData->employeeNoString ?? $eventData->employeeNo ?? '');
                     $normalized['device_serial'] = (string) ($eventData->serialNo ?? '');
                     $normalized['direction'] = strtoupper((string) ($eventData->direction ?? $eventData->readerDirection ?? $eventData->attendanceDirection ?? 'UNKNOWN'));
+                    $normalized['verification_method'] = self::normalizeVerificationMethod(
+                        (string) ($eventData->verifyMethod ?? $eventData->currentVerifyMode ?? $eventData->verificationMethod ?? '')
+                    );
                     $normalized['is_valid_event'] = true;
                     return $normalized;
                 }
