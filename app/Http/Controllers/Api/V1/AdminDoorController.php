@@ -388,7 +388,14 @@ class AdminDoorController extends Controller
         $driver = config('queue.default');
         $pending = $driver === 'database' && Schema::hasTable('jobs') ? DB::table('jobs')->count() : null;
         $failed = Schema::hasTable('failed_jobs') ? DB::table('failed_jobs')->count() : null;
-        $data['queue'] = ['status' => ($failed ?? 0) > 0 ? 'DEGRADED' : ($pending === null ? 'UNKNOWN' : 'HEALTHY'), 'pending_jobs' => $pending, 'failed_jobs' => $failed];
+        $oldestPendingAt = $pending && Schema::hasColumn('jobs', 'available_at')
+            ? DB::table('jobs')->min('available_at')
+            : null;
+        $oldestPendingAge = $oldestPendingAt ? max(0, now()->timestamp - (int) $oldestPendingAt) : null;
+        $queueStatus = ($failed ?? 0) > 0 || ($oldestPendingAge !== null && $oldestPendingAge > 300)
+            ? 'DEGRADED'
+            : ($driver === 'sync' ? 'HEALTHY' : 'UNKNOWN');
+        $data['queue'] = ['status' => $queueStatus, 'pending_jobs' => $pending, 'failed_jobs' => $failed, 'oldest_pending_seconds' => $oldestPendingAge];
         $criticalStatuses = [$data['database']['status'], $data['primary_door']['status'], $data['webhook']['status']];
         $criticalUnhealthy = collect($criticalStatuses)->contains(fn ($status) => in_array($status, ['OFFLINE', 'DEGRADED', 'STALE', 'UNKNOWN'], true));
         $unhealthyDoors = $data['doors']['offline'] + $data['doors']['stale'] + $data['doors']['unknown'];

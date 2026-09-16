@@ -96,8 +96,29 @@ class SystemHealthTest extends TestCase
             ->assertJsonPath('data.primary_door.status', 'HEALTHY')
             ->assertJsonPath('data.webhook.status', 'ACTIVE')
             ->assertJsonPath('data.webhook.stale', false)
-            ->assertJsonPath('data.queue.status', 'HEALTHY')
+            ->assertJsonPath('data.queue.status', 'UNKNOWN')
             ->assertJsonPath('data.app.status', 'HEALTHY');
+    }
+
+    public function test_queue_health_needs_runtime_evidence_and_degrades_on_failures(): void
+    {
+        config(['queue.default' => 'database']);
+
+        $this->actingAs($this->admin('super_admin'))->getJson('/api/v1/admin/system-health')
+            ->assertJsonPath('data.queue.status', 'UNKNOWN');
+
+        \DB::table('failed_jobs')->insert([
+            'uuid' => (string) \Illuminate\Support\Str::uuid(),
+            'connection' => 'database',
+            'queue' => 'default',
+            'payload' => '{}',
+            'exception' => 'safe test failure',
+            'failed_at' => now(),
+        ]);
+
+        $this->actingAs($this->admin('super_admin'))->getJson('/api/v1/admin/system-health')
+            ->assertJsonPath('data.queue.status', 'DEGRADED')
+            ->assertJsonPath('data.queue.failed_jobs', 1);
     }
 
     public function test_door_summary_uses_freshness_and_any_unhealthy_door_degrades_app(): void
