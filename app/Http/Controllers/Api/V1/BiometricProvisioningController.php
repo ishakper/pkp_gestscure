@@ -83,6 +83,13 @@ class BiometricProvisioningController extends Controller
             ->firstOrFail();
 
         $admin = $request->user();
+        if ($admin->isBuildingAdmin() && !$admin->can('update', $employee)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Anda tidak memiliki akses ke karyawan di gedung ini.',
+            ], 403);
+        }
 
         // 1. Resolve doors
         $doorInputs = $request->input('door_ids') ?? $request->input('door_id');
@@ -240,6 +247,13 @@ class BiometricProvisioningController extends Controller
             ->firstOrFail();
 
         $admin = $request->user();
+        if ($admin->isBuildingAdmin() && !$admin->can('update', $employee)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Anda tidak memiliki akses ke karyawan di gedung ini.',
+            ], 403);
+        }
 
         $assignment = DoorAssignment::updateOrCreate(
             ['employee_id' => $employee->id, 'door_id' => $door->id],
@@ -326,6 +340,14 @@ class BiometricProvisioningController extends Controller
             ->orWhere('employee_id', $id)
             ->orWhere('employee_id', 'USR-' . $id)
             ->firstOrFail();
+
+        if ($actor->isBuildingAdmin() && !$actor->can('view', $employee)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 403,
+                'message' => 'Anda tidak memiliki akses ke karyawan di gedung ini.',
+            ], 403);
+        }
 
         // Employee / Intern can only view self
         if (in_array($role, ['employee', 'intern'], true)) {

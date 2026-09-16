@@ -154,9 +154,11 @@ async function apiFetchForm(endpoint, formData) {
 // ==========================================
 async function updateMetricCards() {
     try {
+        const role = window.APP_CONFIG?.admin?.role;
+        const canViewAttendance = role === 'super_admin' || role === 'hrd';
         const [res, attendance] = await Promise.all([
             apiFetch('/admin/dashboard-metrics'),
-            apiFetch('/attendance/metrics'),
+            canViewAttendance ? apiFetch('/attendance/metrics') : Promise.resolve(null),
         ]);
         if (res.status === 'success') {
             const data = res.data;
@@ -4067,6 +4069,12 @@ async function loadDeviceSyncs() {
 async function loadEmoneyCards() {
     const tbody = document.getElementById('emoneyTableBody');
     if (!tbody) return;
+
+    const role = window.APP_CONFIG?.admin?.role;
+    if (role !== 'super_admin' && role !== 'hrd') {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Akses E-Money tidak tersedia untuk peran ini.</td></tr>';
+        return;
+    }
 
     try {
         const search = document.getElementById('emoneySearch')?.value || '';
