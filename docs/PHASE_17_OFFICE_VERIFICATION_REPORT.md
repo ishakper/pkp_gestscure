@@ -45,6 +45,19 @@ Physical device safety has been strictly maintained:
 - **SSE Buffer Flush**: Centralized flush mechanism in `LiveAccessStreamController` checking `ob_get_level()` before flushing to prevent PHP buffer warnings.
 - **Client Transport Singleton**: Consolidated dashboard realtime handlers into a singleton manager. Bounded exponential backoff (2s up to 30s) prevents request storms. Switches to 60s fallback polling after 4 failures.
 - **Visibility Lifecycle**: Realtime stream and polling automatically pause when document is hidden and resume on visibility.
+- **Request Storm (403/429) Fix**: Capability pre-check before fetching; memoizes 403 endpoints in `forbiddenCapabilities`; coalesces metric updates with a 15-second cooldown; respects `Retry-After` on 429; treats 55-second SSE `reload` as graceful rotation with zero failure increments.
+
+### F. Physical Hikvision User Reconciliation
+- Read-only dry-run against physical terminal `DOOR-B` (`192.168.90.15:80`) confirmed:
+  - `DEVICE_USERS`: 96
+  - `UNIQUE_DEVICE_EMPLOYEE_NO`: 96
+  - `CARD_REGISTERED`: 82
+  - `NO_CARD`: 14
+  - `CONFLICTS`: 0
+  - `UNKNOWN`: 0
+  - `DUPLICATE_EMPLOYEE_NO`: 0
+  - `CARD_IDENTIFIER_EXPOSURE`: 0 (zero cardNo or masked suffixes stored, returned, or logged)
+  - `IDEMPOTENCY`: Confirmed via automated test suite.
 
 ---
 

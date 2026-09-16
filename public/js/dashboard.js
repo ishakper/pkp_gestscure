@@ -90,13 +90,60 @@ function showToast(message, type = 'success', duration = 3500) {
 }
 
 // ==========================================
-// Centralized API Client (Fetch with Auth)
+// Centralized API Client (Fetch with Auth & Storm Guard)
 // ==========================================
 let isRedirectingToLogin = false;
+const forbiddenCapabilities = new Set();
+let rateLimitCooldownUntil = 0;
+
+function normalizeCapability(endpoint) {
+    const clean = endpoint.split('?')[0].replace(/\/+$/, '');
+    if (clean.includes('/activity-logs')) return 'audit.view';
+    if (clean.includes('/system-accounts')) return 'system.manage';
+    if (clean.includes('/system-health')) return 'system.view';
+    if (clean.includes('/attendance/metrics') || clean.includes('/attendance/report')) return 'attendance.view';
+    if (clean.includes('/check-connection') || clean.includes('/check-all') || clean.includes('/sync-hardware')) return 'device.manage';
+    if (clean.includes('/emoney/cards')) return 'emoney.view';
+    return clean;
+}
+
+function hasCapability(capability) {
+    const permissions = window.APP_CONFIG?.permissions || [];
+    const role = window.APP_CONFIG?.admin?.role;
+    if (role === 'super_admin') return true;
+
+    if (capability === 'audit.view') return permissions.includes('audit.view');
+    if (capability === 'system.manage') return permissions.includes('system.manage');
+    if (capability === 'system.view') return permissions.includes('system.view');
+    if (capability === 'attendance.view') return permissions.includes('attendance.view');
+    if (capability === 'device.manage') return permissions.includes('device.manage');
+    if (capability === 'emoney.view') return permissions.includes('emoney.view');
+
+    return !forbiddenCapabilities.has(capability);
+}
 
 async function apiFetch(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+    const capability = normalizeCapability(endpoint);
+    const isBackground = options.isBackground !== false;
 
+    // 1. Permission Pre-Check: Prevent dispatching known forbidden endpoints
+    if (forbiddenCapabilities.has(capability) || !hasCapability(capability)) {
+        const error = new Error(`Forbidden: Access to capability [${capability}] denied.`);
+        error.status = 403;
+        error.suppressed = true;
+        throw error;
+    }
+
+    // 2. 429 Cooldown Guard: Prevent background request storms
+    if (isBackground && Date.now() < rateLimitCooldownUntil) {
+        const remainingSec = Math.ceil((rateLimitCooldownUntil - Date.now()) / 1000);
+        const error = new Error(`Rate limit cooldown active. Skipping background request for ${remainingSec}s.`);
+        error.status = 429;
+        error.suppressed = true;
+        throw error;
+    }
+
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
     const headers = {
         'Accept': 'application/json',
         'Content-Type': 'application/json',
@@ -107,7 +154,6 @@ async function apiFetch(endpoint, options = {}) {
     try {
         const response = await fetch(url, { ...options, headers });
 
-        // Handle concurrent 401 responses once to avoid toast and redirect loops.
         if (response.status === 401) {
             if (!isRedirectingToLogin) {
                 isRedirectingToLogin = true;
@@ -120,18 +166,34 @@ async function apiFetch(endpoint, options = {}) {
             throw new Error('Unauthorized');
         }
 
+        if (response.status === 403) {
+            forbiddenCapabilities.add(capability);
+            const error = new Error(`Access forbidden: ${capability}`);
+            error.status = 403;
+            throw error;
+        }
+
+        if (response.status === 429) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            const cooldownSec = retryAfterHeader ? Math.min(60, Math.max(5, parseInt(retryAfterHeader, 10) || 10)) : 15;
+            rateLimitCooldownUntil = Date.now() + (cooldownSec * 1000);
+            const error = new Error(`Rate limit reached. Backing off for ${cooldownSec} seconds.`);
+            error.status = 429;
+            error.retryAfter = cooldownSec;
+            throw error;
+        }
+
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
             const error = new Error(data.message || `Request failed with status ${response.status}`);
             error.status = response.status;
-            error.retryAfter = response.headers.get('Retry-After');
             throw error;
         }
 
         return data;
     } catch (err) {
-        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429) {
+        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
@@ -153,17 +215,38 @@ async function apiFetchForm(endpoint, formData) {
 }
 
 // ==========================================
-// Metric Cards Updater
+// Centralized Metrics Scheduler (Debounced & Coalesced)
 // ==========================================
+let metricsDebounceTimer = null;
+let lastMetricsFetchTime = 0;
+
+function scheduleMetricCardsUpdate(force = false) {
+    if (document.hidden || isRedirectingToLogin) return;
+    clearTimeout(metricsDebounceTimer);
+
+    const now = Date.now();
+    const elapsed = now - lastMetricsFetchTime;
+    const cooldown = 15000; // minimum 15 seconds between metrics updates
+
+    if (force || elapsed >= cooldown) {
+        metricsDebounceTimer = setTimeout(updateMetricCards, 100);
+    } else {
+        metricsDebounceTimer = setTimeout(updateMetricCards, cooldown - elapsed);
+    }
+}
+
 async function updateMetricCards() {
+    if (document.hidden || isRedirectingToLogin) return;
+    lastMetricsFetchTime = Date.now();
+
     try {
-        const role = window.APP_CONFIG?.admin?.role;
-        const canViewAttendance = role === 'super_admin' || role === 'hrd';
+        const canViewAttendance = hasCapability('attendance.view');
         const [res, attendance] = await Promise.all([
-            apiFetch('/admin/dashboard-metrics'),
-            canViewAttendance ? apiFetch('/attendance/metrics') : Promise.resolve(null),
+            apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null),
+            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
         ]);
-        if (res.status === 'success') {
+
+        if (res && res.status === 'success') {
             const data = res.data;
             const activeUserMetric = document.getElementById('metricActiveEmployees');
             if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
@@ -179,7 +262,8 @@ async function updateMetricCards() {
             const deniedMetric = document.getElementById('metricDeniedLogs');
             if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
         }
-        if (attendance.success) {
+
+        if (attendance && attendance.success) {
             const today = attendance.data?.today || {};
             const values = {
                 metricAttendancePresent: Number(today.present || 0) + Number(today.late || 0),
@@ -192,8 +276,8 @@ async function updateMetricCards() {
                 if (element) element.innerText = value;
             });
         }
-    } catch (err) {
-        console.error('Failed to fetch dashboard metrics:', err);
+    } catch (_) {
+        // Silently caught; metrics updates must never break UI flow
     }
 }
 
@@ -215,7 +299,7 @@ async function loadDoors() {
             state.doors = res.data;
             renderDoorCards(state.doors);
             refreshDoorFilters(state.doors);
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
         }
     } catch (err) {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
@@ -359,11 +443,13 @@ async function confirmRemoteUnlock() {
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
     try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST' });
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST', isBackground: false });
         if (res.status === 'success') {
             showToast(`Perintah remote unlock ${door.door_id} berhasil dikirim.`, 'success');
             cancelRemoteUnlock();
-            await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
+            await Promise.all([loadDoors(), loadAccessLogs()]);
+            scheduleMetricCardsUpdate(true);
+            if (hasCapability('audit.view')) await loadActivityLogs();
         }
     } catch (err) {
         showToast('Remote unlock gagal. Periksa izin dan koneksi terminal, lalu coba kembali.', 'error');
@@ -464,7 +550,7 @@ async function loadEmployees(page = state.employeePage) {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
             state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
 
             if (countBadge) {
                 countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
@@ -914,7 +1000,7 @@ async function loadAccessLogs() {
         if (res.status === 'success') {
             state.accessLogs = res.data;
             renderAccessLogsTable(state.accessLogs);
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
         }
     } catch (err) {
         const errorHtml = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${escapeHtml(err.message)}</td></tr>`;
@@ -952,7 +1038,9 @@ async function refreshOperationalData(button) {
     const original = button?.innerHTML || '';
     if (button) { button.disabled = true; button.innerHTML = '⏳ Memuat data...'; }
     try {
-        await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
+        await Promise.all([loadDoors(), loadAccessLogs()]);
+        scheduleMetricCardsUpdate(true);
+        if (hasCapability('audit.view')) await loadActivityLogs();
         showToast('Data operasional terbaru berhasil dimuat.', 'success');
     } finally {
         if (button) { button.disabled = false; button.innerHTML = original; }
@@ -1532,7 +1620,12 @@ function stopRealtimeTimers() {
 }
 
 function closeLiveAccessStream() {
-    if (realtime.source) realtime.source.close();
+    if (realtime.source) {
+        realtime.source.onopen = null;
+        realtime.source.onmessage = null;
+        realtime.source.onerror = null;
+        realtime.source.close();
+    }
     realtime.source = null;
 }
 
@@ -1542,7 +1635,7 @@ function reconcileLiveData() {
     loadAccessLogs();
     updateMetricCards();
     if (state.activeTab === 'attendanceTab') loadAttendanceData();
-    if (state.activeTab === 'logsTab') loadActivityLogs();
+    if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
 }
 
 function startFallbackPolling() {
@@ -1553,9 +1646,18 @@ function startFallbackPolling() {
     realtime.pollingTimer = setInterval(reconcileLiveData, 60000);
 }
 
-function scheduleSseReconnect() {
+function scheduleSseReconnect(isNormalRotation = false) {
     closeLiveAccessStream();
     clearTimeout(realtime.reconnectTimer);
+
+    if (isNormalRotation) {
+        // Normal 55s worker recycling: do not increment failure count, do not fall back to polling
+        realtime.failures = 0;
+        realtime.state = 'ROTATING';
+        realtime.reconnectTimer = setTimeout(initLiveAccessStream, 1000);
+        return;
+    }
+
     realtime.failures++;
     if (realtime.failures >= 4) {
         startFallbackPolling();
@@ -1571,6 +1673,7 @@ function initLiveAccessStream() {
     clearInterval(realtime.pollingTimer);
     realtime.pollingTimer = null;
     realtime.state = 'CONNECTING';
+
     const source = new EventSource('/live-stream');
     realtime.source = source;
 
@@ -1583,17 +1686,25 @@ function initLiveAccessStream() {
     source.onmessage = event => {
         if (realtime.source !== source) return;
         try {
-            handleNewLiveEvent(JSON.parse(event.data));
+            const parsed = JSON.parse(event.data);
+            handleNewLiveEvent(parsed);
         } catch (_) {
-            scheduleSseReconnect();
+            // Unparseable message (e.g. raw comment or unknown format)
         }
     };
 
-    source.addEventListener('reload', scheduleSseReconnect);
-    source.onerror = scheduleSseReconnect;
+    // Server-Sent Events 'reload' sent at 55s for graceful PHP worker recycling
+    source.addEventListener('reload', () => {
+        scheduleSseReconnect(true);
+    });
+
+    source.onerror = () => {
+        scheduleSseReconnect(false);
+    };
 }
 
 function handleNewLiveEvent(data) {
+    if (!data || !data.door_name) return; // Ignore empty or heartbeat payloads
     let type = 'success';
     if (data.access_status === 'DENIED') type = 'warning';
     if (data.access_status === 'ERROR') type = 'error';
@@ -1601,7 +1712,7 @@ function handleNewLiveEvent(data) {
     showToast(`🚪 ${data.door_name} - ${data.employee_name} (${data.access_status})`, type, 5000);
 
     clearTimeout(realtime.refreshTimer);
-    realtime.refreshTimer = setTimeout(reconcileLiveData, 300);
+    realtime.refreshTimer = setTimeout(reconcileLiveData, 500);
 }
 
 function stopRealtime() {
@@ -1622,7 +1733,9 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDoors();
     loadEmployees();
     loadAccessLogs();
-    loadActivityLogs();
+    if (hasCapability('audit.view')) {
+        loadActivityLogs();
+    }
 
     // Testing disables long-lived transport; production uses one SSE-or-polling lifecycle.
     if (window.APP_CONFIG?.sseEnabled !== false) {
