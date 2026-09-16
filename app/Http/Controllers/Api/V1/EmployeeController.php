@@ -49,8 +49,8 @@ class EmployeeController extends Controller
         $values['employment_status']=$values['employment_status'] ?? 'ACTIVE';
         $employee=Employee::create($values);
         $hasFp=(bool)$request->input('fingerprint_enrolled',false); $cardEnrolled=!empty($employee->card_no)||(bool)$request->input('card_enrolled',false);
-        // The device retains biometric templates. This system stores enrollment state only.
-        BiometricStatus::create(['employee_id'=>$employee->id,'has_fingerprint'=>$hasFp,'fingerprint_enrolled'=>$hasFp,'card_enrolled'=>$cardEnrolled,'biometric_template'=>null]);
+        // Device retains biometric templates; application stores enrollment state only.
+        BiometricStatus::create(['employee_id'=>$employee->id,'has_fingerprint'=>$hasFp,'fingerprint_enrolled'=>$hasFp,'card_enrolled'=>$cardEnrolled]);
         $this->assignInitialDoors($employee, $request->input('door_ids', []));
         $this->audit($request, 'create_employee', $employee, 'Created employee master record');
         return response()->json(['status'=>'success','message'=>'Karyawan berhasil ditambahkan','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position']))],201);

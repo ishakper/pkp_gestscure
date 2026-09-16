@@ -130,7 +130,7 @@ class ApiListingAndAuditTest extends TestCase
                         'user_id',
                         'nik',
                         'name',
-                        'card_no',
+                        'card_registered',
                         'department',
                         'role',
                         'biometric_status' => ['fingerprint_enrolled', 'card_enrolled'],
@@ -143,7 +143,8 @@ class ApiListingAndAuditTest extends TestCase
             ]);
 
         $firstUser = $response->json('data.0');
-        $this->assertEquals('CARD-882101', $firstUser['card_no']);
+        $this->assertArrayNotHasKey('card_no', $firstUser);
+        $this->assertEquals('YES', $firstUser['card_registered']);
         $this->assertTrue($firstUser['biometric_status']['fingerprint_enrolled']);
         $this->assertTrue($firstUser['biometric_status']['card_enrolled']);
         $this->assertCount(2, $firstUser['door_assign']);
