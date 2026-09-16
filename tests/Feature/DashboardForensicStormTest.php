@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Admin;
 use App\Models\Door;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -12,14 +13,35 @@ class DashboardForensicStormTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected ?string $testLogPath = null;
+
     protected function setUp(): void
     {
         parent::setUp();
 
-        config(['app.request_forensics_enabled' => true]);
-        if (file_exists(storage_path('logs/request_forensics.log'))) {
-            @unlink(storage_path('logs/request_forensics.log'));
+        $this->testLogPath = storage_path('logs/testing/request_forensics_' . uniqid('', true) . '.log');
+        $dir = dirname($this->testLogPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0777, true);
         }
+
+        config([
+            'app.request_forensics_enabled' => true,
+            'logging.channels.request_forensics.path' => $this->testLogPath,
+        ]);
+
+        Log::forgetChannel('request_forensics');
+    }
+
+    protected function tearDown(): void
+    {
+        Log::forgetChannel('request_forensics');
+
+        if ($this->testLogPath && file_exists($this->testLogPath)) {
+            @unlink($this->testLogPath);
+        }
+
+        parent::tearDown();
     }
 
     public function test_request_forensics_middleware_logs_route_and_role_safely(): void
@@ -36,10 +58,9 @@ class DashboardForensicStormTest extends TestCase
         $response = $this->getJson('/api/v1/admin/doors');
         $response->assertStatus(200);
 
-        $logPath = storage_path('logs/request_forensics.log');
-        $this->assertFileExists($logPath);
+        $this->assertFileExists($this->testLogPath);
 
-        $content = file_get_contents($logPath);
+        $content = file_get_contents($this->testLogPath);
         $this->assertStringContainsString('[FORENSIC]', $content);
         $this->assertStringContainsString('| GET | api/v1/admin/doors |', $content);
         $this->assertStringContainsString('| super_admin | 200', $content);
@@ -113,8 +134,9 @@ class DashboardForensicStormTest extends TestCase
         $r4->assertStatus(200);
         $r5->assertStatus(200);
 
-        $logPath = storage_path('logs/request_forensics.log');
-        $lines = file($logPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+        $lines = file_exists($this->testLogPath)
+            ? file($this->testLogPath, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)
+            : [];
 
         $postRequests = array_filter($lines, fn($l) => str_contains($l, '| POST |'));
         $fourHundredThree = array_filter($lines, fn($l) => str_contains($l, '| 403'));
