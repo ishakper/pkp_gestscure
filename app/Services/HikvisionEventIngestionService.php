@@ -6,6 +6,7 @@ use App\Events\AccessLogCreated;
 use App\Models\AccessLog;
 use App\Models\Door;
 use App\Models\Employee;
+use App\Services\SecuregateMetricsService;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -76,6 +77,9 @@ class HikvisionEventIngestionService
             $isAlarm = in_array($eventType, ['DOOR_FORCED_OPEN', 'TAMPER_ALARM', 'DURESS_FINGERPRINT'], true);
             $hasAccessIdentity = !empty($cardNo) || !empty($rawUser) || ($major === 5 && $sub > 0);
             if (!$isAlarm && !$hasAccessIdentity) {
+                app(SecuregateMetricsService::class)->recordEvent([
+                    'ingestion_status' => 'ignored',
+                ]);
                 return [
                     'status' => 'ignored',
                     'code' => 422,
@@ -133,6 +137,8 @@ class HikvisionEventIngestionService
         // 4. Resolve Employee Safely
         $employee = null;
         $reason = $eventData['reason'] ?? null;
+        $personResolved = false;
+        $cardResolved = false;
 
         if ($eventType === 'DOOR_FORCED_OPEN') {
             $verifyMethod = $eventData['verify_method'] ?? 'Sensor';
@@ -150,9 +156,20 @@ class HikvisionEventIngestionService
                     ->orWhere('employee_id', $rawUser)
                     ->orWhere('card_no', $rawUser)
                     ->first();
+                if ($employee) {
+                    $personResolved = true;
+                }
             }
             if (!$employee && $cardNo) {
                 $employee = Employee::where('card_no', $cardNo)->first();
+                if ($employee) {
+                    $cardResolved = true;
+                }
+            } elseif ($employee && $cardNo) {
+                $cardEmp = Employee::where('card_no', $cardNo)->first();
+                if ($cardEmp && $cardEmp->id === $employee->id) {
+                    $cardResolved = true;
+                }
             }
             $verifyMethod = $eventData['verify_method'] ?? 'Duress_Fingerprint';
             $accessStatus = 'Duress';
@@ -165,9 +182,20 @@ class HikvisionEventIngestionService
                     ->orWhere('employee_id', $rawUser)
                     ->orWhere('card_no', $rawUser)
                     ->first();
+                if ($employee) {
+                    $personResolved = true;
+                }
             }
             if (!$employee && $cardNo) {
                 $employee = Employee::where('card_no', $cardNo)->first();
+                if ($employee) {
+                    $cardResolved = true;
+                }
+            } elseif ($employee && $cardNo) {
+                $cardEmp = Employee::where('card_no', $cardNo)->first();
+                if ($cardEmp && $cardEmp->id === $employee->id) {
+                    $cardResolved = true;
+                }
             }
 
             $rawVerify = $eventData['verify_method'] ?? ($eventData['verification_method'] ?? null);
@@ -273,6 +301,54 @@ class HikvisionEventIngestionService
         ]);
 
         AccessLogCreated::dispatch($accessLog);
+
+        // 7. Record Observability Metrics (Fail-open, Privacy-Safe, Low-Cardinality)
+        try {
+            $isAlarm = in_array($eventType, ['DOOR_FORCED_OPEN', 'TAMPER_ALARM', 'DURESS_FINGERPRINT'], true);
+            $hasIdentityBearing = !empty($rawUser) || !empty($cardNo);
+
+            if ($isAlarm && !$hasIdentityBearing) {
+                $eventClass = 'system_alarm';
+            } elseif ($employee) {
+                $eventClass = 'mapped_identity';
+            } elseif ($hasIdentityBearing) {
+                $eventClass = 'unmapped_identity';
+            } else {
+                $eventClass = 'unknown';
+            }
+
+            if ($personResolved && $cardResolved) {
+                $resolution = 'both';
+            } elseif ($personResolved) {
+                $resolution = 'person_no';
+            } elseif ($cardResolved) {
+                $resolution = 'card_no';
+            } else {
+                $resolution = 'none';
+            }
+
+            $mappingResult = $employee ? 'mapped' : 'unmapped';
+
+            $decisionNorm = strtolower((string) $accessStatus);
+            if (!in_array($decisionNorm, ['granted', 'denied'], true)) {
+                $decisionNorm = 'other';
+            }
+
+            app(SecuregateMetricsService::class)->recordEvent([
+                'event_class' => $eventClass,
+                'resolution' => $resolution,
+                'mapping_result' => $mappingResult,
+                'decision' => $decisionNorm,
+                'ingestion_status' => 'processed',
+                'unknown_identity' => (!$employee && $hasIdentityBearing),
+                'unmapped_person' => (!empty($rawUser) && !$employee),
+                'unmapped_card' => (!empty($cardNo) && !$employee),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[HikvisionEventIngestion] Metrics recording skipped', [
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         // Optional telemetry: track high-water mark serial per door
         if ($serialNo && is_numeric($serialNo)) {

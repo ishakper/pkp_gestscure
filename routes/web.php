@@ -76,3 +76,8 @@ Route::middleware(['auth'])->group(function () {
     // Web routes
     Route::get('/live-stream', [\App\Http\Controllers\LiveAccessStreamController::class, 'stream']);
 });
+
+// Observability Metrics Endpoints (Prometheus & Health Scrape)
+Route::get('/metrics', [\App\Http\Controllers\Api\ObservabilityMetricsController::class, 'prometheus'])->name('metrics.prometheus');
+Route::get('/metrics/json', [\App\Http\Controllers\Api\ObservabilityMetricsController::class, 'json'])->name('metrics.json');
+
