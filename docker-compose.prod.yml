@@ -11,8 +11,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: pkp-securegate:production
-    container_name: pkp_securegate_prod
+    image: ${PKP_IMAGE:-pkp-securegate:production}
+    container_name: ${CONTAINER_NAME:-pkp_securegate_app}
     restart: always
     ports:
       - "${APP_PORT:-8080}:80"

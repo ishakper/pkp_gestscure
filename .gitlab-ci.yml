@@ -150,7 +150,7 @@ security_hygiene:
     - echo "Security hygiene checks passed cleanly."
 
 # ------------------------------------------------------------------------------
-# Stage 5: Gated Production Deployment (Deferred)
+# Stage 5: Gated Production Deployment (Manual / Fail-Closed)
 # ------------------------------------------------------------------------------
 deploy_production:
   stage: deploy
@@ -166,17 +166,20 @@ deploy_production:
   needs:
     - security_hygiene
   script:
-    - echo "Production deployment is currently deferred due to offline target infrastructure (192.168.90.81)."
-    - echo "Triggering container recreation on runner host..."
-    - mkdir -p database storage/logs storage/app storage/framework/cache storage/framework/sessions storage/framework/views bootstrap/cache
-    - touch database/database.sqlite
-    - chmod -R 777 storage bootstrap/cache database
-    - docker compose up -d --force-recreate app
-    - docker compose ps
-    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
+    - echo "=== PKP SecureGate Production Deployment Gate ==="
+    - |
+      if [ -z "${PKP_PROD_SSH_KEY:-}" ] || [ -z "${PKP_PROD_HOST:-}" ]; then
+        echo "[BLOCKED] Automated CI deployment is guarded and requires explicit credentials."
+        echo "Target host 10.10.8.124 requires PKP_PROD_HOST and PKP_PROD_SSH_KEY set in GitLab CI/CD variables."
+        echo "Legacy infrastructure (192.168.90.81) and runner-local Docker recreation are permanently disabled."
+        echo "To deploy, trigger deployment from authorized maintenance workstation using deploy/sync_to_server.sh."
+        exit 1
+      fi
+    - echo "Dispatching deployment for immutable image pkp-securegate:${IMAGE_TAG} to ${PKP_PROD_HOST}..."
+    - ./deploy/sync_to_server.sh "${IMAGE_TAG}"
 
 # ------------------------------------------------------------------------------
-# Stage 6: Post-Deployment Verification (Deferred)
+# Stage 6: Post-Deployment Verification (Manual)
 # ------------------------------------------------------------------------------
 verify_healthcheck:
   stage: verify
@@ -189,6 +192,7 @@ verify_healthcheck:
   needs:
     - deploy_production
   script:
-    - echo "Verifying container endpoint health..."
-    - curl -s -f -o /dev/null -w "%{http_code}\n" "${APP_URL:-http://localhost:8080}/login"
-    - echo "SecureGate deployment health check verified successfully."
+    - echo "Verifying production endpoint health..."
+    - TARGET_URL="${APP_URL:-http://10.10.8.124:8080}"
+    - curl -s -f -o /dev/null -w "%{http_code}\n" "${TARGET_URL}/login"
+    - echo "SecureGate production endpoint health check verified successfully."
