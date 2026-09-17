@@ -31,8 +31,8 @@ class AccessProvisioningPolicy
             return true;
         }
 
-        if ($admin->isBuildingAdmin() && $admin->assigned_building) {
-            return $request->building_name === $admin->assigned_building;
+        if ($admin->isBuildingAdmin()) {
+            return true; // Full canonical building scope enforced by AccessProvisioningService.
         }
 
         if (in_array(strtolower((string)$admin->role), ['employee', 'intern'], true)) {
@@ -61,11 +61,7 @@ class AccessProvisioningPolicy
             return false;
         }
 
-        if ($admin->isBuildingAdmin() && $admin->assigned_building) {
-            return $request->building_name === $admin->assigned_building;
-        }
-
-        return true;
+        return true; // Full canonical building scope enforced by AccessProvisioningService.
     }
 
     public function manageProfiles(Admin $admin): bool

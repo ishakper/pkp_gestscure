@@ -341,6 +341,31 @@ class BiometricUserProvisioningTest extends TestCase
     }
 
     /** @test */
+    public function test_building_admin_cannot_provision_or_view_cross_building_employee_by_direct_id(): void
+    {
+        $this->employee->update(['building_id' => null]);
+        $this->employee->doors()->sync([$this->doorA->id]);
+        Sanctum::actingAs($this->buildingAdmin);
+
+        Http::preventStrayRequests();
+
+        $this->postJson("/api/v1/user-management/employees/{$this->employee->id}/sync-biometric", [
+            'door_ids' => ['DOOR-B'],
+        ])->assertForbidden();
+
+        $this->postJson("/api/v1/admin/doors/DOOR-B/sync-employee/{$this->employee->id}")
+            ->assertForbidden();
+
+        $this->getJson("/api/v1/user-management/employees/{$this->employee->id}/door-sync-status")
+            ->assertForbidden();
+
+        $this->assertDatabaseMissing('door_assignments', [
+            'employee_id' => $this->employee->id,
+            'door_id' => $this->doorB->id,
+        ]);
+    }
+
+    /** @test */
     public function test_door_sync_status_endpoint_returns_biometric_timestamps(): void
     {
         Sanctum::actingAs($this->superAdmin);

@@ -12,11 +12,52 @@ use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use OpenApi\Attributes as OA;
 
 class AdminAccessLogController extends Controller
 {
     public function __construct(private readonly PortalAccess $portalAccess) {}
 
+    #[OA\Get(
+        path: '/admin/access-logs',
+        summary: 'Log Akses Pintu Audit',
+        description: 'Mendapatkan riwayat log akses tapping pintu fisik dengan filter status, tanggal, dan NIK/nama karyawan.',
+        tags: ['AccessLog'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'query', description: 'Filter Kode/ID Pintu', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'status', in: 'query', description: 'Filter Status Akses (Granted | Denied)', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'nik', in: 'query', description: 'Filter NIK/Nama/Employee ID', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'start_date', in: 'query', description: 'Tanggal awal (YYYY-MM-DD)', required: false, schema: new OA\Schema(type: 'string', format: 'date')),
+            new OA\Parameter(name: 'end_date', in: 'query', description: 'Tanggal akhir (YYYY-MM-DD)', required: false, schema: new OA\Schema(type: 'string', format: 'date')),
+            new OA\Parameter(name: 'page', in: 'query', description: 'Nomor halaman', required: false, schema: new OA\Schema(type: 'integer', default: 1)),
+            new OA\Parameter(name: 'per_page', in: 'query', description: 'Jumlah per halaman', required: false, schema: new OA\Schema(type: 'integer', default: 15))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Data log akses berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'pagination' => ['current_page' => 1, 'per_page' => 15, 'total_records' => 1, 'total_pages' => 1],
+                        'data' => [
+                            [
+                                'id' => 1,
+                                'log_id' => 'LOG-20260917-ABCD',
+                                'door_name' => 'Pintu Utama Server',
+                                'employee_name' => 'Budi Santoso',
+                                'verify_method' => 'Card',
+                                'access_status' => 'Granted',
+                                'timestamp' => '2026-09-17 10:00:00'
+                            ]
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: 'Forbidden')
+        ]
+    )]
     public function index(Request $request)
     {
         abort_unless($this->portalAccess->can($request->user(), 'security.view'), 403);
@@ -60,6 +101,30 @@ class AdminAccessLogController extends Controller
         if ($request->filled('event_type')) {
             $eventType = $request->event_type;
             $query->where('event_type', $eventType);
+        }
+
+        // Filter by attendance_state ('PRESENT' / 'LATE' / 'OFF' / 'LEAVE' / 'ABSENT' / 'Belum diproses' / 'Ditolak')
+        if ($request->filled('attendance_state')) {
+            $state = $request->validate([
+                'attendance_state' => ['required', 'string', 'in:PRESENT,LATE,OFF,LEAVE,ABSENT,Belum diproses,Ditolak'],
+            ])['attendance_state'];
+            if ($state === 'Ditolak') {
+                $query->where(function ($q) {
+                    $q->where('access_status', 'Denied')
+                      ->orWhere('status', 'Denied');
+                });
+            } elseif ($state === 'Belum diproses') {
+                $query->where(function ($q) {
+                    $q->where(function ($sub) {
+                        $sub->where('access_status', '!=', 'Denied')
+                            ->orWhereNull('access_status');
+                    })->whereDoesntHave('attendanceEvidence');
+                });
+            } else {
+                $query->whereHas('attendanceEvidence.attendance', function ($q) use ($state) {
+                    $q->where('status', $state);
+                });
+            }
         }
 
         // Filter by NIK or User
@@ -112,9 +177,36 @@ class AdminAccessLogController extends Controller
         ]);
     }
 
-    /**
-     * Pull / Synchronize access tap logs from ISAPI AcsEvent hardware / mock endpoint
-     */
+    #[OA\Post(
+        path: '/admin/access-logs/sync-hardware',
+        summary: 'Sinkronisasi Log dari Terminal Hardware',
+        description: 'Pull log peristiwa fisik dari terminal ISAPI Hikvision ke database lokal.',
+        tags: ['AccessLog'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001'),
+                    new OA\Property(property: 'limit', type: 'integer', example: 30)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Sinkronisasi log selesai',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Sinkronisasi log ISAPI selesai: 5 event baru berhasil disimpan dari 30 data riwayat.',
+                        'inserted_count' => 5,
+                        'total_fetched' => 30
+                    ]
+                )
+            )
+        ]
+    )]
     public function syncHardware(Request $request, HikvisionIsapiService $isapiService)
     {
         abort_unless($this->portalAccess->can($request->user(), 'security.manage'), 403);
@@ -132,8 +224,16 @@ class AdminAccessLogController extends Controller
 
         $totalInserted = 0;
         $totalFetched = 0;
+        $unconfiguredDoors = 0;
 
         foreach ($doors as $door) {
+            try {
+                $isapiService->getDeviceCredentials($door);
+            } catch (\RuntimeException) {
+                $unconfiguredDoors++;
+                continue;
+            }
+
             $res = $isapiService->fetchEvents($limit, $door);
 
             if (!empty($res['status']) && !empty($res['events'])) {
@@ -199,7 +299,7 @@ class AdminAccessLogController extends Controller
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
             'action' => 'sync_hardware_access_logs',
-            'description' => "Pulled ISAPI events: {$totalFetched} fetched, {$totalInserted} new records inserted into database.",
+            'description' => "Pulled ISAPI events: {$totalFetched} fetched, {$totalInserted} new records inserted; {$unconfiguredDoors} unconfigured devices skipped.",
             'timestamp' => now(),
         ]);
 

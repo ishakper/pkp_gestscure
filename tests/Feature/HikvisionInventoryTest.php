@@ -47,6 +47,117 @@ class HikvisionInventoryTest extends TestCase
             && str_contains($request->url(), '/ISAPI/AccessControl/UserInfo/Search?format=json'));
     }
 
+    public function test_fetch_users_uses_hikvision_compatible_search_id(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*/AccessControl/UserInfo/Search?format=json' => Http::response([
+            'UserInfoSearch' => ['totalMatches' => 0, 'numOfMatches' => 0, 'UserInfo' => []],
+        ])]);
+
+        app(HikvisionIsapiService::class)->fetchUsers($this->door());
+
+        Http::assertSent(function ($request): bool {
+            $searchId = $request->data()['UserInfoSearchCond']['searchID'];
+
+            return str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')
+                && strlen($searchId) === 32
+                && ctype_xdigit($searchId)
+                && !str_contains($searchId, '-');
+        });
+    }
+
+    public function test_fetch_users_paginates_ten_at_a_time(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $requests = [];
+        Http::fake(function ($request) use (&$requests) {
+            $condition = $request->data()['UserInfoSearchCond'];
+            $requests[] = $condition;
+            $position = $condition['searchResultPosition'];
+            $count = $position === 20 ? 6 : 10;
+
+            return Http::response(['UserInfoSearch' => [
+                'totalMatches' => 26,
+                'numOfMatches' => $count,
+                'responseStatusStrg' => $position === 20 ? 'OK' : 'MORE',
+                'UserInfo' => $this->users($position, $count),
+            ]]);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($this->door(), 100);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame(26, $result['total_device_matches']);
+        $this->assertSame(26, $result['inspected_users']);
+        $this->assertSame([0, 10, 20], array_column($requests, 'searchResultPosition'));
+        $this->assertSame([10, 10, 10], array_column($requests, 'maxResults'));
+        $this->assertCount(1, array_unique(array_column($requests, 'searchID')));
+    }
+
+    public function test_fetch_users_stops_at_requested_limit(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $requests = [];
+        Http::fake(function ($request) use (&$requests) {
+            $condition = $request->data()['UserInfoSearchCond'];
+            $requests[] = $condition;
+
+            return Http::response(['UserInfoSearch' => [
+                'totalMatches' => 96,
+                'numOfMatches' => 10,
+                'responseStatusStrg' => 'MORE',
+                'UserInfo' => $this->users($condition['searchResultPosition'], 10),
+            ]]);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($this->door(), 15);
+
+        $this->assertSame(96, $result['total_device_matches']);
+        $this->assertSame(15, $result['inspected_users']);
+        $this->assertCount(15, $result['users']);
+        $this->assertSame([0, 10], array_column($requests, 'searchResultPosition'));
+    }
+
+    public function test_fetch_users_does_not_expose_sensitive_fields(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*/AccessControl/UserInfo/Search?format=json' => Http::response([
+            'UserInfoSearch' => [
+                'totalMatches' => 1,
+                'numOfMatches' => 1,
+                'UserInfo' => [[
+                    'employeeNo' => 'DEVICE-001',
+                    'name' => 'Safe Name',
+                    'password' => 'secret-password',
+                    'fingerPrint' => 'secret-biometric',
+                    'token' => 'secret-token',
+                    'raw_payload' => 'secret-payload',
+                ]],
+            ],
+        ])]);
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($this->door());
+        $serialized = json_encode($result);
+
+        $this->assertSame(['employee_no', 'name', 'status', 'card_count'], array_keys($result['users'][0]));
+        foreach (['secret-password', 'secret-biometric', 'secret-token', 'secret-payload'] as $secret) {
+            $this->assertStringNotContainsString($secret, $serialized);
+        }
+    }
+
+    public function test_fetch_users_does_not_classify_bad_parameters_as_unsupported(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake(['*/AccessControl/UserInfo/Search?format=json' => Http::response([
+            'ResponseStatus' => ['subStatusCode' => 'badParameters', 'errorMsg' => '0x60000001'],
+        ], 400)]);
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($this->door());
+
+        $this->assertFalse($result['status']);
+        $this->assertFalse($result['unsupported']);
+    }
+
     public function test_inventory_command_maps_external_id_without_database_mutation_or_sensitive_output(): void
     {
         Config::set('services.hikvision.use_mock', false);
@@ -209,6 +320,93 @@ class HikvisionInventoryTest extends TestCase
             && !str_contains($request->url(), 'RemoteControl'));
     }
 
+    public function test_fetch_users_probes_legacy_compatibility_once(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search')) {
+                return Http::response([
+                    'UserInfoSearch' => [
+                        'totalMatches' => 1,
+                        'UserInfo' => [[
+                            'employeeNo' => 'DEVICE-001',
+                            'name' => 'Compatibility User',
+                            'Valid' => ['enable' => true],
+                            'numOfCard' => 0,
+                        ]],
+                    ],
+                ], 200);
+            }
+
+            return Http::response([], 500);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame(1, $result['total_device_matches']);
+        $this->assertSame('DEVICE-001', $result['users'][0]['employee_no']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_users_marks_not_support_after_compatibility_probe(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            return Http::response([
+                'ResponseStatus' => [
+                    'subStatusCode' => 'notSupport',
+                    'errorCode' => '0x40000001',
+                ],
+            ], 400);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertFalse($result['status']);
+        $this->assertTrue($result['unsupported']);
+        $this->assertSame('User directory unsupported.', $result['error']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_fetch_users_does_not_globally_classify_0x60000001_as_unsupported(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        $door = $this->door();
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/AccessControl/UserInfo/Search?format=json')) {
+                return Http::response(['errorCode' => '0x60000001'], 400);
+            }
+
+            return Http::response([
+                'ResponseStatus' => [
+                    'statusString' => 'Device Busy',
+                    'errorMsg' => 'Compatibility probe failed.',
+                ],
+            ], 503);
+        });
+
+        $result = app(HikvisionIsapiService::class)->fetchUsers($door);
+
+        $this->assertFalse($result['status']);
+        $this->assertFalse($result['unsupported']);
+        $this->assertStringContainsString('Compatibility probe failed.', $result['error']);
+        Http::assertSentCount(2);
+    }
+
     public function test_accesslog_fallback_is_deduplicated_scoped_safe_and_read_only(): void
     {
         Config::set('services.hikvision.use_mock', false);
@@ -316,6 +514,16 @@ class HikvisionInventoryTest extends TestCase
             'door_name' => 'Door B',
             'card_no' => $cardNo,
         ], $extra);
+    }
+
+    private function users(int $position, int $count): array
+    {
+        return array_map(static fn (int $index): array => [
+            'employeeNo' => sprintf('DEVICE-%03d', $index + 1),
+            'name' => "User {$index}",
+            'Valid' => ['enable' => true],
+            'numOfCard' => 1,
+        ], range($position, $position + $count - 1));
     }
 
     private function door(): Door

@@ -9,6 +9,7 @@ use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Services\PortalAccess;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
 class DoorSyncController extends Controller
 {
@@ -16,6 +17,36 @@ class DoorSyncController extends Controller
     {
     }
 
+    #[OA\Post(
+        path: '/admin/door-assignments/sync',
+        summary: 'Sinkronisasi Masal Hak Akses Pintu',
+        description: 'Memicu job sinkronisasi ulang masal untuk hak akses pintu yang pending atau gagal.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001'),
+                    new OA\Property(property: 'status', type: 'string', example: 'failed')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Proses sinkronisasi berhasil di-queue',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Proses sinkronisasi berhasil di-queue untuk 3 hak akses',
+                        'dispatched_count' => 3
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: 'Forbidden')
+        ]
+    )]
     public function sync(Request $request)
     {
         $this->authorizeDeviceManagement($request);
@@ -37,6 +68,14 @@ class DoorSyncController extends Controller
             $query->whereIn('sync_status', ['pending', 'failed']);
         }
 
+        $actor = $request->user();
+        if ($actor->isBuildingAdmin()) {
+            $buildingId = $actor->employee?->building_id;
+            abort_unless($buildingId || $actor->assigned_building, 403);
+            $query->whereHas('door', fn ($doors) => $doors
+                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
+                ->when($actor->assigned_building, fn ($scoped) => $scoped->orWhere('location', $actor->assigned_building)));
+        }
         $assignments = $query->get();
         $assignments->each(fn (DoorAssignment $assignment) => $this->authorize('physicalControl', $assignment->door));
         $dispatchedCount = 0;
@@ -61,6 +100,42 @@ class DoorSyncController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/user-management/assign-doors',
+        summary: 'Alokasi Pintu ke Karyawan',
+        description: 'Mengalokasikan satu atau lebih pintu ke karyawan tertentu.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['employee_id', 'door_ids'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'string', example: 'USR-1001'),
+                    new OA\Property(property: 'door_ids', type: 'array', items: new OA\Items(type: 'string'), example: ['DOOR-001', 'DOOR-002'])
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Hak akses pintu berhasil diberikan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Hak akses pintu (DOOR-001, DOOR-002) berhasil diberikan. Sinkronisasi ke perangkat sedang diproses.',
+                        'data' => [
+                            'employee_id' => 'USR-1001',
+                            'door_id' => 'DOOR-001',
+                            'assigned_doors' => ['DOOR-001', 'DOOR-002'],
+                            'sync_status' => 'pending'
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: 'Parameter tidak lengkap')
+        ]
+    )]
     public function assignDoors(Request $request)
     {
         $this->authorizeDeviceManagement($request);
@@ -149,6 +224,36 @@ class DoorSyncController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/user-management/revoke-doors',
+        summary: 'Pencabutan Masal Hak Akses Pintu',
+        description: 'Mencabut hak akses pintu dari karyawan.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['employee_id'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'string', example: 'USR-1001'),
+                    new OA\Property(property: 'door_ids', type: 'array', items: new OA\Items(type: 'string'), example: ['DOOR-001'])
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Pencabutan akses berhasil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Hak akses pintu untuk Budi Santoso berhasil dicabut (1 izin pintu).',
+                        'revoked_count' => 1
+                    ]
+                )
+            )
+        ]
+    )]
     public function revokeDoors(Request $request)
     {
         $this->authorizeDeviceManagement($request);

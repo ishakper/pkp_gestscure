@@ -73,6 +73,8 @@ class IsapiWebhookTest extends TestCase
             'employee_id' => $this->employee->id,
             'verify_method' => 'Fingerprint',
             'access_status' => 'Granted',
+            'source' => 'HIKVISION_WEBHOOK',
+            'source_format' => 'REQUEST',
         ]);
 
         Log::shouldHaveReceived('info')
@@ -327,6 +329,28 @@ XML;
             'verify_method' => 'Card',
             'access_status' => 'Granted',
         ]);
+    }
+
+    public function test_parser_normalizes_explicit_verification_methods_without_inferring_fingerprint(): void
+    {
+        $cases = [
+            'fingerprint' => 'Fingerprint',
+            'card' => 'Card',
+            'face' => 'Face',
+            'pin' => 'PIN',
+            'password' => 'Password',
+            'cardOrFaceOrFp' => 'Multi_Factor',
+            'undocumented-mode' => 'UNKNOWN',
+            null => 'UNKNOWN',
+        ];
+
+        foreach ($cases as $raw => $expected) {
+            $payload = ['ipAddress' => '192.168.90.11', 'dateTime' => now()->toIso8601String(), 'AccessControllerEvent' => ['majorEventType' => 5, 'subEventType' => 1]];
+            if ($raw !== null) $payload['AccessControllerEvent']['verifyMethod'] = $raw;
+            $parsed = \App\Services\HikvisionPayloadParser::parse(json_encode($payload), 'application/json');
+            $this->assertSame($expected, $parsed['verification_method']);
+            $this->assertArrayNotHasKey('raw_payload', $parsed);
+        }
     }
 
     /**

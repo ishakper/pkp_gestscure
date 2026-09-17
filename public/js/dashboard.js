@@ -3,8 +3,13 @@
  * Interfaces with Laravel Sanctum & RESTful API v1
  */
 
+if (window.__secureGateInitialized) {
+    console.warn('[SecureGate] Dashboard script already initialized. Skipping duplicate execution.');
+} else {
+window.__secureGateInitialized = true;
+
 const API_BASE = '/api/v1';
-let APP_TOKEN = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+let APP_TOKEN = window.APP_CONFIG?.apiToken || '';
 
 // State Cache
 let state = {
@@ -90,63 +95,175 @@ function showToast(message, type = 'success', duration = 3500) {
 }
 
 // ==========================================
-// Centralized API Client (Fetch with Auth)
+// Centralized API Client (Fetch with Auth & Storm Guard)
 // ==========================================
-async function apiFetch(endpoint, options = {}) {
-    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+let isRedirectingToLogin = false;
+const forbiddenCapabilities = new Set();
+let rateLimitCooldownUntil = 0;
 
+function normalizeCapability(endpoint) {
+    const clean = endpoint.split('?')[0].replace(/\/+$/, '');
+    if (clean.includes('/activity-logs')) return 'audit.view';
+    if (clean.includes('/system-accounts')) return 'system.manage';
+    if (clean.includes('/system-health')) return 'system.view';
+    if (clean.includes('/attendance/metrics') || clean.includes('/attendance/report')) return 'attendance.view';
+    if (clean.includes('/check-connection') || clean.includes('/check-all') || clean.includes('/sync-hardware')) return 'device.manage';
+    if (clean.includes('/emoney/cards')) return 'emoney.view';
+    return clean;
+}
+
+function hasCapability(capability) {
+    const permissions = window.APP_CONFIG?.permissions || [];
+    const role = window.APP_CONFIG?.admin?.role;
+    if (role === 'super_admin') return true;
+
+    if (capability === 'audit.view') return permissions.includes('audit.view');
+    if (capability === 'system.manage') return permissions.includes('system.manage');
+    if (capability === 'system.view') return permissions.includes('system.view');
+    if (capability === 'attendance.view') return permissions.includes('attendance.view');
+    if (capability === 'device.manage') return permissions.includes('device.manage');
+    if (capability === 'emoney.view') return permissions.includes('emoney.view');
+
+    return !forbiddenCapabilities.has(capability);
+}
+
+async function apiFetch(endpoint, options = {}) {
+    const capability = normalizeCapability(endpoint);
+    const isBackground = options.isBackground !== false;
+
+    // 1. Permission Pre-Check: Prevent dispatching known forbidden endpoints
+    if (forbiddenCapabilities.has(capability) || !hasCapability(capability)) {
+        const error = new Error(`Forbidden: Access to capability [${capability}] denied.`);
+        error.status = 403;
+        error.suppressed = true;
+        throw error;
+    }
+
+    // 2. 429 Cooldown Guard: Prevent background request storms
+    if (isBackground && Date.now() < rateLimitCooldownUntil) {
+        const remainingSec = Math.ceil((rateLimitCooldownUntil - Date.now()) / 1000);
+        const error = new Error(`Rate limit cooldown active. Skipping background request for ${remainingSec}s.`);
+        error.status = 429;
+        error.suppressed = true;
+        throw error;
+    }
+
+    const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
     const headers = {
         'Accept': 'application/json',
-        'Content-Type': 'application/json',
         ...(APP_TOKEN ? { 'Authorization': `Bearer ${APP_TOKEN}` } : {}),
         ...options.headers,
     };
+    if (!(options.body instanceof FormData) && !headers['Content-Type'] && options.method !== 'GET' && options.method !== 'HEAD') {
+        headers['Content-Type'] = 'application/json';
+    }
 
     try {
         const response = await fetch(url, { ...options, headers });
 
-        // Handle 401 Unauthorized -> redirect to login
         if (response.status === 401) {
-            showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
-            setTimeout(() => {
-                window.location.href = '/login';
-            }, 1200);
+            if (!isRedirectingToLogin) {
+                isRedirectingToLogin = true;
+                APP_TOKEN = '';
+                if (typeof stopRealtime === 'function') stopRealtime();
+                showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
+                setTimeout(() => window.location.replace('/login'), 800);
+            }
             throw new Error('Unauthorized');
+        }
+
+        if (response.status === 403) {
+            forbiddenCapabilities.add(capability);
+            const error = new Error(`Access forbidden: ${capability}`);
+            error.status = 403;
+            throw error;
+        }
+
+        if (response.status === 429) {
+            const retryAfterHeader = response.headers.get('Retry-After');
+            const cooldownSec = retryAfterHeader ? Math.min(60, Math.max(5, parseInt(retryAfterHeader, 10) || 10)) : 15;
+            rateLimitCooldownUntil = Date.now() + (cooldownSec * 1000);
+            const error = new Error(`Rate limit reached. Backing off for ${cooldownSec} seconds.`);
+            error.status = 429;
+            error.retryAfter = cooldownSec;
+            throw error;
         }
 
         const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-            const errorMsg = data.message || `Request failed with status ${response.status}`;
-            throw new Error(errorMsg);
+            const error = new Error(data.message || `Request failed with status ${response.status}`);
+            error.status = response.status;
+            throw error;
         }
 
         return data;
     } catch (err) {
-        if (err.message !== 'Unauthorized') {
+        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
     }
 }
 
+async function apiFetchForm(endpoint, formData) {
+    return apiFetch(endpoint, {
+        method: 'POST',
+        body: formData,
+        isBackground: false,
+    });
+}
+
 // ==========================================
-// Metric Cards Updater
+// Centralized Metrics Scheduler (Debounced & Coalesced)
 // ==========================================
+let metricsDebounceTimer = null;
+let lastMetricsFetchTime = 0;
+
+function scheduleMetricCardsUpdate(force = false) {
+    if (document.hidden || isRedirectingToLogin) return;
+    clearTimeout(metricsDebounceTimer);
+
+    const now = Date.now();
+    const elapsed = now - lastMetricsFetchTime;
+    const cooldown = 15000; // minimum 15 seconds between metrics updates
+
+    if (force || elapsed >= cooldown) {
+        metricsDebounceTimer = setTimeout(updateMetricCards, 100);
+    } else {
+        metricsDebounceTimer = setTimeout(updateMetricCards, cooldown - elapsed);
+    }
+}
+
 async function updateMetricCards() {
+    if (document.hidden || isRedirectingToLogin) return;
+    lastMetricsFetchTime = Date.now();
+
     try {
+        const canViewAttendance = hasCapability('attendance.view');
         const [res, attendance] = await Promise.all([
-            apiFetch('/admin/dashboard-metrics'),
-            apiFetch('/attendance/metrics'),
+            apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null),
+            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
         ]);
-        if (res.status === 'success') {
+
+        if (res && res.status === 'success') {
             const data = res.data;
+            const activeUserMetric = document.getElementById('metricActiveEmployees');
+            if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
             const userMetric = document.getElementById('metricTotalUsers');
-            if (userMetric) userMetric.innerText = data.totalUsers;
+            if (userMetric) userMetric.innerText = data.totalUsers ?? 0;
+
+            const regCredMetric = document.getElementById('metricRegisteredCredentials');
+            if (regCredMetric) regCredMetric.innerText = data.registeredCredentials ?? 0;
+
             const doorMetric = document.getElementById('metricActiveDoors');
-            if (doorMetric) doorMetric.innerText = `${data.activeDoors} / ${data.totalDoors}`;
+            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
+
+            const deniedMetric = document.getElementById('metricDeniedLogs');
+            if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
         }
-        if (attendance.success) {
+
+        if (attendance && attendance.success) {
             const today = attendance.data?.today || {};
             const values = {
                 metricAttendancePresent: Number(today.present || 0) + Number(today.late || 0),
@@ -159,8 +276,8 @@ async function updateMetricCards() {
                 if (element) element.innerText = value;
             });
         }
-    } catch (err) {
-        console.error('Failed to fetch dashboard metrics:', err);
+    } catch (_) {
+        // Silently caught; metrics updates must never break UI flow
     }
 }
 
@@ -182,7 +299,7 @@ async function loadDoors() {
             state.doors = res.data;
             renderDoorCards(state.doors);
             refreshDoorFilters(state.doors);
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
         }
     } catch (err) {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
@@ -194,6 +311,7 @@ function refreshDoorFilters(doors) {
     const filters = [
         [document.getElementById('employeeDoorFilter'), 'Semua Hak Akses Pintu'],
         [document.getElementById('logDoorFilter'), 'Semua Pintu'],
+        [document.getElementById('logDoorFilterTab'), 'Semua Pintu'],
     ];
     filters.forEach(([select, label]) => {
         if (!select) return;
@@ -235,8 +353,10 @@ function renderDoorCards(doors) {
             ? new Date(door.last_checked_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'medium' })
             : 'Belum pernah diperiksa';
 
+        const safeEventCount = Number(door.event_count || 0);
+
         return `
-            <article class="card door-card" id="door-card-${safeDoorId}" data-connection-state="${statusLabel.toLowerCase()}">
+            <article class="card door-card" data-door-id="${safeDoorId}" data-connection-state="${statusLabel.toLowerCase()}">
                 <div class="card-header">
                     <div class="door-code-badge"><span class="door-chip">${safeDoorId}</span><span class="door-loc">${safeLocation}</span></div>
                     <span class="status-badge ${badgeClass}"><span class="status-dot"></span> ${statusLabel}</span>
@@ -248,7 +368,8 @@ function renderDoorCards(doors) {
                     <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
                     <div class="spec-item"><span class="spec-label">Hardware</span><span class="spec-val">${safeModel}</span></div>
                     <div class="spec-item"><span class="spec-label">Assigned Users</span><span class="spec-val highlight">${safeTotalUsers} Pegawai</span></div>
-                    <div class="spec-item"><span class="spec-label">Last Checked</span><span class="spec-val">${escapeHtml(lastCheckedStr)}</span></div>
+                    <div class="spec-item"><span class="spec-label">Total Events</span><span class="spec-val highlight">${safeEventCount} Event Logs</span></div>
+                    <div class="spec-item"><span class="spec-label">Last Communication</span><span class="spec-val">${escapeHtml(lastCheckedStr)}</span></div>
                 </div>
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
@@ -322,11 +443,13 @@ async function confirmRemoteUnlock() {
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
     try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST' });
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST', isBackground: false });
         if (res.status === 'success') {
             showToast(`Perintah remote unlock ${door.door_id} berhasil dikirim.`, 'success');
             cancelRemoteUnlock();
-            await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
+            await Promise.all([loadDoors(), loadAccessLogs()]);
+            scheduleMetricCardsUpdate(true);
+            if (hasCapability('audit.view')) await loadActivityLogs();
         }
     } catch (err) {
         showToast('Remote unlock gagal. Periksa izin dan koneksi terminal, lalu coba kembali.', 'error');
@@ -427,7 +550,7 @@ async function loadEmployees(page = state.employeePage) {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
             state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
 
             if (countBadge) {
                 countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
@@ -461,13 +584,13 @@ function renderEmployeesTable(employees) {
     const html = employees.map(emp => {
         // Biometric Badges
         const hasFp = emp.biometric_status?.fingerprint_enrolled;
-        const hasCard = emp.biometric_status?.card_enrolled;
+        const hasCard = emp.biometric_status?.card_enrolled || emp.card_registered === 'YES';
         const fpBadge = hasFp
             ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
-            : `<span class="badge badge-dim" title="Belum enroll sidik jari">No FP</span>`;
+            : `<span class="badge badge-dim" title="Status sidik jari tidak diketahui">FP Unknown</span>`;
         const cardBadge = hasCard
-            ? `<span class="badge badge-info" title="Kartu RFID: ${emp.card_no || 'Tercatat'}"><span class="badge-dot"></span> Kartu</span>`
-            : `<span class="badge badge-dim" title="Belum enroll kartu">No Card</span>`;
+            ? `<span class="badge badge-info" title="Kartu terdaftar"><span class="badge-dot"></span> Kartu</span>`
+            : `<span class="badge badge-dim" title="Status kartu tidak diketahui">Card Unknown</span>`;
 
         // Door Assignment Badges
         let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
@@ -494,16 +617,21 @@ function renderEmployeesTable(employees) {
             }).join(' ');
         }
 
-        const safeUserId = escapeHtml(emp.user_id || '-');
+        const statusBadge = (emp.employment_status === 'ACTIVE' || !emp.employment_status)
+            ? `<span class="badge badge-success" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> Aktif</span>`
+            : (emp.employment_status === 'INACTIVE'
+                ? `<span class="badge badge-danger" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> Non-Aktif</span>`
+                : `<span class="badge badge-warning" style="font-size:0.72rem;padding:0.15rem 0.5rem;"><span class="badge-dot"></span> ${escapeHtml(emp.employment_status)}</span>`);
+
+        const safeUserId = escapeHtml(emp.user_id || emp.employee_id || '-');
         const safeNik = escapeHtml(emp.nik || '-');
         const safeName = escapeHtml(emp.name || 'Unnamed');
-        const safeCardNo = escapeHtml(emp.card_no || '');
         const safeDept = escapeHtml(emp.department || '-');
         const safeRole = escapeHtml(emp.role || emp.role_jabatan || 'Staff');
         const empId = Number(emp.id);
 
         return `
-            <tr id="emp-row-${empId}">
+            <tr data-employee-id="${empId}">
                 <td>
                     <div class="user-id-box">
                         <strong>${safeUserId}</strong>
@@ -513,11 +641,15 @@ function renderEmployeesTable(employees) {
                 <td>
                     <div class="user-name-box">
                         <span class="name-text">${safeName}</span>
-                        ${safeCardNo ? `<span class="card-no-sub">💳 ${safeCardNo}</span>` : ''}
                     </div>
                 </td>
                 <td>${safeDept}</td>
-                <td>${safeRole}</td>
+                <td>
+                    <div style="display:flex;flex-direction:column;gap:0.3rem;align-items:flex-start;">
+                        <span>${safeRole}</span>
+                        ${statusBadge}
+                    </div>
+                </td>
                 <td>
                     <div class="bio-pill-group">
                         ${fpBadge}
@@ -532,12 +664,12 @@ function renderEmployeesTable(employees) {
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
                         <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Atur Akses Pintu Fisik">
-                            🚪 Assign Doors
+                            🚪 Akses
                         </button>
                         <button class="btn-sm btn-edit" onclick="openEditEmployeeModal(${empId})" title="Edit Profil & Biometrik">
                             ✏️ Edit
                         </button>
-                        <button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Karyawan">
+                        <button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Pengguna">
                             🗑️
                         </button>
                     </div>
@@ -752,7 +884,8 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empUserId').value = emp.user_id;
     document.getElementById('empNik').value = emp.nik;
     document.getElementById('empName').value = emp.name;
-    document.getElementById('empCardNo').value = emp.card_no || '';
+    document.getElementById('empCardNo').value = '';
+    document.getElementById('empCardNo').placeholder = emp.card_registered === 'YES' ? 'Kartu terdaftar; isi hanya untuk mengganti' : 'Nomor kartu baru';
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
@@ -766,11 +899,11 @@ function openEditEmployeeModal(empId) {
 async function saveEmployee(e) {
     e.preventDefault();
     const id = document.getElementById('empDbId').value;
+    const rawCardInput = document.getElementById('empCardNo').value.trim();
     const payload = {
         employee_id: document.getElementById('empUserId').value,
         nik: document.getElementById('empNik').value,
         name: document.getElementById('empName').value,
-        card_no: document.getElementById('empCardNo').value,
         email: document.getElementById('empEmail').value, phone: document.getElementById('empPhone').value,
         building_id: document.getElementById('empBuilding').value || null, division_id: document.getElementById('empDivision').value || null, position_id: document.getElementById('empPosition').value || null,
         employment_type: document.getElementById('empEmploymentType').value || null, employment_status: document.getElementById('empEmploymentStatus').value, hire_date: document.getElementById('empHireDate').value || null,
@@ -779,6 +912,10 @@ async function saveEmployee(e) {
         fingerprint_enrolled: document.getElementById('empFp').checked,
         card_enrolled: document.getElementById('empCard').checked,
     };
+
+    if (rawCardInput !== '') {
+        payload.card_no = rawCardInput;
+    }
 
     const method = id ? 'PUT' : 'POST';
     const endpoint = id ? `/user-management/employees/${id}` : '/user-management/employees';
@@ -812,14 +949,39 @@ async function deleteEmployee(id, name) {
 // ==========================================
 // Section 3: Security Access Logs & Filters
 // ==========================================
+function syncLogFilters(sourceEl) {
+    if (!sourceEl) return;
+    const val = sourceEl.value;
+    const idMap = {
+        'logDoorFilter': 'logDoorFilterTab',
+        'logDoorFilterTab': 'logDoorFilter',
+        'logStatusFilter': 'logStatusFilterTab',
+        'logStatusFilterTab': 'logStatusFilter',
+        'logAttendanceStateFilter': 'logAttendanceStateFilterTab',
+        'logAttendanceStateFilterTab': 'logAttendanceStateFilter',
+        'logUserSearch': 'logUserSearchTab',
+        'logUserSearchTab': 'logUserSearch',
+        'logStartDate': 'logStartDateTab',
+        'logStartDateTab': 'logStartDate',
+        'logEndDate': 'logEndDateTab',
+        'logEndDateTab': 'logEndDate'
+    };
+    const targetId = idMap[sourceEl.id];
+    if (targetId) {
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) targetEl.value = val;
+    }
+}
+
 async function loadAccessLogs() {
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
-    const doorFilter = document.getElementById('logDoorFilter')?.value || '';
-    const statusFilter = document.getElementById('logStatusFilter')?.value || '';
-    const userSearch = document.getElementById('logUserSearch')?.value.trim() || '';
-    const startDate = document.getElementById('logStartDate')?.value || '';
-    const endDate = document.getElementById('logEndDate')?.value || '';
+    const doorFilter = document.getElementById('logDoorFilter')?.value || document.getElementById('logDoorFilterTab')?.value || '';
+    const statusFilter = document.getElementById('logStatusFilter')?.value || document.getElementById('logStatusFilterTab')?.value || '';
+    const attendanceStateFilter = document.getElementById('logAttendanceStateFilter')?.value || document.getElementById('logAttendanceStateFilterTab')?.value || '';
+    const userSearch = (document.getElementById('logUserSearch')?.value || document.getElementById('logUserSearchTab')?.value || '').trim();
+    const startDate = document.getElementById('logStartDate')?.value || document.getElementById('logStartDateTab')?.value || '';
+    const endDate = document.getElementById('logEndDate')?.value || document.getElementById('logEndDateTab')?.value || '';
 
     if (tbody) {
             tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
@@ -829,6 +991,7 @@ async function loadAccessLogs() {
         let url = `/admin/access-logs?limit=40`;
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
         if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+        if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
         if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
         if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
         if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
@@ -837,7 +1000,7 @@ async function loadAccessLogs() {
         if (res.status === 'success') {
             state.accessLogs = res.data;
             renderAccessLogsTable(state.accessLogs);
-            updateMetricCards();
+            scheduleMetricCardsUpdate();
         }
     } catch (err) {
         const errorHtml = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${escapeHtml(err.message)}</td></tr>`;
@@ -848,7 +1011,9 @@ async function loadAccessLogs() {
 
 async function loadActivityLogs() {
     const tbody = document.getElementById('activityLogsTableBody');
-    if (!tbody || !(window.APP_CONFIG?.permissions || []).includes('audit.view')) return;
+    const isSuperAdmin = window.APP_CONFIG?.admin?.role === 'super_admin';
+    if (!tbody || !isSuperAdmin || !(window.APP_CONFIG?.permissions || []).includes('audit.view')) return;
+    tbody.innerHTML = '<tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat audit timeline...</td></tr>';
     try {
         const res = await apiFetch('/admin/activity-logs?per_page=30');
         state.activityLogs = Array.isArray(res.data) ? res.data : [];
@@ -873,7 +1038,9 @@ async function refreshOperationalData(button) {
     const original = button?.innerHTML || '';
     if (button) { button.disabled = true; button.innerHTML = '⏳ Memuat data...'; }
     try {
-        await Promise.all([loadDoors(), loadAccessLogs(), updateMetricCards(), loadActivityLogs()]);
+        await Promise.all([loadDoors(), loadAccessLogs()]);
+        scheduleMetricCardsUpdate(true);
+        if (hasCapability('audit.view')) await loadActivityLogs();
         showToast('Data operasional terbaru berhasil dimuat.', 'success');
     } finally {
         if (button) { button.disabled = false; button.innerHTML = original; }
@@ -1009,7 +1176,6 @@ function renderAccessLogsTable(logs) {
             statusBadge = `<span class="badge badge-denied">✕ DENIED</span>`;
         }
 
-        const cardNo = log.user?.card_no || log.card_no;
         let userHtml = '';
 
         if (eventType === 'DOOR_FORCED_OPEN') {
@@ -1020,7 +1186,7 @@ function renderAccessLogsTable(logs) {
             const empName = log.user?.name || log.nik || 'Karyawan';
             userHtml = `<strong>${escapeHtml(empName)}</strong> <span class="badge badge-duress" style="font-size: 0.65rem; padding: 1px 5px;">DURESS</span><br><small class="text-muted">${escapeHtml(log.user?.nik || log.nik || '')} • <em>${escapeHtml(log.reason || 'Akses dibuka di bawah ancaman')}</em></small>`;
         } else if (log.user && (log.user.name || log.user.nik)) {
-            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${cardNo ? `• 💳 ${escapeHtml(cardNo)}` : ''} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
+            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
         } else {
             userHtml = `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Unregistered User')}</span>`;
         }
@@ -1080,11 +1246,12 @@ function renderAccessLogsTable(logs) {
 }
 
 function resetLogFilters() {
-    if (document.getElementById('logDoorFilter')) document.getElementById('logDoorFilter').value = '';
-    if (document.getElementById('logStatusFilter')) document.getElementById('logStatusFilter').value = '';
-    if (document.getElementById('logUserSearch')) document.getElementById('logUserSearch').value = '';
-    if (document.getElementById('logStartDate')) document.getElementById('logStartDate').value = '';
-    if (document.getElementById('logEndDate')) document.getElementById('logEndDate').value = '';
+    ['logDoorFilter', 'logDoorFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logStatusFilter', 'logStatusFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logAttendanceStateFilter', 'logAttendanceStateFilterTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logUserSearch', 'logUserSearchTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logStartDate', 'logStartDateTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+    ['logEndDate', 'logEndDateTab'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
     loadAccessLogs();
 }
 
@@ -1172,25 +1339,20 @@ async function runEventSimulation(e) {
     }
 
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
-        const headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-Simulator': 'true',
-        };
-        if (appToken) headers.Authorization = `Bearer ${appToken}`;
-
-        const res = await fetch('/api/v1/doors/simulate-event', {
+        const res = await apiFetch('/doors/simulate-event', {
             method: 'POST',
-            headers,
+            headers: {
+                'X-Simulator': 'true',
+            },
             body: JSON.stringify(payload),
+            isBackground: false,
         });
 
-        const data = await res.json();
+        const data = res;
         const resBox = document.getElementById('simResult');
         if (resBox) resBox.style.display = 'block';
 
-        if (res.ok) {
+        if (res.status === 'success' || res.data) {
             const simDoor = escapeHtml(data.data?.door_id || doorId);
             const simEmp = escapeHtml(data.data?.employee_name || 'N/A');
             const simStatus = escapeHtml(data.data?.access_status || status);
@@ -1282,7 +1444,8 @@ function switchTab(tabId, btn) {
     if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
     if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
     if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
-    if (tabId === 'logsTab') loadActivityLogs();
+    if (tabId === 'auditLogTab') loadActivityLogs();
+    if (tabId === 'systemAccountsTab') loadSystemAccounts();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
@@ -1294,6 +1457,8 @@ function switchTab(tabId, btn) {
     if (tabId === 'attendanceRequestsTab') loadAttendanceRequestsData();
     if (tabId === 'attendanceCorrectionsTab') loadAttendanceCorrectionsData();
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
+    if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
+    if (tabId === 'systemStatusTab') loadSystemHealth();
 }
 
 // ==========================================
@@ -1433,61 +1598,123 @@ window.openTaskDetail = openTaskDetail;
 // ==========================================
 // Section 5: Real-Time SSE Stream (Phase 7-13)
 // ==========================================
-let liveEventSource = null;
+const realtime = {
+    source: null,
+    reconnectTimer: null,
+    pollingTimer: null,
+    refreshTimer: null,
+    failures: 0,
+    state: 'OFFLINE',
+};
 
-function initLiveAccessStream() {
-    if (liveEventSource) {
-        liveEventSource.close();
+function stopRealtimeTimers() {
+    clearTimeout(realtime.reconnectTimer);
+    clearInterval(realtime.pollingTimer);
+    realtime.reconnectTimer = null;
+    realtime.pollingTimer = null;
+}
+
+function closeLiveAccessStream() {
+    if (realtime.source) {
+        realtime.source.onopen = null;
+        realtime.source.onmessage = null;
+        realtime.source.onerror = null;
+        realtime.source.close();
+    }
+    realtime.source = null;
+}
+
+function reconcileLiveData() {
+    if (document.hidden || isRedirectingToLogin) return;
+    loadDoors();
+    loadAccessLogs();
+    updateMetricCards();
+    if (state.activeTab === 'attendanceTab') loadAttendanceData();
+    if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
+}
+
+function startFallbackPolling() {
+    closeLiveAccessStream();
+    clearInterval(realtime.pollingTimer);
+    realtime.state = 'FALLBACK_POLLING';
+    reconcileLiveData();
+    realtime.pollingTimer = setInterval(reconcileLiveData, 60000);
+}
+
+function scheduleSseReconnect(isNormalRotation = false) {
+    closeLiveAccessStream();
+    clearTimeout(realtime.reconnectTimer);
+
+    if (isNormalRotation) {
+        // Normal 55s worker recycling: do not increment failure count, do not fall back to polling
+        realtime.failures = 0;
+        realtime.state = 'ROTATING';
+        realtime.reconnectTimer = setTimeout(initLiveAccessStream, 1000);
+        return;
     }
 
-    const sseUrl = '/live-stream';
-    liveEventSource = new EventSource(sseUrl);
+    realtime.failures++;
+    if (realtime.failures >= 4) {
+        startFallbackPolling();
+        return;
+    }
+    realtime.state = 'BACKOFF';
+    const delay = Math.min(30000, 2000 * (2 ** (realtime.failures - 1)));
+    realtime.reconnectTimer = setTimeout(initLiveAccessStream, delay);
+}
 
-    liveEventSource.onopen = () => {
-        console.log('[SSE] Connected to real-time access stream');
+function initLiveAccessStream() {
+    if (document.hidden || isRedirectingToLogin || realtime.source) return;
+    clearInterval(realtime.pollingTimer);
+    realtime.pollingTimer = null;
+    realtime.state = 'CONNECTING';
+
+    const source = new EventSource('/live-stream');
+    realtime.source = source;
+
+    source.onopen = () => {
+        if (realtime.source !== source) return;
+        realtime.failures = 0;
+        realtime.state = 'CONNECTED';
     };
 
-    liveEventSource.onmessage = (event) => {
+    source.onmessage = event => {
+        if (realtime.source !== source) return;
         try {
-            const data = JSON.parse(event.data);
-            handleNewLiveEvent(data);
-        } catch (e) {
-            console.error('[SSE] Failed to parse event', e);
+            const parsed = JSON.parse(event.data);
+            handleNewLiveEvent(parsed);
+        } catch (_) {
+            // Unparseable message (e.g. raw comment or unknown format)
         }
     };
 
-    liveEventSource.addEventListener('reload', () => {
-        console.log('[SSE] Server requested reconnect to prevent timeout');
-        initLiveAccessStream(); // Reconnect gracefully
+    // Server-Sent Events 'reload' sent at 55s for graceful PHP worker recycling
+    source.addEventListener('reload', () => {
+        scheduleSseReconnect(true);
     });
 
-    liveEventSource.onerror = (error) => {
-        console.error('[SSE] Connection error. Attempting to reconnect...', error);
-        liveEventSource.close();
-        setTimeout(initLiveAccessStream, 5000); // Reconnect after 5s
+    source.onerror = () => {
+        scheduleSseReconnect(false);
     };
 }
 
 function handleNewLiveEvent(data) {
-    // 1. Show Toast
+    if (!data || !data.door_name) return; // Ignore empty or heartbeat payloads
     let type = 'success';
     if (data.access_status === 'DENIED') type = 'warning';
     if (data.access_status === 'ERROR') type = 'error';
     if (data.verify_method === 'REMOTE_UNLOCK') type = 'info';
-
     showToast(`🚪 ${data.door_name} - ${data.employee_name} (${data.access_status})`, type, 5000);
 
-    // 2. Reload tables automatically so we don't have to write full row injection logic
-    // unless performance dictates it. Since it's a dashboard, calling loadAccessLogs() is easiest.
-    loadAccessLogs();
-    updateMetricCards();
-    if (state.activeTab === 'logsTab' || state.activeTab === 'overviewTab' || state.activeTab === 'attendanceTab') {
-        loadActivityLogs();
-        if (state.activeTab === 'attendanceTab') loadAttendanceData();
-    }
+    clearTimeout(realtime.refreshTimer);
+    realtime.refreshTimer = setTimeout(reconcileLiveData, 500);
+}
 
-    // Also refresh door status
-    loadDoors();
+function stopRealtime() {
+    stopRealtimeTimers();
+    clearTimeout(realtime.refreshTimer);
+    closeLiveAccessStream();
+    realtime.state = 'OFFLINE';
 }
 
 // ==========================================
@@ -1501,21 +1728,24 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDoors();
     loadEmployees();
     loadAccessLogs();
-    loadActivityLogs();
+    if (hasCapability('audit.view')) {
+        loadActivityLogs();
+    }
 
-    // Initialize Real-time SSE connection
-    initLiveAccessStream();
+    // Testing disables long-lived transport; production uses one SSE-or-polling lifecycle.
+    if (window.APP_CONFIG?.sseEnabled !== false) {
+        initLiveAccessStream();
+    }
 
-    // Auto-refresh doors and logs periodically every 60 seconds (fallback)
-    setInterval(() => {
-        loadDoors();
-        loadAccessLogs();
-        updateMetricCards();
-        if (state.activeTab === 'attendanceTab') loadAttendanceData();
-        if (state.activeTab === 'logsTab') {
-            loadActivityLogs();
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopRealtime();
+            return;
         }
-    }, 60000);
+        reconcileLiveData();
+        if (window.APP_CONFIG?.sseEnabled !== false) initLiveAccessStream();
+    });
+    window.addEventListener('pagehide', stopRealtime);
 });
 
 // ==========================================
@@ -3586,22 +3816,10 @@ async function submitUploadDocument(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const headers = csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {};
 
-        const headers = {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken,
-        };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
-
-        const res = await fetch('/api/v1/onboarding/documents', {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
+        const data = await apiFetchForm('/onboarding/documents', formData, { headers });
+        if (data.success) {
             showToast('Dokumen berhasil diunggah ke private storage!', 'success');
             closeModal('modalUploadDocument');
             document.getElementById('formUploadDocument')?.reset();
@@ -3650,7 +3868,7 @@ async function submitVerifyDocument(e) {
 
 async function downloadSecureDocument(docId, fileName) {
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || '';
         const headers = {};
         if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
 
@@ -3781,7 +3999,7 @@ function switchAccessSubTab(subTab, btn) {
 
 async function loadAccessMetrics() {
     try {
-        const res = await apiFetch('/api/v1/access/metrics');
+        const res = await apiFetch('/access/metrics');
         if (res && res.success) {
             const d = res.data;
             const elPending = document.getElementById('metricPendingAccessRequests');
@@ -3810,7 +4028,7 @@ async function loadAccessRequests() {
         if (search) params.append('search', search);
         if (status) params.append('status', status);
 
-        const res = await apiFetch(`/api/v1/access/requests?${params.toString()}`);
+        const res = await apiFetch(`/access/requests?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada permohonan hak akses yang diajukan.</td></tr>`;
             return;
@@ -3859,7 +4077,7 @@ async function loadAccessProfiles() {
         const params = new URLSearchParams();
         if (search) params.append('search', search);
 
-        const res = await apiFetch(`/api/v1/access/profiles?${params.toString()}`);
+        const res = await apiFetch(`/access/profiles?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada profil hak akses yang terdaftar.</td></tr>`;
             return;
@@ -3897,7 +4115,7 @@ async function loadCredentials() {
         if (search) params.append('search', search);
         if (type) params.append('credential_type', type);
 
-        const res = await apiFetch(`/api/v1/access/credentials?${params.toString()}`);
+        const res = await apiFetch(`/access/credentials?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada data kredensial terdaftar.</td></tr>`;
             return;
@@ -3945,7 +4163,7 @@ async function loadDeviceSyncs() {
         const params = new URLSearchParams();
         if (status) params.append('status', status);
 
-        const res = await apiFetch(`/api/v1/access/device-syncs?${params.toString()}`);
+        const res = await apiFetch(`/access/device-syncs?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Antrean sinkronisasi perangkat kosong. Semua terminal dalam status tersinkron.</td></tr>`;
             return;
@@ -3991,6 +4209,12 @@ async function loadEmoneyCards() {
     const tbody = document.getElementById('emoneyTableBody');
     if (!tbody) return;
 
+    const role = window.APP_CONFIG?.admin?.role;
+    if (role !== 'super_admin' && role !== 'hrd') {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Akses E-Money tidak tersedia untuk peran ini.</td></tr>';
+        return;
+    }
+
     try {
         const search = document.getElementById('emoneySearch')?.value || '';
         const provider = document.getElementById('emoneyProviderFilter')?.value || '';
@@ -3998,7 +4222,7 @@ async function loadEmoneyCards() {
         if (search) params.append('search', search);
         if (provider) params.append('provider', provider);
 
-        const res = await apiFetch(`/api/v1/access/emoney?${params.toString()}`);
+        const res = await apiFetch(`/access/emoney?${params.toString()}`);
         if (!res || !res.success || !res.data.length) {
             tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Belum ada instrumen kartu E-Money yang terdaftar.</td></tr>`;
             return;
@@ -4070,7 +4294,7 @@ function getEmoneyStatusBadge(status) {
 // Populate Employee dropdown for access requests, credentials, and emoney
 async function populateAccessEmployees() {
     try {
-        const res = await apiFetch('/api/v1/user-management/employees?per_page=100');
+        const res = await apiFetch('/user-management/employees?per_page=100');
         if (!res || !res.data) return;
 
         const options = res.data.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.employee_id || e.nik || 'Staff')})</option>`).join('');
@@ -4085,7 +4309,7 @@ async function populateAccessEmployees() {
         if (emnSelect) emnSelect.innerHTML = `<option value="">-- Tersedia / Belum Ditetapkan --</option>` + options;
 
         // Also populate Profiles dropdown in Access Request modal
-        const profRes = await apiFetch('/api/v1/access/profiles');
+        const profRes = await apiFetch('/access/profiles');
         if (profRes && profRes.success && profRes.data) {
             const profOptions = profRes.data.map(p => `<option value="${p.id}">${escapeHtml(p.code)} - ${escapeHtml(p.name)}</option>`).join('');
             const profSelect = document.getElementById('accessReqProfileId');
@@ -4115,7 +4339,7 @@ async function submitAccessRequest(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/requests', {
+        const res = await apiFetch('/access/requests', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4144,7 +4368,7 @@ async function submitApproveAccessRequest(e) {
     const notes = document.getElementById('approveReqNotes')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/requests/${id}/approve`, {
+        const res = await apiFetch(`/access/requests/${id}/approve`, {
             method: 'POST',
             body: JSON.stringify({ notes })
         });
@@ -4173,7 +4397,7 @@ async function submitRejectAccessRequest(e) {
     const reason = document.getElementById('rejectReqReason')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/requests/${id}/reject`, {
+        const res = await apiFetch(`/access/requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -4205,7 +4429,7 @@ async function submitAccessProfile(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/profiles', {
+        const res = await apiFetch('/access/profiles', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4237,7 +4461,7 @@ async function submitCredential(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/credentials', {
+        const res = await apiFetch('/access/credentials', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4267,7 +4491,7 @@ async function submitRevokeCredential(e) {
     const reason = document.getElementById('revokeCrdReason')?.value || '';
 
     try {
-        const res = await apiFetch(`/api/v1/access/credentials/${id}/revoke`, {
+        const res = await apiFetch(`/access/credentials/${id}/revoke`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -4288,7 +4512,7 @@ async function submitRevokeCredential(e) {
 
 async function retryDeviceSyncItem(id) {
     try {
-        const res = await apiFetch(`/api/v1/access/device-syncs/${id}/retry`, {
+        const res = await apiFetch(`/access/device-syncs/${id}/retry`, {
             method: 'POST'
         });
 
@@ -4318,7 +4542,7 @@ async function submitEmoneyCard(e) {
     };
 
     try {
-        const res = await apiFetch('/api/v1/access/emoney', {
+        const res = await apiFetch('/access/emoney', {
             method: 'POST',
             body: JSON.stringify(payload)
         });
@@ -4341,7 +4565,7 @@ async function onEmoneyStatusSelectChanged(id, newStatus) {
     if (!confirm(`Ubah status instrumen kartu E-Money ini menjadi ${newStatus}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/access/emoney/${id}/status`, {
+        const res = await apiFetch(`/access/emoney/${id}/status`, {
             method: 'POST',
             body: JSON.stringify({ status: newStatus })
         });
@@ -5406,7 +5630,7 @@ async function loadFieldAttendanceData() {
 
     try {
         // 1. Fetch Today's status & assignment
-        const statusRes = await apiFetch('/api/v1/field-attendance/status-today');
+        const statusRes = await apiFetch('/field-attendance/status-today');
         const data = statusRes.data || statusRes;
 
         currentFieldAssignment = data.assignment;
@@ -5490,7 +5714,7 @@ async function loadFieldAttendanceData() {
         // 3. Fetch Evidence Records
         if (tbody) {
             tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat riwayat...</td></tr>';
-            const recRes = await apiFetch('/api/v1/field-attendance/records');
+            const recRes = await apiFetch('/field-attendance/records');
             const records = recRes.data?.data || recRes.data || [];
 
             if (!records.length) {
@@ -5760,47 +5984,31 @@ async function submitFieldAttendance(type) {
     }
 
     const endpoint = type === 'CHECK_IN'
-        ? '/api/v1/field-attendance/check-in'
-        : '/api/v1/field-attendance/check-out';
+        ? '/field-attendance/check-in'
+        : '/field-attendance/check-out';
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const headers = csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {};
 
-        const headers = {
-            'Accept': 'application/json',
-            'X-CSRF-TOKEN': csrfToken,
-        };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
+        const data = await apiFetchForm(endpoint, formData, { headers });
 
-        const res = await fetch(endpoint, {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
+        showToast(data.message || 'Presensi lapangan berhasil dicatat!', 'success');
 
-        const data = await res.json();
+        // Reset photo
+        currentFieldPhotoFile = null;
+        const photoInput = document.getElementById('fieldPhotoInput');
+        if (photoInput) photoInput.value = '';
+        const previewImg = document.getElementById('fieldPhotoPreviewImg');
+        if (previewImg) previewImg.style.display = 'none';
+        const placeholder = document.getElementById('fieldPhotoPlaceholderText');
+        if (placeholder) placeholder.style.display = 'block';
+        const photoBadge = document.getElementById('fieldPhotoStatusBadge');
+        if (photoBadge) { photoBadge.className = 'status-badge status-warning'; photoBadge.innerText = 'FOTO DIPERLUKAN'; }
 
-        if (res.ok) {
-            showToast(data.message || 'Presensi lapangan berhasil dicatat!', 'success');
+        if (notesInput) notesInput.value = '';
 
-            // Reset photo
-            currentFieldPhotoFile = null;
-            const photoInput = document.getElementById('fieldPhotoInput');
-            if (photoInput) photoInput.value = '';
-            const previewImg = document.getElementById('fieldPhotoPreviewImg');
-            if (previewImg) previewImg.style.display = 'none';
-            const placeholder = document.getElementById('fieldPhotoPlaceholderText');
-            if (placeholder) placeholder.style.display = 'block';
-            const photoBadge = document.getElementById('fieldPhotoStatusBadge');
-            if (photoBadge) { photoBadge.className = 'status-badge status-warning'; photoBadge.innerText = 'FOTO DIPERLUKAN'; }
-
-            if (notesInput) notesInput.value = '';
-
-            await loadFieldAttendanceData();
-        } else {
-            showToast(data.message || 'Presensi lapangan gagal disimpan.', 'error');
-        }
+        await loadFieldAttendanceData();
     } catch (e) {
         showToast('Terjadi kesalahan pengiriman: ' + e.message, 'error');
     } finally {
@@ -5819,7 +6027,7 @@ async function viewFieldPhoto(evidenceId) {
     modal.classList.add('active');
 
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || '';
         const headers = appToken ? { 'Authorization': `Bearer ${appToken}` } : {};
 
         const res = await fetch(`/api/v1/field-attendance/records/${evidenceId}/photo`, { headers });
@@ -5868,7 +6076,7 @@ async function submitFieldOverride(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/field-attendance/records/${evidenceId}/override`, {
+        const res = await apiFetch(`/field-attendance/records/${evidenceId}/override`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -5899,7 +6107,7 @@ async function loadAttendanceRequestsData() {
 
     try {
         // 1. Fetch Metrics
-        const metricsRes = await apiFetch('/api/v1/attendance-requests/metrics').catch(() => null);
+        const metricsRes = await apiFetch('/attendance-requests/metrics').catch(() => null);
         if (metricsRes && metricsRes.data) {
             const m = metricsRes.data;
             const pEl = document.getElementById('reqMetricPending');
@@ -5921,7 +6129,7 @@ async function loadAttendanceRequestsData() {
         const fromDate = document.getElementById('reqFilterFrom')?.value || '';
         const toDate = document.getElementById('reqFilterTo')?.value || '';
 
-        let url = '/api/v1/attendance-requests?per_page=50';
+        let url = '/attendance-requests?per_page=50';
         if (type) url += `&request_type=${encodeURIComponent(type)}`;
         if (status) url += `&status=${encodeURIComponent(status)}`;
         if (fromDate) url += `&from_date=${encodeURIComponent(fromDate)}`;
@@ -5936,9 +6144,9 @@ async function loadAttendanceRequestsData() {
             return;
         }
 
-        const currentAdminId = window.APP_CONFIG?.adminId || null;
-        const currentEmpId = window.APP_CONFIG?.employeeId || null;
-        const currentRole = (window.APP_CONFIG?.role || '').toLowerCase();
+        const currentAdminId = window.APP_CONFIG?.admin?.id || null;
+        const currentEmpId = window.APP_CONFIG?.admin?.employeeId || null;
+        const currentRole = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canManage = ['super_admin', 'hrd', 'management', 'supervisor'].includes(currentRole);
 
         tbody.innerHTML = items.map(req => {
@@ -6074,23 +6282,13 @@ async function submitNewAttendanceRequest(e) {
 
     try {
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
-
         const headers = {
-            'X-CSRF-TOKEN': csrfToken,
-            'Accept': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
+            ...(csrfToken ? { 'X-CSRF-TOKEN': csrfToken } : {}),
+            'X-Requested-With': 'XMLHttpRequest',
         };
-        if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
 
-        const res = await fetch('/api/v1/attendance-requests', {
-            method: 'POST',
-            headers: headers,
-            body: formData
-        });
-
-        const data = await res.json();
-        if (res.ok && data.success) {
+        const data = await apiFetchForm('/attendance-requests', formData, { headers });
+        if (data.success) {
             showToast(data.message || 'Permohonan absensi berhasil dikirim.', 'success');
             closeModal('newAttendanceRequestModal');
             await loadAttendanceRequestsData();
@@ -6108,7 +6306,7 @@ async function approveAttendanceRequest(id) {
     if (!confirm('Konfirmasi: Setujui permohonan absensi ini?')) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/approve`, {
+        const res = await apiFetch(`/attendance-requests/${id}/approve`, {
             method: 'POST'
         });
         if (res.success) {
@@ -6121,7 +6319,7 @@ async function approveAttendanceRequest(id) {
 }
 
 function openRejectAttendanceRequestModal(id) {
-    const idInput = document.getElementById('rejectReqId');
+    const idInput = document.getElementById('rejectAttendanceReqId');
     const reasonInput = document.getElementById('rejectReasonInput');
     if (idInput) idInput.value = id;
     if (reasonInput) reasonInput.value = '';
@@ -6132,7 +6330,7 @@ function openRejectAttendanceRequestModal(id) {
 
 async function submitRejectAttendanceRequest(e) {
     e.preventDefault();
-    const id = document.getElementById('rejectReqId')?.value;
+    const id = document.getElementById('rejectAttendanceReqId')?.value;
     const reason = document.getElementById('rejectReasonInput')?.value?.trim();
     const btn = document.getElementById('btnSubmitRejectReq');
 
@@ -6145,7 +6343,7 @@ async function submitRejectAttendanceRequest(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/reject`, {
+        const res = await apiFetch(`/attendance-requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6166,7 +6364,7 @@ async function cancelAttendanceRequest(id) {
     if (reason === null) return; // cancelled prompt
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-requests/${id}/cancel`, {
+        const res = await apiFetch(`/attendance-requests/${id}/cancel`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6199,7 +6397,7 @@ async function loadAttendanceCorrectionsData() {
 
     // 1. Load metrics
     try {
-        const mRes = await apiFetch('/api/v1/attendance-corrections/metrics');
+        const mRes = await apiFetch('/attendance-corrections/metrics');
         if (mRes.success && mRes.data) {
             const d = mRes.data;
             const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -6225,13 +6423,13 @@ async function loadAttendanceCorrectionsData() {
     if (to) params.append('to_date', to);
 
     try {
-        const res = await apiFetch('/api/v1/attendance-corrections?' + params.toString());
+        const res = await apiFetch('/attendance-corrections?' + params.toString());
         if (!res.success || !res.data || res.data.length === 0) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan koreksi presensi yang sesuai.</td></tr>`;
             return;
         }
 
-        const role = (window.currentUserRole || '').toLowerCase();
+        const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
 
         tbody.innerHTML = res.data.map(item => {
@@ -6341,7 +6539,7 @@ async function submitNewAttendanceCorrection(e) {
     }
 
     try {
-        const res = await apiFetchForm('/api/v1/attendance-corrections', formData);
+        const res = await apiFetchForm('/attendance-corrections', formData);
         if (res.success) {
             showToast(res.message || 'Pengajuan koreksi presensi berhasil dibuat.', 'success');
             closeModal('newAttendanceCorrectionModal');
@@ -6358,7 +6556,7 @@ async function approveAttendanceCorrection(id) {
     if (!confirm(`Setujui pengajuan koreksi presensi #${id}? Perubahan akan langsung diaplikasikan pada rekap presensi harian.`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/approve`, { method: 'POST' });
+        const res = await apiFetch(`/attendance-corrections/${id}/approve`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Koreksi presensi berhasil disetujui.', 'success');
             await loadAttendanceCorrectionsData();
@@ -6391,7 +6589,7 @@ async function submitRejectAttendanceCorrection(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/reject`, {
+        const res = await apiFetch(`/attendance-corrections/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6411,7 +6609,7 @@ async function cancelAttendanceCorrection(id) {
     if (!confirm(`Batalkan pengajuan koreksi presensi #${id}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/attendance-corrections/${id}/cancel`, { method: 'POST' });
+        const res = await apiFetch(`/attendance-corrections/${id}/cancel`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Pengajuan koreksi berhasil dibatalkan.', 'success');
             await loadAttendanceCorrectionsData();
@@ -6432,7 +6630,7 @@ async function loadOvertimeRequestsData() {
 
     // 1. Metrics
     try {
-        const mRes = await apiFetch('/api/v1/overtime-requests/metrics');
+        const mRes = await apiFetch('/overtime-requests/metrics');
         if (mRes.success && mRes.data) {
             const d = mRes.data;
             const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.innerText = v; };
@@ -6457,13 +6655,13 @@ async function loadOvertimeRequestsData() {
     if (to) params.append('to_date', to);
 
     try {
-        const res = await apiFetch('/api/v1/overtime-requests?' + params.toString());
+        const res = await apiFetch('/overtime-requests?' + params.toString());
         if (!res.success || !res.data || res.data.length === 0) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align: center; padding: 2rem; color: var(--text-muted);">Tidak ada pengajuan lembur yang sesuai.</td></tr>`;
             return;
         }
 
-        const role = (window.currentUserRole || '').toLowerCase();
+        const role = (window.APP_CONFIG?.admin?.role || '').toLowerCase();
         const canApprove = ['super_admin', 'hrd', 'management', 'supervisor'].includes(role);
 
         tbody.innerHTML = res.data.map(item => {
@@ -6555,7 +6753,7 @@ async function submitNewOvertimeRequest(e) {
     }
 
     try {
-        const res = await apiFetchForm('/api/v1/overtime-requests', formData);
+        const res = await apiFetchForm('/overtime-requests', formData);
         if (res.success) {
             showToast(res.message || 'Pengajuan lembur berhasil dibuat.', 'success');
             closeModal('newOvertimeRequestModal');
@@ -6593,7 +6791,7 @@ async function submitApproveOvertime(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Memproses...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/approve`, {
+        const res = await apiFetch(`/overtime-requests/${id}/approve`, {
             method: 'POST',
             body: JSON.stringify({ approved_minutes: minutes })
         });
@@ -6632,7 +6830,7 @@ async function submitRejectOvertime(e) {
     if (btn) { btn.disabled = true; btn.innerText = 'Menyimpan...'; }
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/reject`, {
+        const res = await apiFetch(`/overtime-requests/${id}/reject`, {
             method: 'POST',
             body: JSON.stringify({ reason })
         });
@@ -6652,7 +6850,7 @@ async function cancelOvertimeRequest(id) {
     if (!confirm(`Batalkan pengajuan lembur #${id}?`)) return;
 
     try {
-        const res = await apiFetch(`/api/v1/overtime-requests/${id}/cancel`, { method: 'POST' });
+        const res = await apiFetch(`/overtime-requests/${id}/cancel`, { method: 'POST' });
         if (res.success) {
             showToast(res.message || 'Pengajuan lembur berhasil dibatalkan.', 'success');
             await loadOvertimeRequestsData();
@@ -6679,3 +6877,299 @@ window.submitApproveOvertime = submitApproveOvertime;
 window.openRejectOvertimeModal = openRejectOvertimeModal;
 window.submitRejectOvertime = submitRejectOvertime;
 window.cancelOvertimeRequest = cancelOvertimeRequest;
+
+// ==========================================
+// Setup Gedung & Facility Hierarchy Manager
+// ==========================================
+async function loadBuildingHierarchy() {
+    const container = document.getElementById('buildingHierarchyContainer');
+    if (!container) return;
+
+    container.innerHTML = `<div class="table-container" style="padding: 2.5rem; text-align: center;"><div class="spinner"></div> Memuat hierarki gedung dan perangkat pintu...</div>`;
+
+    try {
+        const [bldRes, doorRes] = await Promise.all([
+            apiFetch('/admin/buildings'),
+            apiFetch('/admin/doors')
+        ]);
+
+        const buildings = (bldRes.status === 'success' && Array.isArray(bldRes.data)) ? bldRes.data : [];
+        const doors = (doorRes.status === 'success' && Array.isArray(doorRes.data)) ? doorRes.data : [];
+
+        if (buildings.length === 0 && doors.length === 0) {
+            const canManageOrganization = (window.APP_CONFIG?.permissions || []).includes('organization.manage');
+            container.innerHTML = `
+                <div class="table-container" style="padding: 3rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
+                    <div style="font-size: 3rem; margin-bottom: 0.75rem;">🏢</div>
+                    <h3 style="color: var(--text-main); margin-bottom: 0.5rem;">Belum Ada Master Gedung Registered</h3>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1.25rem;">Belum ada hierarki gedung tersimpan di database.</p>
+                    ${canManageOrganization ? '<button class="btn-primary" onclick="openAddBuildingModal()">+ Tambah Gedung Pertama</button>' : ''}
+                </div>
+            `;
+            return;
+        }
+
+        const doorsByBuilding = {};
+        doors.forEach(d => {
+            const bKey = d.building_id || d.location || 'UNASSIGNED';
+            if (!doorsByBuilding[bKey]) doorsByBuilding[bKey] = [];
+            doorsByBuilding[bKey].push(d);
+        });
+
+        let html = '';
+
+        buildings.forEach(bld => {
+            const bldDoors = doorsByBuilding[bld.id] || doorsByBuilding[bld.name] || doors.filter(d => d.building_id === bld.id || d.location === bld.name);
+            const zones = Array.isArray(bld.zones) ? bld.zones : [];
+
+            html += `
+                <div style="margin-bottom: 2rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.5rem; transition: border-color 0.2s ease;">
+                    <!-- LEVEL 1: BUILDING HEADER -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 0.75rem;">
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 0.65rem; margin-bottom: 0.25rem;">
+                                <span style="font-size: 1.35rem;">🏢</span>
+                                <h3 style="font-size: 1.25rem; font-weight: 700; color: #ffffff; margin: 0;">${escapeHtml(bld.name)}</h3>
+                                <span class="badge badge-neutral" style="font-size: 0.75rem;">Kode: ${escapeHtml(bld.code || 'BLD')}</span>
+                                ${bld.is_active ? '<span class="badge badge-granted">Aktif</span>' : '<span class="badge badge-dim">Non-Aktif</span>'}
+                            </div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-left: 2rem;">
+                                ${escapeHtml(bld.description || 'Gedung fasilitas operasional PKP SecureGate')}
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span class="badge badge-info">${zones.length} Zona</span>
+                            <span class="badge badge-success">${bldDoors.length} Perangkat Pintu</span>
+                        </div>
+                    </div>
+
+                    <!-- LEVEL 2: ZONES -->
+                    <div style="display: flex; flex-direction: column; gap: 1rem; margin-left: 1rem; padding-left: 1.25rem; border-left: 2px solid rgba(56, 189, 248, 0.3);">
+                        ${zones.length > 0 ? zones.map(z => {
+                            const zDoors = bldDoors.filter(d => d.zone_id === z.id);
+                            return renderZoneBlock(z, zDoors);
+                        }).join('') + renderDefaultZoneBlock(bldDoors.filter(d => !d.zone_id)) : renderDefaultZoneBlock(bldDoors)}
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    } catch (err) {
+        container.innerHTML = `<div class="table-container" style="padding: 2rem; color: var(--danger); text-align: center;">Gagal memuat hierarki gedung: ${escapeHtml(err.message)}</div>`;
+    }
+}
+
+function renderZoneBlock(zone, zoneDoors) {
+    return `
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1rem;">📍</span>
+                    <strong style="font-size: 0.9rem; color: #f8fafc;">${escapeHtml(zone.name)}</strong>
+                    <span class="badge badge-dim" style="font-size: 0.65rem;">${escapeHtml(zone.code)}</span>
+                </div>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">${zoneDoors.length} Terminal</span>
+            </div>
+
+            <!-- LEVEL 4: DEVICES / DOORS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                ${zoneDoors.length > 0 ? zoneDoors.map(d => renderDoorDeviceChip(d)).join('') : '<div style="font-size: 0.8rem; color: var(--text-dim); font-style: italic;">Belum ada perangkat pintu dialokasikan pada zona ini.</div>'}
+            </div>
+        </div>
+    `;
+}
+
+function renderDefaultZoneBlock(doors) {
+    return `
+        <div style="background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 0.75rem; padding: 1rem 1.25rem;">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="font-size: 1rem;">📍</span>
+                    <strong style="font-size: 0.9rem; color: #f8fafc;">Zona Akses Pintu Standar</strong>
+                    <span class="badge badge-dim" style="font-size: 0.65rem;">ZN-DEFAULT</span>
+                </div>
+                <span class="badge badge-neutral" style="font-size: 0.7rem;">${doors.length} Terminal</span>
+            </div>
+
+            <!-- LEVEL 4: DEVICES / DOORS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                ${doors.length > 0 ? doors.map(d => renderDoorDeviceChip(d)).join('') : '<div style="font-size: 0.8rem; color: var(--text-dim); font-style: italic;">Belum ada perangkat pintu dialokasikan.</div>'}
+            </div>
+        </div>
+    `;
+}
+
+function renderDoorDeviceChip(door) {
+    const isOnline = (door.connection_status === 'online' || door.status === 'online');
+
+    return `
+        <div style="background: rgba(30, 41, 59, 0.8); border: 1px solid ${isOnline ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-color)'}; border-radius: 0.5rem; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.35rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="font-size: 0.85rem; font-weight: 700; color: #ffffff; display: flex; align-items: center; gap: 0.35rem;">
+                    🚪 ${escapeHtml(door.door_name || door.name || door.door_id)}
+                </div>
+                ${isOnline ? '<span class="badge badge-granted" style="font-size: 0.65rem;">ONLINE</span>' : '<span class="badge badge-denied" style="font-size: 0.65rem;">OFFLINE</span>'}
+            </div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; flex-direction: column; gap: 0.15rem;">
+                <div>🆔 Code: <code>${escapeHtml(door.door_id)}</code></div>
+                <div>🌐 IP: <code>${escapeHtml(door.device_ip || door.ip_address || '-')}</code></div>
+                <div>📠 Hardware: ${escapeHtml(door.device_model || door.model || '-')}</div>
+            </div>
+        </div>
+    `;
+}
+
+function openAddBuildingModal() {
+    const modal = document.getElementById('addBuildingModal');
+    if (modal) modal.classList.add('active');
+}
+
+async function submitAddBuilding(e) {
+    e.preventDefault();
+    const code = document.getElementById('buildingCodeInput')?.value.trim();
+    const name = document.getElementById('buildingNameInput')?.value.trim();
+    const description = document.getElementById('buildingDescInput')?.value.trim();
+
+    if (!code || !name) return;
+
+    try {
+        const res = await apiFetch('/admin/buildings', {
+            method: 'POST',
+            body: JSON.stringify({ code, name, description })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Gedung ${escapeHtml(name)} berhasil ditambahkan`, 'success');
+            closeModal('addBuildingModal');
+            document.getElementById('addBuildingForm')?.reset();
+            await Promise.all([loadBuildingHierarchy(), loadDoors()]);
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan gedung: ${err.message}`, 'error');
+    }
+}
+
+async function openAddZoneModal() {
+    const modal = document.getElementById('addZoneModal');
+    const select = document.getElementById('zoneBuildingSelect');
+
+    if (!modal || !select) return;
+
+    select.innerHTML = '<option value="">Memuat data gedung...</option>';
+
+    try {
+        const res = await apiFetch('/admin/buildings');
+        const buildings = (res.status === 'success' && Array.isArray(res.data)) ? res.data : [];
+
+        select.innerHTML = '<option value="">Pilih Gedung Induk...</option>' + buildings.map(b => `
+            <option value="${b.id}">${escapeHtml(b.name)} (${escapeHtml(b.code)})</option>
+        `).join('');
+
+        modal.classList.add('active');
+    } catch (err) {
+        showToast('Gagal memuat opsi gedung', 'error');
+    }
+}
+
+async function submitAddZone(e) {
+    e.preventDefault();
+    const building_id = document.getElementById('zoneBuildingSelect')?.value;
+    const code = document.getElementById('zoneCodeInput')?.value.trim();
+    const name = document.getElementById('zoneNameInput')?.value.trim();
+
+    if (!building_id || !code || !name) return;
+
+    try {
+        const res = await apiFetch('/admin/zones', {
+            method: 'POST',
+            body: JSON.stringify({ building_id: parseInt(building_id), code, name })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Zona ${escapeHtml(name)} berhasil ditambahkan`, 'success');
+            closeModal('addZoneModal');
+            document.getElementById('addZoneForm')?.reset();
+            await loadBuildingHierarchy();
+        }
+    } catch (err) {
+        showToast(`Gagal menyimpan zona: ${err.message}`, 'error');
+    }
+}
+
+window.loadBuildingHierarchy = loadBuildingHierarchy;
+window.openAddBuildingModal = openAddBuildingModal;
+window.submitAddBuilding = submitAddBuilding;
+window.openAddZoneModal = openAddZoneModal;
+window.submitAddZone = submitAddZone;
+
+async function loadSystemAccounts() {
+    const tbody = document.getElementById('systemAccountsTableBody');
+    const lifecycle = document.getElementById('systemAccountsLifecycle');
+    if (!tbody) return;
+
+    tbody.innerHTML = '<tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat akun sistem...</td></tr>';
+    try {
+        const response = await apiFetch('/admin/system-accounts');
+        const accounts = Array.isArray(response.data) ? response.data : [];
+        if (lifecycle) lifecycle.textContent = `Lifecycle: ${response.lifecycle || 'PLANNED'} · Tambah, ubah, role assignment, dan reset kredensial belum tersedia`;
+        if (accounts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="empty-td">Belum ada akun sistem.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = accounts.map(account => `
+            <tr>
+                <td>${escapeHtml(account.name || '-')}</td>
+                <td>${escapeHtml(account.email || '-')}</td>
+                <td>${escapeHtml(account.role || '-')}</td>
+                <td>${escapeHtml(account.assigned_building || '-')}</td>
+                <td>${escapeHtml(account.employee_id || '-')}</td>
+                <td>${escapeHtml(account.status || 'Belum tersedia')}</td>
+                <td>${escapeHtml(account.last_login ? formatDateTime(account.last_login) : 'Belum tersedia')}</td>
+                <td>${escapeHtml(account.created_at ? formatDateTime(account.created_at) : '-')}</td>
+                <td><span class="badge badge-warning">PLANNED</span></td>
+            </tr>`).join('');
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="9" class="error-td">Gagal memuat akun sistem: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+window.loadSystemAccounts = loadSystemAccounts;
+
+function healthAge(seconds) {
+    if (seconds === null || seconds === undefined) return 'Belum ada bukti pemeriksaan';
+    if (seconds < 60) return `${seconds} detik lalu`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} menit lalu`;
+    return `${Math.floor(seconds / 3600)} jam lalu`;
+}
+
+async function loadSystemHealth() {
+    const error = document.getElementById('systemHealthError');
+    if (error) error.hidden = true;
+
+    try {
+        const response = await apiFetch('/admin/system-health');
+        const data = response.data || {};
+        const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value ?? '-'; };
+        set('healthApp', data.app?.status || 'UNKNOWN');
+        set('healthTime', data.app?.server_time ? `Waktu server: ${new Date(data.app.server_time).toLocaleString('id-ID')}` : 'Waktu server tidak tersedia');
+        set('healthDatabase', data.database?.status || 'UNKNOWN');
+        set('healthDoor', data.primary_door?.status || 'UNKNOWN');
+        set('healthDoorFreshness', data.primary_door?.last_checked_at ? `Terakhir diperiksa ${new Date(data.primary_door.last_checked_at).toLocaleString('id-ID')} (${healthAge(data.primary_door.freshness_seconds)})` : healthAge(null));
+        const doors = data.doors || {};
+        set('healthDoorsTotal', doors.total ?? 0);
+        set('healthDoorsAggregate', `Healthy: ${doors.healthy ?? doors.online ?? 0} · Offline: ${doors.offline ?? 0} · Stale: ${doors.stale ?? 0} · Unknown: ${doors.unknown ?? 0}`);
+        set('healthWebhook', data.webhook?.status === 'HEALTHY' ? 'ACTIVE' : (data.webhook?.status || 'UNKNOWN'));
+        set('healthWebhookFreshness', data.webhook?.received_at ? `Terakhir diterima ${new Date(data.webhook.received_at).toLocaleString('id-ID')} (${healthAge(data.webhook.freshness_seconds)})` : 'Belum ada bukti penerimaan');
+        set('healthQueue', data.queue?.status || 'UNKNOWN');
+        set('healthQueueCounts', `Pending: ${data.queue?.pending_jobs ?? 'N/A'} · Gagal: ${data.queue?.failed_jobs ?? 'N/A'}`);
+        set('healthLastEvent', data.last_access_event?.timestamp ? new Date(data.last_access_event.timestamp).toLocaleString('id-ID') : '-');
+        set('healthLastEventDetail', data.last_access_event ? `${data.last_access_event.employee_name || 'Pegawai tidak teridentifikasi'} · ${data.last_access_event.access_status || 'Status tidak tersedia'}` : 'Belum ada data');
+    } catch (err) {
+        if (err.message === 'Unauthorized') return;
+        if (error) { error.textContent = `Status sistem gagal dimuat: ${err.message}`; error.hidden = false; }
+    }
+}
+
+window.loadSystemHealth = loadSystemHealth;
+} // end of window.__secureGateInitialized guard

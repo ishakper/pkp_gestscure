@@ -17,12 +17,12 @@ class AccessLogResource extends JsonResource
             'user' => $this->employee ? [
                 'nik' => $this->employee->nik,
                 'name' => $this->employee->name,
-                'card_no' => $this->employee->card_no,
+                'card_registered' => $this->employee->card_no ? 'YES' : 'UNKNOWN',
                 'department' => $this->employee->department,
             ] : ($this->nik ? [
                 'nik' => $this->nik,
                 'name' => null,
-                'card_no' => null,
+                'card_registered' => 'UNKNOWN',
                 'department' => null,
             ] : null),
             'event_type' => $this->event_type ?? 'STANDARD_TAP',

@@ -10,9 +10,20 @@ use App\Models\JobDescription;
 use App\Models\Skill;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class JobDescriptionSkillController extends Controller
 {
+    #[OA\Get(
+        path: '/admin/job-descriptions',
+        summary: 'Daftar Deskripsi Pekerjaan (JD)',
+        description: 'Mendapatkan daftar versi deskripsi pekerjaan (JD) dan persyaratan skill.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar JD berhasil diambil')
+        ]
+    )]
     public function jobDescriptions(Request $request)
     {
         $this->authorizeManagement($request->user());
@@ -20,6 +31,29 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => JobDescription::with('skillRequirements.skill')->latest()->get()]);
     }
 
+    #[OA\Post(
+        path: '/admin/job-descriptions',
+        summary: 'Tambah Deskripsi Pekerjaan (JD)',
+        description: 'Membuat versi baru deskripsi pekerjaan beserta pemetaan skill terverifikasi.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['title', 'version', 'content'],
+                properties: [
+                    new OA\Property(property: 'position_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'title', type: 'string', example: 'Senior Backend Engineer'),
+                    new OA\Property(property: 'version', type: 'integer', example: 1),
+                    new OA\Property(property: 'content', type: 'string', example: 'Bertanggung jawab mengelola API & Database'),
+                    new OA\Property(property: 'skill_requirements', type: 'array', items: new OA\Items(type: 'object'))
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'JD berhasil dibuat')
+        ]
+    )]
     public function storeJobDescription(Request $request)
     {
         $this->authorizeManagement($request->user());
@@ -50,6 +84,19 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $jobDescription], 201);
     }
 
+    #[OA\Post(
+        path: '/admin/job-descriptions/{jobDescription}/publish',
+        summary: 'Publikasikan Deskripsi Pekerjaan',
+        description: 'Mengaktifkan status deskripsi pekerjaan menjadi PUBLISHED.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'jobDescription', in: 'path', description: 'ID Job Description', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'JD berhasil dipublikasikan')
+        ]
+    )]
     public function publishJobDescription(Request $request, JobDescription $jobDescription)
     {
         $this->authorizeManagement($request->user());
@@ -57,6 +104,19 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $jobDescription->fresh('skillRequirements.skill')]);
     }
 
+    #[OA\Post(
+        path: '/admin/job-descriptions/{jobDescription}/archive',
+        summary: 'Arsip Deskripsi Pekerjaan',
+        description: 'Mengarsipkan versi deskripsi pekerjaan.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'jobDescription', in: 'path', description: 'ID Job Description', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'JD berhasil diarsipkan')
+        ]
+    )]
     public function archiveJobDescription(Request $request, JobDescription $jobDescription)
     {
         $this->authorizeManagement($request->user());
@@ -64,12 +124,43 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $jobDescription->fresh('skillRequirements.skill')]);
     }
 
+    #[OA\Get(
+        path: '/admin/skills',
+        summary: 'Daftar Matriks Skill',
+        description: 'Mendapatkan master daftar keahlian/skill.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar skill berhasil diambil')
+        ]
+    )]
     public function skills(Request $request)
     {
         $this->authorizeManagement($request->user());
         return response()->json(['status' => 'success', 'data' => Skill::orderBy('name')->get()]);
     }
 
+    #[OA\Post(
+        path: '/admin/skills',
+        summary: 'Tambah Master Skill',
+        description: 'Membuat jenis keahlian/skill baru.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['code', 'name'],
+                properties: [
+                    new OA\Property(property: 'code', type: 'string', example: 'SKILL-PHP'),
+                    new OA\Property(property: 'name', type: 'string', example: 'PHP & Laravel Development'),
+                    new OA\Property(property: 'description', type: 'string', example: 'Penguasaan framework Laravel')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Skill berhasil dibuat')
+        ]
+    )]
     public function storeSkill(Request $request)
     {
         $this->authorizeManagement($request->user());
@@ -81,6 +172,29 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $skill], 201);
     }
 
+    #[OA\Post(
+        path: '/employees/{employee}/skills',
+        summary: 'Deklarasi Skill Karyawan',
+        description: 'Mendeklarasikan tingkat keahlian (level 1-5) oleh karyawan.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'employee', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['skill_id', 'declared_level'],
+                properties: [
+                    new OA\Property(property: 'skill_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'declared_level', type: 'integer', example: 4)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Deklarasi skill berhasil disimpan')
+        ]
+    )]
     public function declareSkill(Request $request, Employee $employee)
     {
         $admin = $request->user();
@@ -95,6 +209,30 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $skill->load('skill')], 201);
     }
 
+    #[OA\Post(
+        path: '/employees/{employee}/skills/{skill}/verify',
+        summary: 'Verifikasi Skill Karyawan',
+        description: 'Supervisor / Manager melakukan verifikasi tingkat skill karyawan.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'employee', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'skill', in: 'path', description: 'ID Skill', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['verified_level'],
+                properties: [
+                    new OA\Property(property: 'verified_level', type: 'integer', example: 4),
+                    new OA\Property(property: 'verification_notes', type: 'string', example: 'Lulus tes kompetensi backend')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Verifikasi skill berhasil')
+        ]
+    )]
     public function verifySkill(Request $request, Employee $employee, Skill $skill)
     {
         $admin = $request->user();
@@ -112,6 +250,19 @@ class JobDescriptionSkillController extends Controller
         return response()->json(['status' => 'success', 'data' => $employeeSkill->fresh('skill', 'verifier')]);
     }
 
+    #[OA\Get(
+        path: '/employees/{employee}/skill-gap',
+        summary: 'Analisis Gap Skill Karyawan',
+        description: 'Menganalisis kesenjangan antara skill terverifikasi karyawan dengan tuntutan Job Description posisi.',
+        tags: ['Job & Skill Matrix'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'employee', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Analisis skill gap berhasil')
+        ]
+    )]
     public function skillGap(Request $request, Employee $employee)
     {
         abort_unless($this->canViewEmployeeSkill($request->user(), $employee), 403);

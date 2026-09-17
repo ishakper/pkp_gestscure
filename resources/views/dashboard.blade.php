@@ -1320,9 +1320,15 @@
             color: var(--text-muted);
         }
         .error-td { color: #fca5a5; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 1rem; }
+        .stat-card { min-width: 0; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: 0.875rem; background: var(--card-bg); display: flex; flex-direction: column; gap: 0.4rem; }
+        .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+        .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
         /* Responsive Breakpoints (< 768px Mobile & Tablet) */
         @media (max-width: 768px) {
+            .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .stats-grid { grid-template-columns: 1fr; }
             .floating-logo {
                 top: 18px;
                 left: 16px;
@@ -1410,17 +1416,43 @@
     </div>
 
     <ul class="nav-list">
-        <li class="nav-section-label" aria-hidden="true">ACCESS CONTROL</li>
-        <li class="nav-item"><button class="active" data-tooltip="Dashboard Absensi" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard Absensi</span></button></li>
-        @if(in_array('device.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Terminal Gedung B" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Terminal Gedung B</span></button></li>
-        @endif
+        <!-- GROUP 1: OPERASIONAL -->
+        <li class="nav-section-label" aria-hidden="true">OPERASIONAL</li>
+        <li class="nav-item"><button class="active" data-tooltip="Dashboard" onclick="switchTab('overviewTab', this)"><span class="nav-icon">📊</span><span class="nav-text">Dashboard</span></button></li>
         @if(in_array('employee.view', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Data Karyawan" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Data Karyawan</span></button></li>
+        <li class="nav-item"><button data-tooltip="Pengguna" onclick="switchTab('employeesTab', this)"><span class="nav-icon">👥</span><span class="nav-text">Pengguna</span></button></li>
+        @endif
+        @if(in_array('device.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Perangkat Pintu" onclick="switchTab('doorsTab', this)"><span class="nav-icon">🌐</span><span class="nav-text">Perangkat Pintu</span></button></li>
+        @endif
+        @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Hak Akses" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Hak Akses</span></button></li>
+        @endif
+        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
+        @endif
+        @if(in_array('security.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Log Akses" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Akses</span></button></li>
+        @endif
+        @if(($admin?->role ?? null) === 'super_admin' && in_array('audit.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('auditLogTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
 
-        @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
-        <li class="nav-section-label advanced-nav" aria-hidden="true">ADVANCED / FUTURE MODULES</li>
+        <!-- GROUP 2: KONFIGURASI -->
+        <li class="nav-section-label" aria-hidden="true">KONFIGURASI</li>
+        @if(in_array('organization.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Setup Gedung" onclick="switchTab('buildingSetupTab', this)"><span class="nav-icon">🏢</span><span class="nav-text">Setup Gedung</span></button></li>
+        @endif
+        @if(in_array('system.manage', $permissions ?? []) || in_array('system.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Akun Sistem" onclick="switchTab('systemAccountsTab', this)"><span class="nav-icon">👤</span><span class="nav-text">Akun Sistem</span></button></li>
+        @endif
+        @if(in_array('system.view', $permissions ?? []) || in_array('device.view', $permissions ?? []))
+        <li class="nav-item"><button data-tooltip="Status Sistem" onclick="switchTab('systemStatusTab', this)"><span class="nav-icon">📡</span><span class="nav-text">Status Sistem</span></button></li>
+        @endif
+
+        <!-- ADVANCED / FUTURE MODULES (PRESERVED) -->
+        @if(in_array('recruitment.view', $permissions ?? []) || in_array('internship.view', $permissions ?? []) || in_array('onboarding.view', $permissions ?? []) || in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
+        <li class="nav-section-label advanced-nav" aria-hidden="true">MODUL TAMBAHAN</li>
         @endif
         @if(in_array('recruitment.view', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Recruitment" onclick="switchTab('recruitmentTab', this)"><span class="nav-icon">🎯</span><span class="nav-text">Recruitment</span></button></li>
@@ -1431,20 +1463,10 @@
         @if(in_array('onboarding.view', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Onboarding" onclick="switchTab('onboardingTab', this)"><span class="nav-icon">📑</span><span class="nav-text">Onboarding</span></button></li>
         @endif
-        @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
-        <li class="nav-item advanced-nav"><button data-tooltip="Access & Credentials" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Access & Credentials</span></button></li>
-        @endif
         @if(in_array('asset.view', $permissions ?? []) || in_array('asset.manage', $permissions ?? []) || in_array('asset.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Assets" onclick="switchTab('assetsTab', this)"><span class="nav-icon">💻</span><span class="nav-text">Assets</span></button></li>
         @endif
         <li class="nav-item advanced-nav"><button data-tooltip="Tasks & Worklogs" onclick="switchTab('tasksTab', this)"><span class="nav-icon">✅</span><span class="nav-text">Tasks &amp; Worklogs</span></button></li>
-
-        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []) || in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []) || in_array('attendance_request.view', $permissions ?? []) || in_array('attendance_request.self', $permissions ?? []) || in_array('attendance_correction.view', $permissions ?? []) || in_array('attendance_correction.self', $permissions ?? []) || in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []))
-        <li class="nav-section-label" aria-hidden="true">ATTENDANCE</li>
-        @endif
-        @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
-        <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
-        @endif
         @if(in_array('field_attendance.view', $permissions ?? []) || in_array('field_attendance.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Presensi Lapangan" onclick="switchTab('fieldAttendanceTab', this)"><span class="nav-icon">📍</span><span class="nav-text">Presensi Lapangan</span></button></li>
         @endif
@@ -1456,12 +1478,6 @@
         @endif
         @if(in_array('overtime.view', $permissions ?? []) || in_array('overtime.self', $permissions ?? []) || in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item advanced-nav"><button data-tooltip="Pengajuan Lembur" onclick="switchTab('overtimeRequestsTab', this)"><span class="nav-icon">⚡</span><span class="nav-text">Pengajuan Lembur</span></button></li>
-        @endif
-
-        @if(in_array('security.view', $permissions ?? []))
-        <li class="nav-section-label" aria-hidden="true">SECURITY</li>
-        <li class="nav-item"><button data-tooltip="Log Fingerprint" onclick="switchTab('logsTab', this)"><span class="nav-icon">👆</span><span class="nav-text">Log Fingerprint</span></button></li>
-        <li class="nav-item"><button data-tooltip="Audit Log" onclick="switchTab('logsTab', this)"><span class="nav-icon">🛡️</span><span class="nav-text">Audit Log</span></button></li>
         @endif
         @if (app()->environment('local', 'testing'))
         <li class="nav-item advanced-nav"><button data-tooltip="Hardware Event Simulator" onclick="switchTab('simulatorTab', this)"><span class="nav-icon">🧪</span><span class="nav-text">Hardware Event Simulator</span></button></li>
@@ -1505,36 +1521,127 @@
         </div>
     </div>
 
-    <!-- TOP METRIC CARDS -->
+    <!-- TOP METRIC CARDS (4 TARGET CARDS) -->
     <div class="metrics-grid">
         <div class="metric-card">
             <div class="metric-icon-box icon-blue">👥</div>
             <div>
-                <div class="metric-label">Total Karyawan</div>
-                <div class="metric-value" id="metricTotalUsers">-</div>
+                <div class="metric-label">Pengguna Aktif</div>
+                <div class="metric-value" id="metricActiveEmployees">-</div>
+                <span id="metricTotalUsers" style="display:none;">-</span>
             </div>
         </div>
         <div class="metric-card">
-            <div class="metric-icon-box icon-green">🚪</div>
+            <div class="metric-icon-box icon-indigo">💳</div>
             <div>
-                <div class="metric-label">Terminal Online</div>
+                <div class="metric-label">Terdaftar</div>
+                <div class="metric-value" id="metricRegisteredCredentials">-</div>
+            </div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-icon-box icon-green">🌐</div>
+            <div>
+                <div class="metric-label">Perangkat Online</div>
                 <div class="metric-value" id="metricActiveDoors">-</div>
             </div>
         </div>
-            <div class="metric-card"><div class="metric-icon-box icon-indigo">✓</div><div><div class="metric-label">Hadir Hari Ini</div><div class="metric-value" id="metricAttendancePresent">-</div></div></div>
-            <div class="metric-card"><div class="metric-icon-box icon-red">!</div><div><div class="metric-label">Terlambat</div><div class="metric-value" id="metricAttendanceLate">-</div></div></div>
-            <div class="metric-card"><div class="metric-icon-box icon-blue">○</div><div><div class="metric-label">Belum Hadir</div><div class="metric-value" id="metricAttendanceAbsent">-</div></div></div>
-            <div class="metric-card"><div class="metric-icon-box icon-green">↗</div><div><div class="metric-label">Check-out Hari Ini</div><div class="metric-value" id="metricAttendanceCheckout">-</div></div></div>
+        <div class="metric-card">
+            <div class="metric-icon-box icon-red">🚨</div>
+            <div>
+                <div class="metric-label">Akses Ditolak</div>
+                <div class="metric-value" id="metricDeniedLogs">-</div>
+            </div>
+        </div>
+        <!-- Preserved Hidden Elements for Background Script Compatibility -->
+        <span id="metricAttendancePresent" style="display:none;">-</span>
+        <span id="metricAttendanceLate" style="display:none;">-</span>
+        <span id="metricAttendanceAbsent" style="display:none;">-</span>
+        <span id="metricAttendanceCheckout" style="display:none;">-</span>
     </div>
 
     <!-- TAB 1: OVERVIEW (UNIFIED DASHBOARD) -->
     <section id="overviewTab" class="tab-content active">
 
-        <!-- SECTION 1: 4 CENTRALIZED ACCESS DOORS -->
+        <!-- SECTION 1: AKTIVITAS TERAKHIR (REUSE SECURITY ACCESS LOGS) -->
         <div class="section-header">
             <div>
-                <h2 class="section-title">🌐 Centralized Access Doors</h2>
-                <p class="section-desc">Status real-time terminal Hikvision lintas gedung dari konfigurasi terkelola.</p>
+                <h2 class="section-title">📋 Aktivitas Terakhir</h2>
+                <p class="section-desc">Riwayat event tap kartu / biometrik real-time dari seluruh terminal pintu.</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
+                    🔄 Sinkronkan Log Pintu
+                </button>
+                <button class="btn-secondary" onclick="resetLogFilters()">Reset Filter</button>
+            </div>
+        </div>
+        <div class="table-container">
+            <div class="table-toolbar">
+                <div class="toolbar-left">
+                    <div class="search-box">
+                        🚪
+                        <select id="logDoorFilter" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Pintu</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        ⚡
+                        <select id="logStatusFilter" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Status & Alarm</option>
+                            <option value="Granted">Granted (Akses Diterima)</option>
+                            <option value="Denied">Denied (Akses Ditolak)</option>
+                            <option value="Alarm">🚨 Alarm / Intrusion / Sabotase</option>
+                            <option value="Duress">⚠️ Duress Emergency</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        📋
+                        <select id="logAttendanceStateFilter" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Result Kehadiran</option>
+                            <option value="PRESENT">PRESENT (Hadir)</option>
+                            <option value="LATE">LATE (Terlambat)</option>
+                            <option value="OFF">OFF (Hari Libur)</option>
+                            <option value="LEAVE">LEAVE (Izin/Cuti)</option>
+                            <option value="ABSENT">ABSENT (Alpa)</option>
+                            <option value="Belum diproses">Belum diproses</option>
+                            <option value="Ditolak">Ditolak</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logEndDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
+                    </div>
+                </div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Waktu</th>
+                        <th>NIK</th>
+                        <th>Nama</th>
+                        <th>Metode</th>
+                        <th>Terminal</th>
+                        <th>Event</th>
+                        <th>Status</th>
+                        <th>Attendance Result</th>
+                    </tr>
+                </thead>
+                <tbody id="overviewLogsTableBody">
+                    <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat fingerprint logs...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- SECTION 2: STATUS PERANGKAT (REUSE CENTRALIZED ACCESS DOORS) -->
+        <div class="section-header" style="margin-top: 2rem;">
+            <div>
+                <h2 class="section-title">🌐 Status Perangkat</h2>
+                <p class="section-desc">Ringkasan kondisi konektivitas real-time seluruh terminal pintu.</p>
             </div>
             <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
                 @if(in_array('device.manage', $permissions ?? []))
@@ -1546,11 +1653,11 @@
         </div>
         <div class="doors-grid" id="overviewDoorsGrid"><div class="loading-td"><div class="spinner"></div> Memuat terminal terkonfigurasi...</div></div>
 
-        <!-- SECTION 2: USER & ACCESS PRIVILEGE MANAGEMENT -->
-        <div class="section-header">
+        <!-- SECTION 3: RINGKASAN PENGGUNA -->
+        <div class="section-header" style="margin-top: 2rem;">
             <div>
-                <h2 class="section-title">👥 User & Access Privilege Management</h2>
-                <p class="section-desc">Hak akses pintu, status biometrik, dan sinkronisasi hardware per karyawan</p>
+                <h2 class="section-title">👥 Ringkasan Pengguna</h2>
+                <p class="section-desc">Hak akses pintu, status biometrik, dan sinkronisasi hardware per pengguna</p>
             </div>
         </div>
         <div class="table-container">
@@ -1574,9 +1681,9 @@
                 <thead>
                     <tr>
                         <th>User ID / NIK</th>
-                        <th>Nama Karyawan</th>
+                        <th>Nama Pengguna</th>
                         <th>Departemen</th>
-                        <th>Jabatan</th>
+                        <th>Jabatan &amp; Status</th>
                         <th>Status Biometrik</th>
                         <th>Akses Pintu (Sync Status)</th>
                         <th style="text-align: right;">Aksi</th>
@@ -1588,76 +1695,14 @@
             </table>
             <div class="employee-pagination" aria-live="polite"></div>
         </div>
-
-        <!-- SECTION 3: SECURITY ACCESS LOGS & AUDIT TRAIL -->
-        <div class="section-header">
-            <div>
-                <h2 class="section-title">📋 Security Access Logs & Audit Trail</h2>
-                <p class="section-desc">Riwayat event tap kartu / sidik jari real-time dari seluruh terminal pintu</p>
-            </div>
-        </div>
-        <div class="table-container">
-            <div class="table-toolbar">
-                <div class="toolbar-left">
-                    <div class="search-box">
-                        🚪
-                        <select id="logDoorFilter" onchange="loadAccessLogs()">
-                            <option value="">Semua Pintu</option>
-                        </select>
-                    </div>
-                    <div class="search-box">
-                        ⚡
-                        <select id="logStatusFilter" onchange="loadAccessLogs()">
-                            <option value="">Semua Status & Alarm</option>
-                            <option value="Granted">Granted (Akses Diterima)</option>
-                            <option value="Denied">Denied (Akses Ditolak)</option>
-                            <option value="Alarm">🚨 Alarm / Intrusion / Sabotase</option>
-                            <option value="Duress">⚠️ Duress Emergency</option>
-                        </select>
-                    </div>
-                    <div class="search-box">
-                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." onchange="loadAccessLogs()">
-                    </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logStartDate" onchange="loadAccessLogs()" title="Mulai Tanggal">
-                    </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logEndDate" onchange="loadAccessLogs()" title="Sampai Tanggal">
-                    </div>
-                </div>
-                <div class="toolbar-right" style="display: flex; gap: 0.5rem; align-items: center;">
-                    <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
-                        🔄 Sinkronkan Log Pintu
-                    </button>
-                    <button class="btn-secondary" onclick="resetLogFilters()">Reset Filter</button>
-                </div>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Waktu</th>
-                        <th>NIK</th>
-                        <th>Nama</th>
-                        <th>Metode</th>
-                        <th>Terminal</th>
-                        <th>Event</th>
-                        <th>Status</th>
-                        <th>Attendance Result</th>
-                    </tr>
-                </thead>
-                <tbody id="overviewLogsTableBody">
-                    <tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat fingerprint logs...</td></tr>
-                </tbody>
-            </table>
-        </div>
     </section>
 
     <!-- TAB 2: DOORS ONLY -->
     <section id="doorsTab" class="tab-content">
         <div class="section-header">
             <div>
-                <h2 class="section-title">🌐 Centralized Door Terminal Monitoring</h2>
-                <p class="section-desc">Audit hardware konektivitas IP & kontrol manual status online/offline</p>
+                <h2 class="section-title">🌐 Monitoring Perangkat Pintu</h2>
+                <p class="section-desc">Audit hardware konektivitas IP &amp; status real-time terminal pintu Hikvision DS-K1T804AMF</p>
             </div>
             <div style="display:flex;gap:.75rem;flex-wrap:wrap;">
                 @if(in_array('device.manage', $permissions ?? []))
@@ -1670,24 +1715,24 @@
         <div class="doors-grid" id="doorsGrid"><div class="loading-td"><div class="spinner"></div> Memuat terminal terkonfigurasi...</div></div>
     </section>
 
-    <!-- TAB 3: EMPLOYEES ONLY -->
+    <!-- TAB 3: EMPLOYEES / PENGGUNA -->
     <section id="employeesTab" class="tab-content">
         <!-- Reuses table in Overview or full view -->
         <div class="section-header">
             <div>
-                <h2 class="section-title">👥 Manajemen Karyawan & Hak Akses Pintu</h2>
-                <p class="section-desc">Daftar lengkap karyawan terdaftar dan distribusi izin pintu</p>
+                <h2 class="section-title">👥 Manajemen Pengguna</h2>
+                <p class="section-desc">Daftar lengkap pengguna terdaftar, status biometrik, dan distribusi izin pintu</p>
             </div>
-            <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Karyawan</button>
+            <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
         </div>
         <div class="table-container">
             <table>
                 <thead>
                     <tr>
                         <th>User ID / NIK</th>
-                        <th>Nama Karyawan</th>
+                        <th>Nama Pengguna</th>
                         <th>Departemen</th>
-                        <th>Jabatan</th>
+                        <th>Jabatan &amp; Status</th>
                         <th>Status Biometrik</th>
                         <th>Akses Pintu (Sync Status)</th>
                         <th style="text-align: right;">Aksi</th>
@@ -1739,11 +1784,56 @@
                 <h2 class="section-title">📋 Riwayat Lengkap Access Logs</h2>
                 <p class="section-desc">Audit trail keamanan akses pintu fisik seluruh gedung</p>
             </div>
-            <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
-                🔄 Sinkronkan Log Pintu
-            </button>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn-primary" onclick="syncHardwareLogs(this)" title="Tarik riwayat tap akses terbaru dari terminal ISAPI">
+                    🔄 Sinkronkan Log Pintu
+                </button>
+                <button class="btn-secondary" onclick="resetLogFilters()">Reset Filter</button>
+            </div>
         </div>
         <div class="table-container">
+            <div class="table-toolbar">
+                <div class="toolbar-left">
+                    <div class="search-box">
+                        🚪
+                        <select id="logDoorFilterTab" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Pintu</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        ⚡
+                        <select id="logStatusFilterTab" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Status & Alarm</option>
+                            <option value="Granted">Granted (Akses Diterima)</option>
+                            <option value="Denied">Denied (Akses Ditolak)</option>
+                            <option value="Alarm">🚨 Alarm / Intrusion / Sabotase</option>
+                            <option value="Duress">⚠️ Duress Emergency</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        📋
+                        <select id="logAttendanceStateFilterTab" onchange="syncLogFilters(this); loadAccessLogs()">
+                            <option value="">Semua Result Kehadiran</option>
+                            <option value="PRESENT">PRESENT (Hadir)</option>
+                            <option value="LATE">LATE (Terlambat)</option>
+                            <option value="OFF">OFF (Hari Libur)</option>
+                            <option value="LEAVE">LEAVE (Izin/Cuti)</option>
+                            <option value="ABSENT">ABSENT (Alpa)</option>
+                            <option value="Belum diproses">Belum diproses</option>
+                            <option value="Ditolak">Ditolak</option>
+                        </select>
+                    </div>
+                    <div class="search-box">
+                        👤 <input type="text" id="logUserSearchTab" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logStartDateTab" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logEndDateTab" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
+                    </div>
+                </div>
+            </div>
             <table>
                 <thead>
                     <tr>
@@ -1762,13 +1852,16 @@
                 </tbody>
             </table>
         </div>
+    </section>
 
-        @if(in_array('audit.view', $permissions ?? []))
-        <div class="section-header" style="margin-top:1.5rem;">
+    @if(($admin?->role ?? null) === 'super_admin' && in_array('audit.view', $permissions ?? []))
+    <section id="auditLogTab" class="tab-content">
+        <div class="section-header">
             <div>
-                <h3 class="section-title" style="font-size:1rem;">Operational Audit Timeline</h3>
+                <h2 class="section-title">🛡️ Audit Log</h2>
                 <p class="section-desc">Aktivitas administratif terstruktur; payload mentah dan kredensial tidak pernah ditampilkan.</p>
             </div>
+            <button class="btn-secondary" onclick="loadActivityLogs()">↻ Refresh Audit</button>
         </div>
         <div class="table-container">
             <table aria-label="Operational audit timeline">
@@ -1776,8 +1869,8 @@
                 <tbody id="activityLogsTableBody"><tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat audit timeline...</td></tr></tbody>
             </table>
         </div>
-        @endif
     </section>
+    @endif
 
     <!-- TAB 5: ISAPI HARDWARE EVENT SIMULATOR -->
     @if (app()->environment('local', 'testing'))
@@ -1888,6 +1981,83 @@
         </div>
     </section>
     @endif
+
+    <!-- TAB: SETUP GEDUNG -->
+    <section id="buildingSetupTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">🏢 Setup Gedung & Hierarki Lokasi Pintu</h2>
+                <p class="section-desc">Tata kelola Master Gedung, Lantai, Zona Akses, dan Pemetaan Perangkat Kontrol Pintu (Hikvision DS-K1T804AMF).</p>
+            </div>
+            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                @if(in_array('organization.manage', $permissions ?? []))
+                <button class="btn-primary" onclick="openAddBuildingModal()">
+                    + Tambah Gedung
+                </button>
+                <button class="btn-secondary" onclick="openAddZoneModal()">
+                    + Tambah Zona Akses
+                </button>
+                @endif
+                <button class="btn-secondary" onclick="loadBuildingHierarchy()">
+                    🔄 Refresh Hierarki
+                </button>
+            </div>
+        </div>
+
+        <!-- Schema Status & Blueprint Callout -->
+        <div style="margin-bottom: 1.5rem; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+            <span style="font-size: 1.25rem;">ℹ️</span>
+            <div style="font-size: 0.85rem; line-height: 1.5; color: var(--text-main);">
+                <strong>Status Skema Hierarki Database:</strong> Level <strong>Gedung</strong> (Building), <strong>Zona</strong> (Zone), dan <strong>Perangkat</strong> (Device/Door) aktif menggunakan skema database terintegrasi.<br>
+                <span class="text-muted">Proposal migration untuk entitas <code>Floors</code> (Lantai) telah disiapkan sebagai blueprint terstruktur tanpa eksekusi langsung ke database sistem.</span>
+            </div>
+        </div>
+
+        <!-- Dynamic Hierarchy Container -->
+        <div id="buildingHierarchyContainer">
+            <div class="table-container" style="padding: 2.5rem; text-align: center;">
+                <div class="spinner"></div> Memuat hierarki gedung dan perangkat pintu...
+            </div>
+        </div>
+    </section>
+
+    <!-- TAB: AKUN SISTEM -->
+    <section id="systemAccountsTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">👤 Akun Sistem</h2>
+                <p class="section-desc">Inventaris akun portal. Data ditampilkan read-only tanpa kredensial.</p>
+            </div>
+            <span id="systemAccountsLifecycle" class="badge-warning">Lifecycle: PLANNED · Tambah, ubah, role assignment, dan reset kredensial belum tersedia</span>
+        </div>
+        <div class="table-container">
+            <table aria-label="Inventaris akun sistem">
+                <thead><tr><th>Nama</th><th>Email</th><th>Role</th><th>Gedung</th><th>Employee ID</th><th>Status</th><th>Login Terakhir</th><th>Dibuat</th><th>Aksi Lifecycle</th></tr></thead>
+                <tbody id="systemAccountsTableBody"><tr><td colspan="9" class="loading-td"><div class="spinner"></div> Memuat akun sistem...</td></tr></tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- TAB: STATUS SISTEM -->
+    <section id="systemStatusTab" class="tab-content">
+        <div class="section-header">
+            <div>
+                <h2 class="section-title">📡 Status Sistem</h2>
+                <p class="section-desc">Status berbasis bukti terakhir; UNKNOWN dan STALE bukan ONLINE.</p>
+            </div>
+            <button class="btn-secondary" onclick="loadSystemHealth()">↻ Refresh Status</button>
+        </div>
+        <div class="stats-grid" id="systemHealthCards">
+            <div class="stat-card"><span class="stat-title">Aplikasi</span><strong class="stat-value" id="healthApp">Memuat...</strong><span class="stat-desc" id="healthTime">-</span></div>
+            <div class="stat-card"><span class="stat-title">Database</span><strong class="stat-value" id="healthDatabase">UNKNOWN</strong></div>
+            <div class="stat-card"><span class="stat-title">DOOR-B</span><strong class="stat-value" id="healthDoor">UNKNOWN</strong><span class="stat-desc" id="healthDoorFreshness">Belum diperiksa</span></div>
+            <div class="stat-card"><span class="stat-title">Semua Pintu</span><strong class="stat-value" id="healthDoorsTotal">0</strong><span class="stat-desc" id="healthDoorsAggregate">Healthy: 0 · Offline: 0 · Stale: 0 · Unknown: 0</span></div>
+            <div class="stat-card"><span class="stat-title">Webhook</span><strong class="stat-value" id="healthWebhook">UNKNOWN</strong><span class="stat-desc" id="healthWebhookFreshness">Belum ada bukti penerimaan</span></div>
+            <div class="stat-card"><span class="stat-title">Queue</span><strong class="stat-value" id="healthQueue">UNKNOWN</strong><span class="stat-desc" id="healthQueueCounts">-</span></div>
+            <div class="stat-card"><span class="stat-title">Event Terakhir</span><strong class="stat-value" id="healthLastEvent">-</strong><span class="stat-desc" id="healthLastEventDetail">Belum ada data</span></div>
+        </div>
+        <div class="error-td" id="systemHealthError" hidden></div>
+    </section>
 
     <!-- TAB: RECRUITMENT & ATS -->
     <section id="recruitmentTab" class="tab-content">
@@ -3361,7 +3531,7 @@
                 <button class="modal-close-btn" onclick="closeModal('rejectAttendanceRequestModal')">✖</button>
             </div>
             <form id="rejectAttendanceRequestForm" onsubmit="submitRejectAttendanceRequest(event)">
-                <input type="hidden" id="rejectReqId" />
+                <input type="hidden" id="rejectAttendanceReqId" />
                 <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
                     Berikan alasan penolakan secara jelas. Karyawan akan melihat catatan ini pada timeline status permohonan.
                 </p>
@@ -5548,6 +5718,7 @@
         </div>
     </div>
 </div>
+
 <!-- MODAL: DYNAMIC FACILITY CONFIGURATION -->
 <div class="modal-overlay" id="facilityModal">
     <div class="modal-card" style="max-width:720px;">
@@ -5559,20 +5730,76 @@
     </div>
 </div>
 
+<!-- MODAL: ADD BUILDING -->
+<div class="modal-overlay" id="addBuildingModal">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🏢 Registrasi Gedung Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('addBuildingModal')">✖</button>
+        </div>
+        <form id="addBuildingForm" onsubmit="submitAddBuilding(event)">
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Kode Gedung (e.g. BLD-C, BLD-HQ)</label>
+                <input type="text" id="buildingCodeInput" class="form-control" required placeholder="BLD-C">
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nama Gedung</label>
+                <input type="text" id="buildingNameInput" class="form-control" required placeholder="Gedung C - Operasional">
+            </div>
+            <div class="form-row" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Keterangan / Deskripsi Lokasi</label>
+                <textarea id="buildingDescInput" class="form-control" rows="3" placeholder="Fasilitas gedung operasional pendukung & data center"></textarea>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('addBuildingModal')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Gedung</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: ADD ZONE -->
+<div class="modal-overlay" id="addZoneModal">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title">📍 Registrasi Zona Akses Baru</h3>
+            <button class="modal-close-btn" onclick="closeModal('addZoneModal')">✖</button>
+        </div>
+        <form id="addZoneForm" onsubmit="submitAddZone(event)">
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Pilih Gedung Induk *</label>
+                <select id="zoneBuildingSelect" class="form-control" required>
+                    <option value="">Pilih Gedung...</option>
+                </select>
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Kode Zona (e.g. ZN-MAIN, ZN-SERVER) *</label>
+                <input type="text" id="zoneCodeInput" class="form-control" required placeholder="ZN-MAIN">
+            </div>
+            <div class="form-row" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nama Zona Akses *</label>
+                <input type="text" id="zoneNameInput" class="form-control" required placeholder="Pintu Akses Utama / Area Lobby">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('addZoneModal')">Batal</button>
+                <button type="submit" class="btn-primary">Simpan Zona</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
         apiToken: @json($apiToken ?? session('api_token')),
         permissions: @json($permissions ?? []),
+        sseEnabled: @json(!app()->environment('testing')),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),
             role: @json(Auth::user()->role ?? 'super_admin')
         }
     };
-    if (window.APP_CONFIG.apiToken) {
-        sessionStorage.setItem('api_token', window.APP_CONFIG.apiToken);
-    }
 </script>
 <script src="/js/dashboard.js"></script>
 

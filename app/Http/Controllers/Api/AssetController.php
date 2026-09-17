@@ -14,6 +14,7 @@ use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use OpenApi\Attributes as OA;
 
 class AssetController extends Controller
 {
@@ -31,9 +32,16 @@ class AssetController extends Controller
         $this->portalAccess = $portalAccess;
     }
 
-    /**
-     * Dashboard KPI Metrics
-     */
+    #[OA\Get(
+        path: '/assets/metrics',
+        summary: 'Metrik Inventaris Aset',
+        description: 'Mendapatkan statistik total aset, nilai perolehan, alokasi karyawan, dan pemeliharaan.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik aset berhasil diambil')
+        ]
+    )]
     public function metrics(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -47,9 +55,16 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * List Categories
-     */
+    #[OA\Get(
+        path: '/assets/categories',
+        summary: 'Kategori Aset Perusahaan',
+        description: 'Mendapatkan daftar kategori inventaris aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Kategori aset berhasil diambil')
+        ]
+    )]
     public function categories(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -64,9 +79,16 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * List Assets (Inventory)
-     */
+    #[OA\Get(
+        path: '/assets',
+        summary: 'Daftar Inventaris Aset',
+        description: 'Mendapatkan daftar aset perusahaan dengan filter kondisi dan lokasi.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar aset berhasil diambil')
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -83,9 +105,28 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Create Asset
-     */
+    #[OA\Post(
+        path: '/assets',
+        summary: 'Registrasi Aset Baru',
+        description: 'Mendaftarkan item aset inventaris baru.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['asset_name'],
+                properties: [
+                    new OA\Property(property: 'asset_name', type: 'string', example: 'Laptop ThinkPad X1 Carbon'),
+                    new OA\Property(property: 'brand', type: 'string', example: 'Lenovo'),
+                    new OA\Property(property: 'model', type: 'string', example: 'Gen 10'),
+                    new OA\Property(property: 'serial_number', type: 'string', example: 'SN-99887766')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Aset berhasil didaftarkan')
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -120,9 +161,19 @@ class AssetController extends Controller
         ], 201);
     }
 
-    /**
-     * View Asset Detail
-     */
+    #[OA\Get(
+        path: '/assets/{id}',
+        summary: 'Detail Item Aset',
+        description: 'Mendapatkan rincian aset inventaris.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail aset ditemukan')
+        ]
+    )]
     public function show(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -138,9 +189,19 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Update Asset
-     */
+    #[OA\Put(
+        path: '/assets/{id}',
+        summary: 'Perbarui Data Aset',
+        description: 'Memperbarui data aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Data aset berhasil diperbarui')
+        ]
+    )]
     public function update(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -177,9 +238,16 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * List Assignments
-     */
+    #[OA\Get(
+        path: '/assets/assignments',
+        summary: 'Daftar Alokasi Aset Karyawan',
+        description: 'Mendapatkan daftar alokasi peminjaman aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar alokasi aset berhasil diambil')
+        ]
+    )]
     public function assignments(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -196,9 +264,28 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Assign Asset to Employee or Intern
-     */
+    #[OA\Post(
+        path: '/assets/{id}/assign',
+        summary: 'Alokasikan Aset ke Karyawan / Magang',
+        description: 'Menyerahkan fasilitas aset perusahaan ke karyawan.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'handover_notes', type: 'string', example: 'Serah terima laptop kerja')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Aset berhasil dialokasikan')
+        ]
+    )]
     public function assign(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -227,9 +314,29 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Return Asset
-     */
+    #[OA\Post(
+        path: '/assets/assignments/{id}/return',
+        summary: 'Proses Pengembalian Aset',
+        description: 'Memproses pengembalian aset dari karyawan.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Penugasan Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['condition_in'],
+                properties: [
+                    new OA\Property(property: 'condition_in', type: 'string', example: 'GOOD'),
+                    new OA\Property(property: 'return_notes', type: 'string', example: 'Kembali lengkap beserta adapter charger')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Pengembalian aset berhasil diproses')
+        ]
+    )]
     public function returnAsset(Request $request, int $assignmentId): JsonResponse
     {
         $actor = $request->user();
@@ -253,9 +360,16 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * List Maintenance Records
-     */
+    #[OA\Get(
+        path: '/assets/maintenances',
+        summary: 'Daftar Catatan Pemeliharaan Aset',
+        description: 'Mendapatkan daftar tiket pemeliharaan aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar maintenance berhasil diambil')
+        ]
+    )]
     public function maintenances(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -272,9 +386,29 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Open Maintenance / Repair Ticket
-     */
+    #[OA\Post(
+        path: '/assets/{id}/maintenance',
+        summary: 'Buka Tiket Perbaikan/Pemeliharaan',
+        description: 'Membuka tiket perbaikan/pemeliharaan aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['maintenance_type', 'issue_description'],
+                properties: [
+                    new OA\Property(property: 'maintenance_type', type: 'string', example: 'REPAIR'),
+                    new OA\Property(property: 'issue_description', type: 'string', example: 'Keyboard beberapa tombol tidak merespon')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Tiket pemeliharaan berhasil dibuka')
+        ]
+    )]
     public function openMaintenance(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -301,9 +435,28 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Complete Maintenance Ticket
-     */
+    #[OA\Post(
+        path: '/assets/maintenances/{id}/complete',
+        summary: 'Selesaikan Tiket Perbaikan',
+        description: 'Menutup tiket pemeliharaan setelah aset selesai diperbaiki.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Tiket Maintenance', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['result'],
+                properties: [
+                    new OA\Property(property: 'result', type: 'string', example: 'Pengantian modul keyboard selesai')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Pemeliharaan aset telah selesai')
+        ]
+    )]
     public function completeMaintenance(Request $request, int $maintenanceId): JsonResponse
     {
         $actor = $request->user();
@@ -328,9 +481,16 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * List Incidents (Lost/Damage/Theft)
-     */
+    #[OA\Get(
+        path: '/assets/incidents',
+        summary: 'Daftar Laporan Insiden Aset',
+        description: 'Mendapatkan daftar laporan insiden aset (rusak/hilang).',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar insiden aset berhasil diambil')
+        ]
+    )]
     public function incidents(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -347,9 +507,29 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Report Incident
-     */
+    #[OA\Post(
+        path: '/assets/{id}/incident',
+        summary: 'Laporkan Insiden Aset (Hilang/Rusak)',
+        description: 'Melaporkan insiden kerusakan atau kehilangan aset.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['incident_type', 'description'],
+                properties: [
+                    new OA\Property(property: 'incident_type', type: 'string', example: 'DAMAGED'),
+                    new OA\Property(property: 'description', type: 'string', example: 'Layar retak terkena benturan')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Laporan insiden berhasil diajukan')
+        ]
+    )]
     public function reportIncident(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -376,9 +556,28 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Resolve Incident
-     */
+    #[OA\Post(
+        path: '/assets/incidents/{id}/resolve',
+        summary: 'Penyelesaian Insiden Aset',
+        description: 'Menutup laporan insiden aset dengan resolusi penyelesaian.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Insiden', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['resolution'],
+                properties: [
+                    new OA\Property(property: 'resolution', type: 'string', example: 'Aset telah diganti klaim asuransi')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Insiden aset berhasil diselesaikan')
+        ]
+    )]
     public function resolveIncident(Request $request, int $incidentId): JsonResponse
     {
         $actor = $request->user();
@@ -401,9 +600,28 @@ class AssetController extends Controller
         ]);
     }
 
-    /**
-     * Dispose / Retire Asset
-     */
+    #[OA\Post(
+        path: '/assets/{id}/dispose',
+        summary: 'Penghapusbukuan / Disposal Aset',
+        description: 'Menghapusbukukan aset yang tidak lagi layak pakai.',
+        tags: ['Asset Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Aset', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['disposal_reason'],
+                properties: [
+                    new OA\Property(property: 'disposal_reason', type: 'string', example: 'Rusak berat / usia pakai melebihi 5 tahun')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Aset berhasil dihapusbukukan')
+        ]
+    )]
     public function dispose(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();

@@ -11,12 +11,29 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use OpenApi\Attributes as OA;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceReportController extends Controller
 {
     public function __construct(private readonly AttendancePolicy $policy) {}
 
+    #[OA\Get(
+        path: '/api/v1/attendance/reports/monthly',
+        summary: 'Laporan Bulanan Presensi Karyawan',
+        description: 'Mengambil ringkasan rekapitulasi presensi bulanan (kehadiran, keterlambatan, ketidakhadiran, rasio hadir) per karyawan.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'month', in: 'query', description: 'Format bulan (YYYY-MM)', required: false, schema: new OA\Schema(type: 'string', example: '2026-03')),
+            new OA\Parameter(name: 'building_id', in: 'query', description: 'Filter berdasarkan ID Gedung', required: false, schema: new OA\Schema(type: 'integer', example: 1)),
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter berdasarkan ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Laporan bulanan presensi berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak (Unauthorized / Forbidden)')
+        ]
+    )]
     public function monthly(Request $request): JsonResponse
     {
         [$actor, $filters, $from, $to] = $this->validatedContext($request);
@@ -29,6 +46,22 @@ class AttendanceReportController extends Controller
         ]]);
     }
 
+    #[OA\Get(
+        path: '/api/v1/attendance/reports/monthly/export',
+        summary: 'Ekspor CSV Laporan Bulanan Presensi Karyawan',
+        description: 'Mengunduh berkas CSV rekapitulasi presensi bulanan karyawan.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'month', in: 'query', description: 'Format bulan (YYYY-MM)', required: false, schema: new OA\Schema(type: 'string', example: '2026-03')),
+            new OA\Parameter(name: 'building_id', in: 'query', description: 'Filter berdasarkan ID Gedung', required: false, schema: new OA\Schema(type: 'integer', example: 1)),
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter berdasarkan ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Berkas CSV laporan berhasil dikirim (StreamDownload)'),
+            new OA\Response(response: 403, description: 'Akses ditolak (Unauthorized / Forbidden)')
+        ]
+    )]
     public function export(Request $request): StreamedResponse
     {
         [$actor, $filters, $from, $to] = $this->validatedContext($request);

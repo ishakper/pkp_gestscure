@@ -15,6 +15,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
+use OpenApi\Attributes as OA;
 
 class AccessProvisioningController extends Controller
 {
@@ -32,9 +33,31 @@ class AccessProvisioningController extends Controller
         $this->portalAccess = $portalAccess;
     }
 
-    /**
-     * Dashboard KPI Metrics
-     */
+    #[OA\Get(
+        path: '/access/metrics',
+        summary: 'Metrik Provisioning Hak Akses',
+        description: 'Mendapatkan statistik ringkas profil akses, pengajuan, kredensial, dan status sinkronisasi.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Metrik berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'success' => true,
+                        'data' => [
+                            'total_profiles' => 5,
+                            'total_requests' => 12,
+                            'pending_requests' => 2,
+                            'total_credentials' => 45,
+                            'pending_device_syncs' => 0
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function metrics(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -48,10 +71,16 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
-    // =============================================================
-    // ACCESS PROFILES
-    // =============================================================
-
+    #[OA\Get(
+        path: '/access/profiles',
+        summary: 'Daftar Profil Hak Akses',
+        description: 'Mendapatkan daftar profil hak akses berpintu dan terstruktur.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar profil hak akses berhasil diambil')
+        ]
+    )]
     public function profiles(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -67,6 +96,29 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/profiles',
+        summary: 'Buat Profil Hak Akses Baru',
+        description: '⚠️ Belum diaktifkan — device write masih dinonaktifkan sampai otorisasi eksplisit (Phase 9 PLANNED status). Membuat definisi profil hak akses baru.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['code', 'name'],
+                properties: [
+                    new OA\Property(property: 'code', type: 'string', example: 'PROFILE-SERVER-ADMIN'),
+                    new OA\Property(property: 'name', type: 'string', example: 'Akses Khusus Tim Server'),
+                    new OA\Property(property: 'allowed_doors', type: 'array', items: new OA\Items(type: 'string'), example: ['DOOR-001']),
+                    new OA\Property(property: 'schedule_type', type: 'string', example: 'ALL_DAY')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Profil akses berhasil dibuat'),
+            new OA\Response(response: 403, description: 'Forbidden')
+        ]
+    )]
     public function storeProfile(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -79,7 +131,8 @@ class AccessProvisioningController extends Controller
             'name' => 'required|string|max:100',
             'description' => 'nullable|string',
             'building_name' => 'nullable|string|max:100',
-            'allowed_doors' => 'nullable|array',
+            'allowed_doors' => 'required|array|min:1',
+            'allowed_doors.*' => 'required',
             'schedule_type' => 'nullable|string|in:ALL_DAY,BUSINESS_HOURS,CUSTOM_WINDOW',
             'start_time' => 'nullable|string',
             'end_time' => 'nullable|string',
@@ -96,6 +149,19 @@ class AccessProvisioningController extends Controller
         ], 201);
     }
 
+    #[OA\Get(
+        path: '/access/profiles/{id}',
+        summary: 'Detail Profil Hak Akses',
+        description: 'Mendapatkan detail profil hak akses spesifik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Profil Akses', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail profil akses ditemukan')
+        ]
+    )]
     public function showProfile(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -104,6 +170,7 @@ class AccessProvisioningController extends Controller
         }
 
         $profile = AccessProfile::with('accessRequests')->findOrFail($id);
+        $this->service->assertProfileAccess($profile, $actor);
 
         return response()->json([
             'success' => true,
@@ -111,6 +178,27 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Put(
+        path: '/access/profiles/{id}',
+        summary: 'Perbarui Profil Hak Akses',
+        description: '⚠️ Belum diaktifkan — device write masih dinonaktifkan sampai otorisasi eksplisit (Phase 9 PLANNED status). Memperbarui konfigurasi profil hak akses.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Profil Akses', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Akses Tim Server Lt 1 & 2')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Profil akses berhasil diperbarui')
+        ]
+    )]
     public function updateProfile(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -119,11 +207,13 @@ class AccessProvisioningController extends Controller
         }
 
         $profile = AccessProfile::findOrFail($id);
+        $this->service->assertProfileAccess($profile, $actor);
         $validated = $request->validate([
             'name' => 'sometimes|string|max:100',
             'description' => 'nullable|string',
             'building_name' => 'nullable|string|max:100',
-            'allowed_doors' => 'nullable|array',
+            'allowed_doors' => 'sometimes|array|min:1',
+            'allowed_doors.*' => 'required_with:allowed_doors',
             'schedule_type' => 'nullable|string|in:ALL_DAY,BUSINESS_HOURS,CUSTOM_WINDOW',
             'start_time' => 'nullable|string',
             'end_time' => 'nullable|string',
@@ -140,10 +230,16 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
-    // =============================================================
-    // ACCESS REQUESTS
-    // =============================================================
-
+    #[OA\Get(
+        path: '/access/requests',
+        summary: 'Daftar Pengajuan Hak Akses',
+        description: 'Mendapatkan daftar pengajuan hak akses pintu karyawan / magang.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar pengajuan berhasil diambil')
+        ]
+    )]
     public function requests(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -159,6 +255,27 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/requests',
+        summary: 'Pengajuan Hak Akses Baru',
+        description: 'Mengajukan hak akses pintu baru untuk karyawan atau anak magang.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['business_reason'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'access_profile_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'business_reason', type: 'string', example: 'Perlu akses ke server room untuk maintenance mingguan')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Pengajuan hak akses berhasil dikirim')
+        ]
+    )]
     public function storeRequest(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -178,7 +295,6 @@ class AccessProvisioningController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        // Self-service enforcement: regular employees/interns can only request for themselves
         if (in_array(strtolower((string)$actor->role), ['employee', 'intern'], true)) {
             if (!empty($validated['employee_id']) && (int)$validated['employee_id'] !== (int)$actor->id) {
                 return response()->json(['message' => 'Anda hanya berwenang mengajukan hak akses untuk diri sendiri.'], 403);
@@ -197,6 +313,19 @@ class AccessProvisioningController extends Controller
         ], 201);
     }
 
+    #[OA\Get(
+        path: '/access/requests/{id}',
+        summary: 'Detail Pengajuan Hak Akses',
+        description: 'Mendapatkan detail pengajuan hak akses spesifik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail pengajuan ditemukan')
+        ]
+    )]
     public function showRequest(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -205,6 +334,7 @@ class AccessProvisioningController extends Controller
         if (!$this->policy->viewRequest($actor, $accessRequest)) {
             return response()->json(['message' => 'Unauthorized to view this access request.'], 403);
         }
+        $this->service->assertRequestAccess($accessRequest, $actor);
 
         return response()->json([
             'success' => true,
@@ -212,6 +342,19 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/requests/{id}/approve',
+        summary: 'Persetujuan Pengajuan Hak Akses',
+        description: '⚠️ Belum diaktifkan — device write masih dinonaktifkan sampai otorisasi eksplisit (Phase 9 PLANNED status). Menyetujui pengajuan hak akses.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Pengajuan berhasil disetujui')
+        ]
+    )]
     public function approveRequest(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -235,6 +378,28 @@ class AccessProvisioningController extends Controller
         }
     }
 
+    #[OA\Post(
+        path: '/access/requests/{id}/reject',
+        summary: 'Penolakan Pengajuan Hak Akses',
+        description: 'Menolak pengajuan hak akses dengan alasan penolakan.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Tidak memiliki otorisasi keamanan tinggi')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Pengajuan hak akses ditolak')
+        ]
+    )]
     public function rejectRequest(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -261,10 +426,16 @@ class AccessProvisioningController extends Controller
         }
     }
 
-    // =============================================================
-    // CREDENTIAL CENTER
-    // =============================================================
-
+    #[OA\Get(
+        path: '/access/credentials',
+        summary: 'Daftar Kredensial Registri',
+        description: 'Mendapatkan registri kredensial kartu / biometrik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kredensial berhasil diambil')
+        ]
+    )]
     public function credentials(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -280,6 +451,27 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/credentials',
+        summary: 'Penerbitan Kredensial Baru',
+        description: 'Menerbitkan kredensial baru (kartu/biometrik) untuk karyawan/magang.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['credential_type'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'credential_type', type: 'string', example: 'CARD'),
+                    new OA\Property(property: 'card_number', type: 'string', example: 'CARD-99081')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kredensial berhasil diterbitkan')
+        ]
+    )]
     public function storeCredential(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -313,6 +505,19 @@ class AccessProvisioningController extends Controller
         }
     }
 
+    #[OA\Get(
+        path: '/access/credentials/{id}',
+        summary: 'Detail Kredensial Registri',
+        description: 'Mendapatkan detail catatan kredensial.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kredensial', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Catatan kredensial ditemukan')
+        ]
+    )]
     public function showCredential(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -321,6 +526,7 @@ class AccessProvisioningController extends Controller
         if (!$this->policy->viewCredentials($actor)) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
+        $this->service->assertCredentialAccess($credential, $actor);
 
         if (in_array(strtolower((string)$actor->role), ['employee', 'intern'], true) && $credential->employee_id !== $actor->id) {
             return response()->json(['message' => 'Unauthorized to view this credential.'], 403);
@@ -332,6 +538,28 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/credentials/{id}/revoke',
+        summary: 'Pencabutan Kredensial',
+        description: 'Mencabut kredensial aktif.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kredensial', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Kartu hilang / karyawan resign')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Kredensial berhasil dicabut')
+        ]
+    )]
     public function revokeCredential(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -343,7 +571,8 @@ class AccessProvisioningController extends Controller
             'reason' => 'required|string|min:3',
         ]);
 
-        $credential = CredentialRecord::findOrFail($id);
+        $credential = CredentialRecord::with('employee')->findOrFail($id);
+        $this->service->assertCredentialAccess($credential, $actor);
         $revoked = $this->service->revokeCredential($credential, $request->reason, $actor);
 
         return response()->json([
@@ -353,10 +582,16 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
-    // =============================================================
-    // DEVICE SYNC QUEUE
-    // =============================================================
-
+    #[OA\Get(
+        path: '/access/device-syncs',
+        summary: 'Antrean Sinkronisasi Perangkat',
+        description: 'Mendapatkan daftar antrean pekerjaan sinkronisasi perangkat.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar antrean sinkronisasi perangkat berhasil diambil')
+        ]
+    )]
     public function deviceSyncs(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -372,6 +607,19 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/device-syncs/{id}/retry',
+        summary: 'Coba Ulang Sinkronisasi Perangkat',
+        description: 'Menjalankan ulang pekerjaan sinkronisasi perangkat yang sempat gagal.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pekerjaan Sync', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Sinkronisasi perangkat berhasil dijalankan ulang')
+        ]
+    )]
     public function retryDeviceSync(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -384,15 +632,21 @@ class AccessProvisioningController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Sinkronisasi perangkat berhasil dijalankan ulang.',
+            'message' => 'Sinkronisasi perangkat dijadwalkan ulang.',
             'data' => $retried,
         ]);
     }
 
-    // =============================================================
-    // E-MONEY REGISTRY (STRICTLY ADMIN ONLY)
-    // =============================================================
-
+    #[OA\Get(
+        path: '/access/emoney',
+        summary: 'Registri Kartu E-Money Admin',
+        description: 'Mendapatkan daftar kartu E-Money yang terdaftar (Khusus Admin/HRD).',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kartu E-Money berhasil diambil')
+        ]
+    )]
     public function emoneyCards(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -400,7 +654,6 @@ class AccessProvisioningController extends Controller
             return response()->json(['message' => 'Unauthorized to view E-Money registry.'], 403);
         }
 
-        // Strictly forbid technical roles without permission from viewing private e-money registry
         if (in_array(strtolower((string)$actor->role), ['developer', 'devops', 'infra_admin'], true) && !$actor->isSuperAdmin()) {
             return response()->json(['message' => 'Peran teknis tidak memiliki izin melihat registri kartu E-Money karyawan.'], 403);
         }
@@ -413,6 +666,27 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/emoney',
+        summary: 'Registrasi Kartu E-Money',
+        description: 'Mendaftarkan kartu E-Money baru.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['provider', 'card_number'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'provider', type: 'string', example: 'MANDIRI_EMONEY'),
+                    new OA\Property(property: 'card_number', type: 'string', example: '6032981012345678')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kartu E-Money berhasil didaftarkan')
+        ]
+    )]
     public function storeEmoneyCard(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -446,6 +720,19 @@ class AccessProvisioningController extends Controller
         }
     }
 
+    #[OA\Get(
+        path: '/access/emoney/{id}',
+        summary: 'Detail Kartu E-Money',
+        description: 'Mendapatkan detail kartu E-Money spesifik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kartu E-Money', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail kartu E-Money ditemukan')
+        ]
+    )]
     public function showEmoneyCard(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -455,7 +742,6 @@ class AccessProvisioningController extends Controller
 
         $card = EmoneyCard::with(['employee', 'internship', 'assignedByAdmin'])->findOrFail($id);
 
-        // Employee self-service check
         if (in_array(strtolower((string)$actor->role), ['employee', 'intern'], true) && $card->employee_id !== $actor->id) {
             return response()->json(['message' => 'Unauthorized.'], 403);
         }
@@ -466,6 +752,29 @@ class AccessProvisioningController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/access/emoney/{id}/status',
+        summary: 'Perbarui Status Kartu E-Money',
+        description: 'Memperbarui status operasional kartu E-Money (AVAILABLE | ASSIGNED | SUSPENDED | LOST | REVOKED).',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kartu E-Money', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['status'],
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'ACTIVE'),
+                    new OA\Property(property: 'notes', type: 'string', example: 'Diaktifkan untuk operasional kantor')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Status kartu E-Money berhasil diperbarui')
+        ]
+    )]
     public function updateEmoneyStatus(Request $request, $id): JsonResponse
     {
         $actor = $request->user();

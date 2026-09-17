@@ -163,13 +163,13 @@ class CredentialCenterAndEmoneyTest extends TestCase
 
         Sanctum::actingAs($superadmin);
 
-        // Retry device sync
+        // Retry only requeues work; hardware confirmation owns SUCCESS.
         $res = $this->postJson("/api/v1/access/device-syncs/{$sync->id}/retry");
         $res->assertStatus(200)
             ->assertJsonPath('success', true)
-            ->assertJsonPath('data.status', 'SUCCESS');
+            ->assertJsonPath('data.status', 'QUEUED');
 
-        $this->assertEquals('SUCCESS', $sync->fresh()->status);
+        $this->assertEquals('QUEUED', $sync->fresh()->status);
         $this->assertEquals(2, $sync->fresh()->attempt_count);
         $this->assertNull($sync->fresh()->error_summary);
     }
@@ -189,6 +189,13 @@ class CredentialCenterAndEmoneyTest extends TestCase
             'card_number' => '8887776665',
             'masked_identifier' => '******6665',
             'status' => 'ACTIVE',
+        ]);
+        CredentialDeviceSync::create([
+            'door_id' => $this->door->id,
+            'credential_record_id' => $crd->id,
+            'operation' => 'ADD',
+            'status' => 'SUCCESS',
+            'idempotency_key' => 'door_b_crd_12_op_add',
         ]);
 
         Sanctum::actingAs($superadmin);

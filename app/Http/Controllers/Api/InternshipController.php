@@ -12,6 +12,7 @@ use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use OpenApi\Attributes as OA;
 
 class InternshipController extends Controller
 {
@@ -24,9 +25,16 @@ class InternshipController extends Controller
         $this->portalAccess = $portalAccess;
     }
 
-    /**
-     * Get Internship metrics
-     */
+    #[OA\Get(
+        path: '/internships/metrics',
+        summary: 'Metrik Program Magang',
+        description: 'Mendapatkan statistik ringkas peserta magang aktif, institusi, dan aktivitas harian.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik magang berhasil diambil')
+        ]
+    )]
     public function metrics(): JsonResponse
     {
         $user = Auth::user();
@@ -40,9 +48,16 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * List internships with filtering and scoping
-     */
+    #[OA\Get(
+        path: '/internships',
+        summary: 'Daftar Program Magang',
+        description: 'Mendapatkan daftar peserta magang dengan filter status dan pencarian.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar magang berhasil diambil')
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -52,7 +67,6 @@ class InternshipController extends Controller
 
         $query = Internship::with(['employee', 'candidate', 'division', 'mentor']);
 
-        // Scope for supervisor: only see assigned interns or division
         if (strtolower((string) $user->role) === 'supervisor') {
             $empId = $user->employee_id ?? $user->id;
             $divId = $user->employee?->division_id ?? $user->division_id ?? null;
@@ -65,7 +79,6 @@ class InternshipController extends Controller
             });
         }
 
-        // Scope for intern/employee: only see own record
         if (in_array(strtolower((string) $user->role), ['intern', 'employee'], true)) {
             $query->where('employee_id', $user->id);
         }
@@ -96,9 +109,28 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Create Internship directly
-     */
+    #[OA\Post(
+        path: '/internships',
+        summary: 'Buat Program Magang Baru',
+        description: 'Mendaftarkan program magang baru.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['institution', 'major', 'start_date', 'end_date'],
+                properties: [
+                    new OA\Property(property: 'institution', type: 'string', example: 'Universitas Indonesia'),
+                    new OA\Property(property: 'major', type: 'string', example: 'Teknik Informatika'),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-10-01'),
+                    new OA\Property(property: 'end_date', type: 'string', format: 'date', example: '2026-12-31')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Program magang berhasil dibuat')
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -136,9 +168,19 @@ class InternshipController extends Controller
         }
     }
 
-    /**
-     * Get single internship details with activities, reports, and evaluations
-     */
+    #[OA\Get(
+        path: '/internships/{id}',
+        summary: 'Detail Program Magang',
+        description: 'Mendapatkan rincian program magang, aktivitas, laporan, dan evaluasi.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail magang ditemukan')
+        ]
+    )]
     public function show(int $id): JsonResponse
     {
         $user = Auth::user();
@@ -151,7 +193,6 @@ class InternshipController extends Controller
             return response()->json(['status' => 'error', 'message' => 'Data magang tidak ditemukan.'], 404);
         }
 
-        // Check privacy / policy view
         $policy = app(\App\Policies\InternshipPolicy::class);
         if (!$policy->view($user, $internship)) {
             return response()->json(['status' => 'error', 'message' => 'Unauthorized access to internship details.'], 403);
@@ -163,9 +204,19 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Update internship
-     */
+    #[OA\Put(
+        path: '/internships/{id}',
+        summary: 'Perbarui Data Magang',
+        description: 'Memperbarui data program magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Data magang berhasil diperbarui')
+        ]
+    )]
     public function update(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -218,9 +269,29 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Convert Candidate to Intern
-     */
+    #[OA\Post(
+        path: '/internships/convert-candidate',
+        summary: 'Konversi Kandidat ke Pemagang',
+        description: 'Mengonversi kandidat pelamar menjadi peserta magang resmi.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['candidate_id', 'institution', 'major', 'start_date', 'end_date'],
+                properties: [
+                    new OA\Property(property: 'candidate_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'institution', type: 'string', example: 'Universitas Indonesia'),
+                    new OA\Property(property: 'major', type: 'string', example: 'Teknik Informatika'),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-10-01'),
+                    new OA\Property(property: 'end_date', type: 'string', format: 'date', example: '2026-12-31')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kandidat berhasil dikonversi menjadi Pemagang')
+        ]
+    )]
     public function convertCandidate(Request $request): JsonResponse
     {
         $user = Auth::user();
@@ -260,9 +331,28 @@ class InternshipController extends Controller
         }
     }
 
-    /**
-     * Assign Mentor
-     */
+    #[OA\Post(
+        path: '/internships/{id}/assign-mentor',
+        summary: 'Tugaskan Mentor Magang',
+        description: 'Menugaskan pembimbing/mentor untuk pemagang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['mentor_id'],
+                properties: [
+                    new OA\Property(property: 'mentor_id', type: 'integer', example: 1)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Mentor berhasil ditugaskan')
+        ]
+    )]
     public function assignMentor(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -291,9 +381,19 @@ class InternshipController extends Controller
         }
     }
 
-    /**
-     * Activate Internship
-     */
+    #[OA\Post(
+        path: '/internships/{id}/activate',
+        summary: 'Aktifkan Status Magang',
+        description: 'Mengubah status program magang menjadi AKTIF.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Program magang berhasil diaktifkan')
+        ]
+    )]
     public function activate(int $id): JsonResponse
     {
         $user = Auth::user();
@@ -315,9 +415,19 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Complete Internship
-     */
+    #[OA\Post(
+        path: '/internships/{id}/complete',
+        summary: 'Selesaikan Program Magang',
+        description: 'Menyelesaikan status magang dan memverifikasi pengembalian aset inventaris.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Program magang berhasil diselesaikan')
+        ]
+    )]
     public function complete(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -345,9 +455,19 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * List Daily Activities
-     */
+    #[OA\Get(
+        path: '/internships/{id}/activities',
+        summary: 'Daftar Aktivitas Harian Magang',
+        description: 'Mendapatkan log aktivitas harian anak magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar aktivitas berhasil diambil')
+        ]
+    )]
     public function activities(int $id): JsonResponse
     {
         $user = Auth::user();
@@ -369,9 +489,30 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Log Daily Activity
-     */
+    #[OA\Post(
+        path: '/internships/{id}/activities',
+        summary: 'Catat Aktivitas Harian Magang',
+        description: 'Menambahkan laporan aktivitas pekerjaan harian.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['activity_date', 'title', 'description'],
+                properties: [
+                    new OA\Property(property: 'activity_date', type: 'string', format: 'date', example: '2026-09-17'),
+                    new OA\Property(property: 'title', type: 'string', example: 'Belajar Swagger OpenAPI PHP 8'),
+                    new OA\Property(property: 'description', type: 'string', example: 'Menulis anotasi OpenAPI di controller Laravel')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Aktivitas harian berhasil dicatat')
+        ]
+    )]
     public function storeActivity(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -405,9 +546,29 @@ class InternshipController extends Controller
         ], 201);
     }
 
-    /**
-     * Review Daily Activity
-     */
+    #[OA\Put(
+        path: '/internships/activities/{activityId}/review',
+        summary: 'Verifikasi Aktivitas Harian (Mentor)',
+        description: 'Mentor melakukan verifikasi/review aktivitas harian magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'activityId', in: 'path', description: 'ID Aktivitas Harian', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['status'],
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'REVIEWED'),
+                    new OA\Property(property: 'mentor_notes', type: 'string', example: 'Pekerjaan sudah sesuai dengan instruksi')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Aktivitas harian berhasil diverifikasi')
+        ]
+    )]
     public function reviewActivity(Request $request, int $activityId): JsonResponse
     {
         $user = Auth::user();
@@ -435,9 +596,19 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * List Reports
-     */
+    #[OA\Get(
+        path: '/internships/{id}/reports',
+        summary: 'Daftar Laporan Magang',
+        description: 'Mendapatkan daftar laporan bulanan/akhir magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar laporan berhasil diambil')
+        ]
+    )]
     public function reports(int $id): JsonResponse
     {
         $user = Auth::user();
@@ -459,9 +630,30 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Submit Report
-     */
+    #[OA\Post(
+        path: '/internships/{id}/reports',
+        summary: 'Kirim Laporan Magang',
+        description: 'Mengirimkan laporan bulanan/akhir magang ke mentor.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['report_type', 'title', 'summary'],
+                properties: [
+                    new OA\Property(property: 'report_type', type: 'string', example: 'MONTHLY'),
+                    new OA\Property(property: 'title', type: 'string', example: 'Laporan Bulanan September'),
+                    new OA\Property(property: 'summary', type: 'string', example: 'Ringkasan hasil proyek bulan ini')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Laporan magang berhasil dikirimkan')
+        ]
+    )]
     public function storeReport(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();
@@ -495,9 +687,29 @@ class InternshipController extends Controller
         ], 201);
     }
 
-    /**
-     * Review Report
-     */
+    #[OA\Put(
+        path: '/internships/reports/{reportId}/review',
+        summary: 'Review Laporan Magang (Mentor)',
+        description: 'Tinjauan persetujuan laporan magang oleh mentor.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'reportId', in: 'path', description: 'ID Laporan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['status'],
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'APPROVED'),
+                    new OA\Property(property: 'mentor_notes', type: 'string', example: 'Laporan sangat baik')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Laporan magang berhasil ditinjau')
+        ]
+    )]
     public function reviewReport(Request $request, int $reportId): JsonResponse
     {
         $user = Auth::user();
@@ -525,9 +737,19 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * List Evaluations
-     */
+    #[OA\Get(
+        path: '/internships/{id}/evaluations',
+        summary: 'Daftar Evaluasi Penilaian Magang',
+        description: 'Mendapatkan nilai evaluasi tengah/akhir magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar evaluasi berhasil diambil')
+        ]
+    )]
     public function evaluations(int $id): JsonResponse
     {
         $user = Auth::user();
@@ -549,9 +771,31 @@ class InternshipController extends Controller
         ]);
     }
 
-    /**
-     * Record Evaluation
-     */
+    #[OA\Post(
+        path: '/internships/{id}/evaluations',
+        summary: 'Simpan Evaluasi Penilaian Magang',
+        description: 'Mengisi skor penilaian evaluasi peserta magang.',
+        tags: ['Internship Management'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Magang', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['evaluation_type', 'discipline_score', 'communication_score', 'technical_score', 'initiative_score', 'teamwork_score', 'attendance_score', 'task_completion_score', 'professionalism_score', 'final_recommendation'],
+                properties: [
+                    new OA\Property(property: 'evaluation_type', type: 'string', example: 'FINAL'),
+                    new OA\Property(property: 'discipline_score', type: 'integer', example: 90),
+                    new OA\Property(property: 'technical_score', type: 'integer', example: 88),
+                    new OA\Property(property: 'final_recommendation', type: 'string', example: 'HIRE_AS_EMPLOYEE')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Evaluasi penilaian magang berhasil disimpan')
+        ]
+    )]
     public function storeEvaluation(Request $request, int $id): JsonResponse
     {
         $user = Auth::user();

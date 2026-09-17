@@ -16,8 +16,9 @@ class BiometricStatus extends Model
         'has_fingerprint',
         'fingerprint_enrolled',
         'card_enrolled',
-        'biometric_template',
     ];
+
+    protected $hidden = ['biometric_template'];
 
     protected $casts = [
         'has_fingerprint' => 'boolean',
