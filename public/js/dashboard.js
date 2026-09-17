@@ -1352,6 +1352,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
     if (tabId === 'systemStatusTab') loadSystemHealth();
+    if (tabId === 'systemAccountsTab') loadAccounts();
 }
 
 // ==========================================
@@ -1560,6 +1561,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadEmployees();
     loadAccessLogs();
     loadActivityLogs();
+    checkMustChangePassword();
 
     // Initialize Real-time SSE connection
     initLiveAccessStream();
@@ -7711,3 +7713,173 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
+
+// ==========================================
+// System Accounts & Password Reset Controller
+// ==========================================
+async function checkMustChangePassword() {
+    try {
+        const res = await apiFetch('/auth/me');
+        if (res.status === 'success' && res.data && res.data.must_change_password) {
+            openModal('forceChangePasswordModal');
+        }
+    } catch (err) {
+        console.error('Failed to check user password status:', err);
+    }
+}
+
+async function loadAccounts() {
+    const tbody = document.getElementById('systemAccountsTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = `
+        <tr>
+            <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                <div class="spinner"></div> Memuat daftar akun sistem...
+            </td>
+        </tr>
+    `;
+
+    try {
+        const res = await apiFetch('/accounts');
+        if (res.status !== 'success' || !Array.isArray(res.data) || res.data.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                        Tidak ada akun sistem terdaftar.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        tbody.innerHTML = res.data.map(acc => {
+            const empInfo = acc.employee ? `<br><small style="color: var(--text-dim);">[${escapeHtml(acc.employee.employee_code)}] ${escapeHtml(acc.employee.name)}</small>` : '';
+            const roleBadgeClass = acc.role === 'super_admin' ? 'badge-primary' : 'badge-secondary';
+            const statusBadge = acc.must_change_password
+                ? `<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">⚠️ Wajib Ganti</span>`
+                : `<span class="badge" style="background: rgba(16, 185, 129, 0.2); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.4);">Normal</span>`;
+
+            return `
+                <tr>
+                    <td>#${acc.id}</td>
+                    <td>
+                        <strong>${escapeHtml(acc.name)}</strong><br>
+                        <span style="font-size: 0.83rem; color: var(--text-muted);">${escapeHtml(acc.email)}</span>
+                        ${empInfo}
+                    </td>
+                    <td><span class="badge ${roleBadgeClass}">${escapeHtml(acc.role)}</span></td>
+                    <td>${escapeHtml(acc.assigned_building || 'Semua Gedung (Global)')}</td>
+                    <td>${statusBadge}</td>
+                    <td style="text-align: right;">
+                        <button type="button" class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.78rem;" onclick="triggerResetAccountPassword(${acc.id}, '${escapeHtml(acc.email)}')">
+                            🔑 Reset
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (err) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">
+                    Gagal memuat daftar akun sistem: ${escapeHtml(err.message)}
+                </td>
+            </tr>
+        `;
+    }
+}
+
+async function triggerResetAccountPassword(accountId, email) {
+    if (!confirm(`Apakah Anda yakin ingin me-reset password untuk akun ${email}?\n\nPassword sementara akan di-generate dan SELURUH sesi/token login aktif milik pengguna ini akan dicabut seketika.`)) {
+        return;
+    }
+
+    try {
+        showToast('Me-reset password akun...', 'info');
+        const res = await apiFetch(`/accounts/${accountId}/password`, {
+            method: 'PATCH',
+        });
+
+        if (res.status === 'success' && res.data) {
+            const targetEmailEl = document.getElementById('resetTargetEmail');
+            const tempPassEl = document.getElementById('tempPasswordDisplay');
+            if (targetEmailEl) targetEmailEl.textContent = res.data.email || email;
+            if (tempPassEl) tempPassEl.textContent = res.data.temporary_password;
+
+            openModal('resetPasswordModal');
+            loadAccounts();
+            showToast('Password akun berhasil di-reset!', 'success');
+        }
+    } catch (err) {
+        showToast(`Gagal me-reset password: ${err.message}`, 'error');
+    }
+}
+
+function copyTempPassword() {
+    const el = document.getElementById('tempPasswordDisplay');
+    if (!el || !el.textContent) return;
+    navigator.clipboard.writeText(el.textContent).then(() => {
+        showToast('Password sementara telah disalin ke clipboard!', 'success');
+    }).catch(() => {
+        showToast('Gagal menyalin password', 'error');
+    });
+}
+
+async function submitForcePasswordChange(event) {
+    event.preventDefault();
+    const currentPassword = document.getElementById('forceCurrentPassword')?.value;
+    const newPassword = document.getElementById('forceNewPassword')?.value;
+    const newPasswordConfirmation = document.getElementById('forceNewPasswordConfirmation')?.value;
+
+    if (!currentPassword || !newPassword || !newPasswordConfirmation) {
+        showToast('Semua bidang input wajib diisi.', 'error');
+        return;
+    }
+
+    if (newPassword !== newPasswordConfirmation) {
+        showToast('Konfirmasi password baru tidak cocok.', 'error');
+        return;
+    }
+
+    if (newPassword.length < 8) {
+        showToast('Password baru minimal harus 8 karakter.', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('btnSubmitForcePasswordChange');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = 'Menyimpan...';
+    }
+
+    try {
+        const res = await apiFetch('/auth/change-password', {
+            method: 'POST',
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+                new_password_confirmation: newPasswordConfirmation,
+            }),
+        });
+
+        if (res.status === 'success') {
+            showToast('Password Anda berhasil diperbarui!', 'success');
+            closeModal('forceChangePasswordModal');
+            document.getElementById('forceChangePasswordForm')?.reset();
+        }
+    } catch (err) {
+        showToast(`Gagal memperbarui password: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = 'Simpan & Lanjutkan';
+        }
+    }
+}
+
+window.checkMustChangePassword = checkMustChangePassword;
+window.loadAccounts = loadAccounts;
+window.triggerResetAccountPassword = triggerResetAccountPassword;
+window.copyTempPassword = copyTempPassword;
+window.submitForcePasswordChange = submitForcePasswordChange;
+

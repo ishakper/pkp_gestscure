@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AccountController;
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AdminAccessLogController;
 use App\Http\Controllers\Api\V1\AdminDoorController;
@@ -33,10 +34,17 @@ Route::prefix('v1')->group(function () {
             Route::get('/me', [AuthController::class, 'me']);
             Route::post('/logout', [AuthController::class, 'logout']);
             Route::post('/device-token', [AuthController::class, 'issueDeviceToken']);
+            Route::post('/change-password', [AuthController::class, 'changePassword']);
         });
+
+        // System Accounts Endpoints
+        Route::get('/accounts', [AccountController::class, 'index']);
+        Route::patch('/accounts/{id}/password', [AccountController::class, 'resetPassword']);
 
         // UserManagement Pillar
         Route::prefix('user-management')->group(function () {
+            Route::get('/accounts', [AccountController::class, 'index']);
+            Route::patch('/accounts/{id}/password', [AccountController::class, 'resetPassword']);
             Route::get('/users', [EmployeeController::class, 'index']);
             Route::get('/employees', [EmployeeController::class, 'index']); // Spec alias
             Route::get('/doors-lookup', [AdminDoorController::class, 'lookup']);

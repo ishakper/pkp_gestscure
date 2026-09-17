@@ -98,6 +98,7 @@ class AuthController extends Controller
                     'email' => $admin->email,
                     'role' => $admin->role,
                     'assigned_building' => $admin->assigned_building,
+                    'must_change_password' => (bool)$admin->must_change_password,
                 ],
             ],
         ]);
@@ -220,6 +221,7 @@ class AuthController extends Controller
                 'email' => $admin->email,
                 'role' => $admin->role,
                 'assigned_building' => $admin->assigned_building,
+                'must_change_password' => (bool)$admin->must_change_password,
             ],
         ]);
     }
@@ -253,6 +255,68 @@ class AuthController extends Controller
         return response()->json([
             'status' => 'success',
             'message' => 'Logout berhasil',
+        ]);
+    }
+
+    #[OA\Post(
+        path: '/auth/change-password',
+        summary: 'Ganti Password Pengguna',
+        description: 'Mengganti password pengguna aktif dan mereset status must_change_password menjadi false.',
+        tags: ['Auth'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['current_password', 'new_password', 'new_password_confirmation'],
+                properties: [
+                    new OA\Property(property: 'current_password', type: 'string', format: 'password'),
+                    new OA\Property(property: 'new_password', type: 'string', format: 'password'),
+                    new OA\Property(property: 'new_password_confirmation', type: 'string', format: 'password')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Password berhasil diperbarui'
+            ),
+            new OA\Response(
+                response: 422,
+                description: 'Validasi gagal / Password lama tidak sesuai'
+            )
+        ]
+    )]
+    public function changePassword(Request $request)
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $admin = $request->user();
+
+        if (!Hash::check($request->current_password, $admin->password)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Password lama/sementara yang Anda masukkan tidak sesuai.',
+            ], 422);
+        }
+
+        $admin->password = Hash::make($request->new_password);
+        $admin->must_change_password = false;
+        $admin->save();
+
+        ActivityLog::create([
+            'admin_id' => $admin->id,
+            'action' => 'password_changed',
+            'description' => "Admin {$admin->name} ({$admin->email}) successfully updated their password.",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'Password Anda berhasil diperbarui.',
         ]);
     }
 }

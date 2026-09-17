@@ -2065,21 +2065,40 @@
         </div>
     </section>
 
-    <!-- TAB: AKUN SISTEM (PLACEHOLDER) -->
+    <!-- TAB: AKUN SISTEM -->
     <section id="systemAccountsTab" class="tab-content">
-        <div class="section-header">
+        <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;">
             <div>
-                <h2 class="section-title">👤 Akun Sistem</h2>
-                <p class="section-desc">Manajemen akun pengguna sistem, hak akses portal, dan kredensial administrasi.</p>
+                <h2 class="section-title">👤 Akun Sistem & Akses Portal</h2>
+                <p class="section-desc">Manajemen akun pengguna sistem, peran administrator, status password, dan reset kredensial portal.</p>
+            </div>
+            <div>
+                <button class="btn-secondary" onclick="loadAccounts(); showToast('Memperbarui daftar akun...', 'info');">
+                    🔄 Refresh Akun
+                </button>
             </div>
         </div>
-        <div class="table-container" style="padding: 3.5rem 2rem; text-align: center; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem;">
-            <div style="font-size: 3.5rem; margin-bottom: 1rem;">👤</div>
-            <h3 style="color: var(--text-main); margin-bottom: 0.5rem; font-size: 1.25rem;">Modul Akun Sistem dalam Pengembangan</h3>
-            <p style="color: var(--text-muted); max-width: 520px; margin: 0 auto 1.5rem; font-size: 0.9rem; line-height: 1.6;">
-                Fitur manajemen akun administrator, role assignment, dan reset kredensial portal akan tersedia pada fase berikutnya.
-            </p>
-            <span class="badge-warning" style="padding: 0.5rem 1.25rem; font-size: 0.85rem; border-radius: 2rem;">Fase Implementasi Berikutnya</span>
+        
+        <div class="table-container" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; overflow: hidden;">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th style="width: 60px;">ID</th>
+                        <th>Pengguna / Email</th>
+                        <th>Role</th>
+                        <th>Gedung Ditetapkan</th>
+                        <th>Status Password</th>
+                        <th style="text-align: right; width: 140px;">Aksi</th>
+                    </tr>
+                </thead>
+                <tbody id="systemAccountsTableBody">
+                    <tr>
+                        <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                            <div class="spinner"></div> Memuat daftar akun sistem...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
         </div>
     </section>
 
@@ -4313,6 +4332,70 @@
         </form>
     </div>
 </div>
+
+<!-- MODAL: RESET PASSWORD RESULT -->
+<div class="modal-overlay" id="resetPasswordModal">
+    <div class="modal-card" style="max-width: 480px;">
+        <div class="modal-header">
+            <h3 class="modal-title" style="color: var(--primary);">🔑 Reset Password Akun</h3>
+            <button class="modal-close-btn" onclick="closeModal('resetPasswordModal')">✖</button>
+        </div>
+        <div class="modal-body" style="padding: 1.5rem;">
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
+                Password sementara telah berhasil di-generate untuk akun <strong id="resetTargetEmail" style="color: var(--primary);">--</strong>.
+            </p>
+            <div style="background: rgba(15, 23, 42, 0.8); border: 1px dashed var(--primary); border-radius: 0.75rem; padding: 1.25rem; text-align: center; margin-bottom: 1.25rem;">
+                <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem;">Password Sementara (Temporary Password)</div>
+                <div id="tempPasswordDisplay" style="font-family: monospace; font-size: 1.5rem; font-weight: 700; color: #38bdf8; letter-spacing: 0.1em; word-break: break-all;">--</div>
+                <button type="button" class="btn-secondary" style="margin-top: 0.75rem; padding: 0.4rem 0.9rem; font-size: 0.8rem;" onclick="copyTempPassword()">
+                    📋 Salin Password
+                </button>
+            </div>
+            <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 0.75rem; padding: 0.9rem; color: #fbbf24; font-size: 0.82rem; line-height: 1.5;">
+                ⚠️ <strong>PENTING:</strong> Bagikan password sementara ini kepada pengguna melalui saluran aman. Pengguna akan diwajibkan mengganti password baru saat login berikutnya. SELURUH token/sesi aktif milik pengguna ini telah dicabut secara otomatis.
+            </div>
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.5rem; display: flex; justify-content: flex-end;">
+            <button type="button" class="btn-primary" onclick="closeModal('resetPasswordModal')">Selesai</button>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: FORCED CHANGE PASSWORD -->
+<div class="modal-overlay" id="forceChangePasswordModal" style="z-index: 9999;">
+    <div class="modal-card" style="max-width: 480px;">
+        <div class="modal-header" style="border-bottom: 1px solid rgba(245, 158, 11, 0.3);">
+            <h3 class="modal-title" style="color: #fbbf24;">🔐 Wajib Ganti Password</h3>
+        </div>
+        <form id="forceChangePasswordForm" onsubmit="submitForcePasswordChange(event)">
+            <div class="modal-body" style="padding: 1.5rem;">
+                <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 0.75rem; padding: 1rem; color: #fbbf24; font-size: 0.85rem; line-height: 1.5; margin-bottom: 1.25rem;">
+                    ⚠️ Password akun Anda telah di-reset oleh Administrator. Anda wajib menetapkan password baru untuk dapat melanjutkan penggunaan sistem.
+                </div>
+                
+                <div class="form-row" style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem;">Password Lama / Sementara *</label>
+                    <input type="password" id="forceCurrentPassword" class="form-control" required placeholder="Masukkan password sementara Anda" style="width: 100%; padding: 0.7rem 0.9rem; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-main);">
+                </div>
+
+                <div class="form-row" style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem;">Password Baru (Minimal 8 Karakter) *</label>
+                    <input type="password" id="forceNewPassword" class="form-control" required minlength="8" placeholder="Masukkan password baru" style="width: 100%; padding: 0.7rem 0.9rem; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-main);">
+                </div>
+
+                <div class="form-row" style="margin-bottom: 0.5rem;">
+                    <label style="display: block; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.4rem;">Konfirmasi Password Baru *</label>
+                    <input type="password" id="forceNewPasswordConfirmation" class="form-control" required minlength="8" placeholder="Ulangi password baru" style="width: 100%; padding: 0.7rem 0.9rem; background: var(--sidebar-bg); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-main);">
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 1rem 1.5rem; display: flex; justify-content: flex-end;">
+                <button type="submit" class="btn-primary" id="btnSubmitForcePasswordChange" style="background: linear-gradient(135deg, #f59e0b, #d97706); border-color: #d97706;">Simpan & Lanjutkan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+
 
 <!-- MODAL 2: ADD / EDIT EMPLOYEE MODAL -->
 <div class="modal-overlay" id="employeeModal">
