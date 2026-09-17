@@ -1145,5 +1145,3 @@ XML;
         $this->assertEquals(1, AccessLog::where('door_id', $this->door->id)->count());
     }
 }
-
-
