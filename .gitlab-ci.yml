@@ -166,13 +166,13 @@ deploy_production:
   needs:
     - security_hygiene
   script:
-    - echo "=== PKP SecureGate Production Deployment Gate ==="
-    - echo "CI_REMOTE_DEPLOY_CONFIGURED=NO"
-    - echo "[BLOCKED] Automated CI remote deployment is guarded and intentionally disabled."
-    - echo "Target: 10.10.8.124 (infra) / Web Container: pkp_securegate_app."
-    - echo "Reason: Automated CI SSH key isolation and host key validation are not configured."
-    - echo "Supported deployment path: Execute deploy/sync_to_server.sh from an authorized maintenance workstation."
-    - exit 1
+    - 'echo "=== PKP SecureGate Production Deployment Gate ==="'
+    - 'echo "CI_REMOTE_DEPLOY_CONFIGURED=NO"'
+    - 'echo "[BLOCKED] Automated CI remote deployment is guarded and intentionally disabled."'
+    - 'echo "Target: 10.10.8.124 (infra) | Container: pkp_securegate_app"'
+    - 'echo "Reason: Automated CI SSH key isolation and host key validation are not configured."'
+    - 'echo "Supported deployment path: Execute deploy/sync_to_server.sh from an authorized maintenance workstation."'
+    - 'exit 1'
 
 # ------------------------------------------------------------------------------
 # Stage 6: Post-Deployment Verification (Manual)
