@@ -199,8 +199,9 @@ class HikvisionEventIngestionService
             }
 
             $rawVerify = $eventData['verify_method'] ?? ($eventData['verification_method'] ?? null);
-            $verifyMethod = $rawVerify !== null
-                ? HikvisionPayloadParser::normalizeVerificationMethod($rawVerify)
+            $normalizedVerify = $rawVerify !== null ? HikvisionPayloadParser::normalizeVerificationMethod($rawVerify) : 'UNKNOWN';
+            $verifyMethod = $normalizedVerify !== 'UNKNOWN'
+                ? $normalizedVerify
                 : (!empty($cardNo) ? 'Card' : 'UNKNOWN');
 
             if (isset($eventData['access_status'])) {
@@ -305,9 +306,12 @@ class HikvisionEventIngestionService
         // 7. Record Observability Metrics (Fail-open, Privacy-Safe, Low-Cardinality)
         try {
             $isAlarm = in_array($eventType, ['DOOR_FORCED_OPEN', 'TAMPER_ALARM', 'DURESS_FINGERPRINT'], true);
+            $isHardwareAlarm = in_array($eventType, ['DOOR_FORCED_OPEN', 'TAMPER_ALARM'], true);
             $hasIdentityBearing = !empty($rawUser) || !empty($cardNo);
 
-            if ($isAlarm && !$hasIdentityBearing) {
+            if ($isHardwareAlarm) {
+                $eventClass = 'system_alarm';
+            } elseif ($isAlarm && !$hasIdentityBearing) {
                 $eventClass = 'system_alarm';
             } elseif ($employee) {
                 $eventClass = 'mapped_identity';
@@ -340,9 +344,9 @@ class HikvisionEventIngestionService
                 'mapping_result' => $mappingResult,
                 'decision' => $decisionNorm,
                 'ingestion_status' => 'processed',
-                'unknown_identity' => (!$employee && $hasIdentityBearing),
-                'unmapped_person' => (!empty($rawUser) && !$employee),
-                'unmapped_card' => (!empty($cardNo) && !$employee),
+                'unknown_identity' => (!$employee && $hasIdentityBearing && !$isHardwareAlarm),
+                'unmapped_person' => (!empty($rawUser) && !$employee && !$isHardwareAlarm),
+                'unmapped_card' => (!empty($cardNo) && !$employee && !$isHardwareAlarm),
             ]);
         } catch (\Throwable $e) {
             Log::warning('[HikvisionEventIngestion] Metrics recording skipped', [
