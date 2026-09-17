@@ -59,26 +59,26 @@ class ImportWorkbookCandidatesCommand extends Command
             'candidates_total' => $totalCandidates,
             'existing_matched' => 0,
             'new_candidates' => 0,
-            'with_card' => 0,
-            'without_card' => 0,
+            'card_presence_known' => 0,
+            'card_presence_absent' => 0,
+            'card_identities_verified' => 0,
             'credentials_created' => 0,
-            'credentials_skipped' => 0,
             'card_types' => [],
         ];
 
         $actions = [];
 
         foreach ($candidates as $c) {
-            $pNo = $c['person_no'];
+            $pNo = (string) $c['person_no'];
             $name = $c['name'];
-            $hasCard = $c['has_card'];
+            $hasCard = (bool) $c['has_card'];
             $cardType = $c['card_type'];
 
             if ($hasCard) {
-                $stats['with_card']++;
+                $stats['card_presence_known']++;
                 $stats['card_types'][$cardType] = ($stats['card_types'][$cardType] ?? 0) + 1;
             } else {
-                $stats['without_card']++;
+                $stats['card_presence_absent']++;
             }
 
             $existing = $existingEmployees->get($pNo);
@@ -88,7 +88,7 @@ class ImportWorkbookCandidatesCommand extends Command
                     'person_no' => $pNo,
                     'name' => $existing->name,
                     'action' => 'MATCHED_EXISTING',
-                    'card_registered' => $hasCard ? 'YES' : 'NO',
+                    'card_present' => $hasCard ? 'YES' : 'NO',
                     'card_type' => $cardType,
                 ];
             } else {
@@ -97,7 +97,7 @@ class ImportWorkbookCandidatesCommand extends Command
                     'person_no' => $pNo,
                     'name' => $name,
                     'action' => 'CREATE_CANDIDATE',
-                    'card_registered' => $hasCard ? 'YES' : 'NO',
+                    'card_present' => $hasCard ? 'YES' : 'NO',
                     'card_type' => $cardType,
                 ];
             }
@@ -115,44 +115,26 @@ class ImportWorkbookCandidatesCommand extends Command
                 foreach ($candidates as $c) {
                     $pNo = (string) $c['person_no'];
                     $displayName = $c['name'];
-                    $hasCard = (bool) $c['has_card'];
-                    $cardType = $c['card_type'];
 
                     $emp = $existingEmployees->get($pNo);
                     if (!$emp) {
-                        $emp = Employee::create([
+                        Employee::create([
                             'employee_id' => $pNo,
                             'hikvision_employee_no' => $pNo,
                             'name' => $displayName !== '' ? $displayName : "Physical User {$pNo}",
-                            'nik' => 'NIK-' . $pNo,
+                            // Schema requires NOT NULL UNIQUE NIK: generate explicit technical placeholder
+                            // prefixed with UNVERIFIED-NIK- to avoid fabricating a real business identity.
+                            'nik' => 'UNVERIFIED-NIK-' . $pNo,
+                            // Schema requires NOT NULL department: store explicit unassigned flag
                             'department' => 'UNASSIGNED',
                             'role' => 'staff',
                             'role_jabatan' => 'Staff',
                             'employment_status' => 'ACTIVE',
                         ]);
                     }
-
-                    if ($hasCard) {
-                        $credNumber = 'CRD-CARD-' . $pNo;
-                        $existingCred = CredentialRecord::where('credential_number', $credNumber)->first();
-
-                        if (!$existingCred) {
-                            CredentialRecord::create([
-                                'credential_number' => $credNumber,
-                                'employee_id' => $emp->id,
-                                'credential_type' => 'CARD',
-                                'card_number' => null, // Column D is masked/not exposed
-                                'masked_identifier' => 'CARD-REGISTERED-' . $pNo,
-                                'external_reference' => $cardType,
-                                'biometric_status' => 'NOT_ENROLLED',
-                                'status' => 'ACTIVE',
-                                'notes' => 'Imported from offline backup workbook. Card Type: ' . $cardType,
-                            ]);
-                            $stats['credentials_created']++;
-                        } else {
-                            $stats['credentials_skipped']++;
-                        }
-                    }
+                    // NOTE: CredentialRecord is NOT synthesized here because the backup workbook
+                    // contains NO actual or masked card identifier (Column D is 'Not exposed').
+                    // Physical card registration must be verified against live device or physical badge.
                 }
             });
         } catch (\Throwable $e) {
@@ -161,7 +143,7 @@ class ImportWorkbookCandidatesCommand extends Command
         }
 
         $this->displaySummary($stats, $actions, false);
-        $this->info("Workbook candidates and credentials successfully imported.");
+        $this->info("Workbook candidate identities successfully reconciled without fabricating card records.");
         return Command::SUCCESS;
     }
 
@@ -256,10 +238,10 @@ class ImportWorkbookCandidatesCommand extends Command
                 ['Total Candidates in Workbook', $stats['candidates_total']],
                 ['Matched Existing Employees', $stats['existing_matched']],
                 ['New Candidates To Create', $stats['new_candidates']],
-                ['Candidates with Card', $stats['with_card']],
-                ['Candidates without Card', $stats['without_card']],
-                ['Credentials Created', $stats['credentials_created']],
-                ['Credentials Skipped (Existing)', $stats['credentials_skipped']],
+                ['Card Presence Known (Flag=YES)', $stats['card_presence_known']],
+                ['Card Presence Absent (Flag=NO)', $stats['card_presence_absent']],
+                ['Card Identities Verified', $stats['card_identities_verified']],
+                ['Credentials Synthesized / Created', $stats['credentials_created']],
                 ['Card Types Distribution', json_encode($stats['card_types'])],
             ]
         );
@@ -270,12 +252,12 @@ class ImportWorkbookCandidatesCommand extends Command
                 $a['person_no'],
                 $a['name'],
                 $a['action'],
-                $a['card_registered'],
+                $a['card_present'],
                 $a['card_type'],
             ];
         }, $sample);
 
         $this->line("\nSample Candidate Actions (First 15 of " . count($actions) . "):");
-        $this->table(['Person No', 'Name', 'Action', 'Card Registered', 'Card Type'], $sampleRows);
+        $this->table(['Person No', 'Name', 'Action', 'Card Present', 'Card Type'], $sampleRows);
     }
 }

@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\AccessLog;
+use App\Models\AccessRequest;
 use App\Models\CredentialRecord;
+use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -151,11 +153,12 @@ class WorkbookCandidateImportTest extends TestCase
         $this->assertSame($initialCredCount, CredentialRecord::count());
     }
 
-    public function test_successful_import_creates_employees_and_credentials(): void
+    public function test_successful_import_creates_identities_without_fake_card_records(): void
     {
         $rows = [
             ['person_no' => '00001', 'name' => 'Leading Zero Person', 'has_card' => true, 'card_type' => 'normalCard'],
             ['person_no' => 'L261072', 'name' => 'Prefix Alpha Person', 'has_card' => true, 'card_type' => 'superCard'],
+            ['person_no' => 'l221038', 'name' => 'Lower Case Person', 'has_card' => true, 'card_type' => 'normalCard'],
             ['person_no' => 'CARDLESS-99', 'name' => 'Cardless Person', 'has_card' => false, 'card_type' => '-'],
             ['person_no' => 'UNNAMED-01', 'name' => '-', 'has_card' => true, 'card_type' => 'patrolCard'],
         ];
@@ -164,15 +167,15 @@ class WorkbookCandidateImportTest extends TestCase
         $this->artisan('securegate:import-workbook-candidates', [
             '--source' => $path,
         ])
-            ->expectsOutputToContain('successfully imported')
+            ->expectsOutputToContain('successfully reconciled')
             ->assertExitCode(0);
 
-        // Employee checks
+        // Exact person_no, leading zeros, and case preserved
         $this->assertDatabaseHas('employees', [
             'employee_id' => '00001',
             'hikvision_employee_no' => '00001',
             'name' => 'Leading Zero Person',
-            'nik' => 'NIK-00001',
+            'nik' => 'UNVERIFIED-NIK-00001',
             'department' => 'UNASSIGNED',
             'employment_status' => 'ACTIVE',
         ]);
@@ -181,55 +184,56 @@ class WorkbookCandidateImportTest extends TestCase
             'employee_id' => 'L261072',
             'hikvision_employee_no' => 'L261072',
             'name' => 'Prefix Alpha Person',
-            'nik' => 'NIK-L261072',
+            'nik' => 'UNVERIFIED-NIK-L261072',
+        ]);
+
+        $this->assertDatabaseHas('employees', [
+            'employee_id' => 'l221038',
+            'hikvision_employee_no' => 'l221038',
+            'name' => 'Lower Case Person',
+            'nik' => 'UNVERIFIED-NIK-l221038',
         ]);
 
         $this->assertDatabaseHas('employees', [
             'employee_id' => 'UNNAMED-01',
-            'name' => '-', // display name preserved as given
-            'nik' => 'NIK-UNNAMED-01',
+            'name' => '-',
+            'nik' => 'UNVERIFIED-NIK-UNNAMED-01',
         ]);
 
-        // Credential checks
-        $this->assertDatabaseHas('credential_records', [
-            'credential_number' => 'CRD-CARD-00001',
-            'credential_type' => 'CARD',
-            'card_number' => null,
-            'masked_identifier' => 'CARD-REGISTERED-00001',
-            'external_reference' => 'normalCard',
-            'status' => 'ACTIVE',
-        ]);
-
-        $this->assertDatabaseHas('credential_records', [
-            'credential_number' => 'CRD-CARD-L261072',
-            'external_reference' => 'superCard',
-        ]);
-
-        // Cardless candidate must not have credential record
-        $this->assertDatabaseMissing('credential_records', [
-            'credential_number' => 'CRD-CARD-CARDLESS-99',
-        ]);
-
-        $this->assertSame(4, Employee::count());
-        $this->assertSame(3, CredentialRecord::count());
+        // Zero fake credential records created
+        $this->assertSame(0, CredentialRecord::count());
+        $this->assertSame(5, Employee::count());
     }
 
-    public function test_existing_employees_are_not_duplicated(): void
+    public function test_existing_dummy_employees_and_side_effects_preserved(): void
     {
-        // Pre-create employee
+        // Pre-create existing employee and relations
         $emp = Employee::create([
-            'employee_id' => 'USR-EXISTING',
-            'hikvision_employee_no' => 'USR-EXISTING',
-            'name' => 'Existing Company Staff',
-            'nik' => 'NIK-EXISTING-999',
+            'employee_id' => 'USR-1001',
+            'hikvision_employee_no' => 'USR-1001',
+            'name' => 'Existing Dummy Staff',
+            'nik' => 'NIK-882101',
             'department' => 'Engineering',
             'role' => 'staff',
-            'status' => 'active',
+            'role_jabatan' => 'Staff',
             'employment_status' => 'ACTIVE',
         ]);
 
+        $door = Door::create([
+            'door_id' => 'DOOR-B',
+            'name' => 'Ruang Staff',
+            'location' => 'Lantai 1 Kantor Pusat',
+            'ip_address' => '192.168.90.15',
+            'device_type' => 'standalone',
+            'status' => 'online',
+        ]);
+
+        $initialAccessLogCount = AccessLog::count();
+        $initialAccessRequestCount = AccessRequest::count();
+
         $rows = [
-            ['person_no' => 'USR-EXISTING', 'name' => 'Different Name From Device', 'has_card' => true, 'card_type' => 'normalCard'],
+            ['person_no' => 'USR-1001', 'name' => 'Different Device Name', 'has_card' => true, 'card_type' => 'normalCard'],
+            ['person_no' => 'NEW-001', 'name' => 'New Candidate', 'has_card' => true, 'card_type' => 'normalCard'],
         ];
         $path = $this->createMockWorkbook($rows);
 
@@ -238,29 +242,49 @@ class WorkbookCandidateImportTest extends TestCase
         ])
             ->assertExitCode(0);
 
-        // Preserves original company name and department
+        // Preserves original name and department for existing employee
         $emp->refresh();
-        $this->assertSame('Existing Company Staff', $emp->name);
+        $this->assertSame('Existing Dummy Staff', $emp->name);
         $this->assertSame('Engineering', $emp->department);
-        $this->assertSame(1, Employee::count());
+        $this->assertSame('NIK-882101', $emp->nik);
 
-        // Credential linked to existing employee
-        $this->assertDatabaseHas('credential_records', [
-            'credential_number' => 'CRD-CARD-USR-EXISTING',
-            'employee_id' => $emp->id,
-        ]);
+        // Zero changes to access assignments, logs, or credentials
+        $this->assertSame($initialAccessLogCount, AccessLog::count());
+        $this->assertSame($initialAccessRequestCount, AccessRequest::count());
+        $this->assertSame(0, CredentialRecord::count());
+        $this->assertSame(2, Employee::count());
+    }
+
+    public function test_second_run_is_idempotent(): void
+    {
+        $rows = [
+            ['person_no' => '00001', 'name' => 'Alice Test', 'has_card' => true, 'card_type' => 'normalCard'],
+            ['person_no' => '00002', 'name' => 'Bob Test', 'has_card' => false, 'card_type' => '-'],
+        ];
+        $path = $this->createMockWorkbook($rows);
+
+        // Run 1
+        $this->artisan('securegate:import-workbook-candidates', ['--source' => $path])
+            ->assertExitCode(0);
+        $this->assertSame(2, Employee::count());
+
+        // Run 2 (Idempotent)
+        $this->artisan('securegate:import-workbook-candidates', ['--source' => $path])
+            ->assertExitCode(0);
+        $this->assertSame(2, Employee::count());
+        $this->assertSame(0, CredentialRecord::count());
     }
 
     public function test_transaction_rolls_back_on_integrity_violation(): void
     {
-        // Pre-create conflicting NIK belonging to different employee
+        // Pre-create conflicting NIK
         Employee::create([
             'employee_id' => 'OTHER-EMP',
-            'nik' => 'NIK-CONFLICT-01',
+            'nik' => 'UNVERIFIED-NIK-CONFLICT-01',
             'name' => 'Other Person',
             'department' => 'HR',
             'role' => 'staff',
-            'status' => 'active',
+            'role_jabatan' => 'Staff',
             'employment_status' => 'ACTIVE',
         ]);
 
