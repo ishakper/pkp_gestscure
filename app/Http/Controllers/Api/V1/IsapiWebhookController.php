@@ -9,6 +9,7 @@ use App\Models\Employee;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use OpenApi\Attributes as OA;
 
 class IsapiWebhookController extends Controller
 {
@@ -16,6 +17,31 @@ class IsapiWebhookController extends Controller
      * Browser simulation is authenticated as an administrator and never uses
      * (or exposes) a physical terminal's webhook secret.
      */
+    #[OA\Post(
+        path: '/api/v1/doors/simulate-event',
+        summary: 'Simulasi Event Pintu ISAPI (Administrator Test)',
+        description: 'Endpoint simulasi pengiriman event notifikasi tap kartu/alarm dari antarmuka web oleh administrator.',
+        security: [['sanctum' => []]],
+        tags: ['Access Webhooks'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001'),
+                    new OA\Property(property: 'card_number', type: 'string', example: '10029384'),
+                    new OA\Property(property: 'employee_id', type: 'string', example: 'EMP001'),
+                    new OA\Property(property: 'event_type', type: 'string', example: 'STANDARD_TAP'),
+                    new OA\Property(property: 'verify_method', type: 'string', example: 'Card'),
+                    new OA\Property(property: 'direction', type: 'string', enum: ['ENTRY', 'EXIT', 'UNKNOWN'], example: 'ENTRY'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Simulasi event berhasil diproses'),
+            new OA\Response(response: 403, description: 'Akses ditolak (Hanya SuperAdmin)'),
+            new OA\Response(response: 404, description: 'Perangkat terminal pintu tidak terdaftar')
+        ]
+    )]
     public function simulateEvent(Request $request)
     {
         if (!$request->user()?->isSuperAdmin()) {
@@ -25,6 +51,41 @@ class IsapiWebhookController extends Controller
         return $this->handleEventNotification($request);
     }
 
+    #[OA\Post(
+        path: '/api/v1/isapi/event-notification',
+        summary: 'Webhook Receiver Event Hikvision ISAPI Terminal',
+        description: 'Endpoint penerima event notifikasi fisik dari perangkat terminal pintu Hikvision ISAPI (tap kartu, sidik jari, tamper alarm, door forced open, duress).',
+        security: [],
+        tags: ['Access Webhooks'],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: [
+                new OA\MediaType(
+                    mediaType: 'application/json',
+                    schema: new OA\Schema(
+                        properties: [
+                            new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001'),
+                            new OA\Property(property: 'device_ip', type: 'string', example: '192.168.1.100'),
+                            new OA\Property(property: 'card_number', type: 'string', example: '10029384'),
+                            new OA\Property(property: 'employee_id', type: 'string', example: 'EMP001'),
+                            new OA\Property(property: 'event_type', type: 'string', example: 'STANDARD_TAP'),
+                            new OA\Property(property: 'verify_method', type: 'string', example: 'Card'),
+                            new OA\Property(property: 'timestamp', type: 'string', format: 'date-time', example: '2026-03-17T10:00:00Z'),
+                            new OA\Property(property: 'direction', type: 'string', example: 'ENTRY'),
+                        ]
+                    )
+                ),
+                new OA\MediaType(
+                    mediaType: 'application/xml',
+                    schema: new OA\Schema(type: 'string', description: 'Raw ISAPI EventNotification XML payload')
+                )
+            ]
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Event berhasil dicatat atau duplikat diabaikan'),
+            new OA\Response(response: 404, description: 'Perangkat terminal pintu tidak terdaftar')
+        ]
+    )]
     public function handleEventNotification(Request $request)
     {
         // 0. Detect and Parse Raw Payload using the centralized parser

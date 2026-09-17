@@ -8,15 +8,32 @@ use App\Services\AttendanceRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use OpenApi\Attributes as OA;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class AttendanceRequestController extends Controller
 {
     public function __construct(protected AttendanceRequestService $service) {}
 
-    /**
-     * List attendance requests with filtering and role scoping.
-     */
+    #[OA\Get(
+        path: '/api/v1/attendance-requests',
+        summary: 'Daftar Pengajuan Izin / Cuti / WFH / Sakit',
+        description: 'Mengambil daftar permohonan ketidakhadiran (WFH, Cuti, Izin, Sakit) dengan filter status dan peran.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'status', in: 'query', description: 'Filter status (SUBMITTED, APPROVED, REJECTED, CANCELLED)', required: false, schema: new OA\Schema(type: 'string', example: 'SUBMITTED')),
+            new OA\Parameter(name: 'request_type', in: 'query', description: 'Tipe pengajuan (WFH, LEAVE, PERMISSION, SICK)', required: false, schema: new OA\Schema(type: 'string', example: 'WFH')),
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+            new OA\Parameter(name: 'from_date', in: 'query', description: 'Tanggal awal', required: false, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-03-01')),
+            new OA\Parameter(name: 'to_date', in: 'query', description: 'Tanggal akhir', required: false, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-03-31')),
+            new OA\Parameter(name: 'per_page', in: 'query', description: 'Jumlah item per halaman', required: false, schema: new OA\Schema(type: 'integer', example: 15)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar permohonan berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -76,9 +93,38 @@ class AttendanceRequestController extends Controller
         ]);
     }
 
-    /**
-     * Submit a new attendance request.
-     */
+    #[OA\Post(
+        path: '/api/v1/attendance-requests',
+        summary: 'Ajukan Permohonan Absensi / Cuti / WFH',
+        description: 'Membuat pengajuan permohonan izin, cuti, WFH, atau sakit beserta lampiran pendukung.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['request_type', 'start_date', 'reason'],
+                    properties: [
+                        new OA\Property(property: 'request_type', type: 'string', enum: ['WFH', 'LEAVE', 'PERMISSION', 'SICK'], example: 'WFH'),
+                        new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-03-20'),
+                        new OA\Property(property: 'end_date', type: 'string', format: 'date', example: '2026-03-21'),
+                        new OA\Property(property: 'reason', type: 'string', example: 'Kerja WFH karena ada perbaikan jaringan di rumah'),
+                        new OA\Property(property: 'category', type: 'string', example: 'Annual Leave'),
+                        new OA\Property(property: 'start_time', type: 'string', example: '08:00'),
+                        new OA\Property(property: 'end_time', type: 'string', example: '17:00'),
+                        new OA\Property(property: 'employee_id', type: 'integer', example: 10),
+                        new OA\Property(property: 'attachment', type: 'string', format: 'binary', description: 'Surat dokter / berkas pendukung (PDF/JPG/PNG)'),
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Permohonan absensi berhasil diajukan'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Validasi gagal')
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -113,9 +159,20 @@ class AttendanceRequestController extends Controller
         ], 201);
     }
 
-    /**
-     * Show attendance request details.
-     */
+    #[OA\Get(
+        path: '/api/v1/attendance-requests/{id}',
+        summary: 'Detail Pengajuan Absensi',
+        description: 'Mengambil detail permohonan absensi berdasarkan ID.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail permohonan berhasil ditemukan'),
+            new OA\Response(response: 404, description: 'Permohonan tidak ditemukan')
+        ]
+    )]
     public function show(int $id): JsonResponse
     {
         $actor = Auth::user();
@@ -133,9 +190,28 @@ class AttendanceRequestController extends Controller
         ]);
     }
 
-    /**
-     * Approve an attendance request.
-     */
+    #[OA\Post(
+        path: '/api/v1/attendance-requests/{id}/approve',
+        summary: 'Setujui Pengajuan Absensi',
+        description: 'Menyetujui permohonan absensi oleh atasan / HRD.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'notes', type: 'string', example: 'Disetujui untuk WFH'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Permohonan absensi berhasil disetujui'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function approve(int $id, Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -152,9 +228,30 @@ class AttendanceRequestController extends Controller
         ]);
     }
 
-    /**
-     * Reject an attendance request.
-     */
+    #[OA\Post(
+        path: '/api/v1/attendance-requests/{id}/reject',
+        summary: 'Tolak Pengajuan Absensi',
+        description: 'Menolak permohonan absensi beserta catatan alasan penolakan.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Jadwal shift sangat padat pada tanggal tersebut'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Permohonan absensi berhasil ditolak'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Alasan penolakan wajib diisi')
+        ]
+    )]
     public function reject(int $id, Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -175,9 +272,28 @@ class AttendanceRequestController extends Controller
         ]);
     }
 
-    /**
-     * Cancel an attendance request.
-     */
+    #[OA\Post(
+        path: '/api/v1/attendance-requests/{id}/cancel',
+        summary: 'Batalkan Pengajuan Absensi',
+        description: 'Membatalkan permohonan absensi yang belum diproses.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Batal karena jadwal kerja berubah'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Permohonan absensi berhasil dibatalkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function cancel(int $id, Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -194,9 +310,21 @@ class AttendanceRequestController extends Controller
         ]);
     }
 
-    /**
-     * Securely download supporting attachment.
-     */
+    #[OA\Get(
+        path: '/api/v1/attendance-requests/{id}/attachment',
+        summary: 'Unduh Berkas Lampiran Pengajuan Absensi',
+        description: 'Mengunduh atau stream berkas surat/dokumen pendukung pengajuan absensi secara aman.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Pengajuan', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Berkas lampiran dikembalikan (Binary stream)'),
+            new OA\Response(response: 403, description: 'Akses ditolak / tidak memiliki kewenangan'),
+            new OA\Response(response: 404, description: 'Berkas lampiran tidak ditemukan')
+        ]
+    )]
     public function attachment(int $id): BinaryFileResponse|JsonResponse
     {
         $actor = Auth::user();
@@ -207,9 +335,17 @@ class AttendanceRequestController extends Controller
         return $this->service->downloadAttachment($actor, $req);
     }
 
-    /**
-     * Get request metrics.
-     */
+    #[OA\Get(
+        path: '/api/v1/attendance-requests/metrics',
+        summary: 'Metrik & Statistik Pengajuan Absensi',
+        description: 'Mengambil statistik jumlah permohonan absensi berdasarkan status dan tipe.',
+        security: [['sanctum' => []]],
+        tags: ['Attendance Requests'],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik pengajuan absensi berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function metrics(): JsonResponse
     {
         $actor = Auth::user();

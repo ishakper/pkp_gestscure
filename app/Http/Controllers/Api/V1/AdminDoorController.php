@@ -11,10 +11,39 @@ use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
 class AdminDoorController extends Controller
 {
     public function __construct(private readonly PortalAccess $portalAccess) {}
+
+    #[OA\Get(
+        path: '/admin/dashboard-metrics',
+        summary: 'Metrik Dashboard Admin',
+        description: 'Mendapatkan statistik ringkas pengguna, kredensial, perangkat pintu aktif, dan log akses.',
+        tags: ['System Status'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Metrik berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            'totalUsers' => 50,
+                            'activeEmployees' => 48,
+                            'registeredCredentials' => 45,
+                            'activeDoors' => 4,
+                            'totalDoors' => 5,
+                            'grantedLogs' => 120,
+                            'deniedLogs' => 3
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function metrics(Request $request)
     {
         $admin = $request->user();
@@ -53,6 +82,34 @@ class AdminDoorController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/admin/doors',
+        summary: 'Daftar Perangkat Pintu',
+        description: 'Mendapatkan daftar perangkat pintu beserta status koneksi dan statistik akses.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Daftar pintu berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'total_doors' => 1,
+                        'data' => [
+                            [
+                                'id' => 1,
+                                'door_id' => 'DOOR-001',
+                                'name' => 'Pintu Utama Server',
+                                'location' => 'Gedung Utama Lt 1',
+                                'connection_status' => 'online'
+                            ]
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function index(Request $request)
     {
         $admin = $request->user();
@@ -71,6 +128,27 @@ class AdminDoorController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/user-management/doors-lookup',
+        summary: 'Lookup Daftar Pintu',
+        description: 'Mendapatkan daftar sederhana pintu untuk opsi dropdown.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Lookup pintu berhasil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            ['id' => 1, 'door_id' => 'DOOR-001', 'name' => 'Pintu Utama Server', 'location' => 'Gedung Utama Lt 1']
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function lookup(Request $request)
     {
         $admin = $request->user();
@@ -95,6 +173,31 @@ class AdminDoorController extends Controller
         ]);
     }
 
+    #[OA\Patch(
+        path: '/admin/doors/{door_id}/status',
+        summary: 'Override Status Maintenance Pintu',
+        description: 'Mengaktifkan atau menonaktifkan mode maintenance manual pada pintu.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Kode Pintu', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['is_manual_override'],
+                properties: [
+                    new OA\Property(property: 'is_manual_override', type: 'boolean', example: true)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Mode maintenance berhasil diperbarui'
+            )
+        ]
+    )]
     public function overrideStatus(Request $request, $door_id)
     {
         $door = Door::where('door_id', $door_id)->firstOrFail();
@@ -125,9 +228,30 @@ class AdminDoorController extends Controller
         ]);
     }
 
-    /**
-     * Remote unlock door via physical Hikvision ISAPI command
-     */
+    #[OA\Post(
+        path: '/admin/doors/{door_id}/open',
+        summary: 'Remote Unlock Pintu (ISAPI Command)',
+        description: 'Mengirimkan perintah remote unlock fisik ke terminal pintu via Hikvision ISAPI.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Kode Pintu', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Pintu berhasil dibuka via remote',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Pintu Pintu Utama Server (DOOR-001) berhasil dibuka via remote.'
+                    ]
+                )
+            ),
+            new OA\Response(response: 409, description: 'Remote unlock diblokir: terminal belum online'),
+            new OA\Response(response: 500, description: 'Gagal membuka pintu (Device unreachable)')
+        ]
+    )]
     public function openDoor(Request $request, $door_id, HikvisionIsapiService $isapiService)
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
@@ -172,9 +296,30 @@ class AdminDoorController extends Controller
         ], 200);
     }
 
-    /**
-     * Audit single physical terminal connectivity via ISAPI getDeviceStatus
-     */
+    #[OA\Post(
+        path: '/admin/doors/{door_id}/check-connection',
+        summary: 'Cek Koneksi Terminal Pintu',
+        description: 'Melakukan verifikasi audit koneksi fisik terminal pintu tunggal via ISAPI.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Kode Pintu', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Hasil audit koneksi pintu',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Terminal pintu DOOR-001 (192.168.1.100) terhubung secara aktif.',
+                        'is_online' => true,
+                        'health_status' => 'online'
+                    ]
+                )
+            )
+        ]
+    )]
     public function checkConnection(Request $request, $door_id, HikvisionIsapiService $isapiService)
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
@@ -215,9 +360,27 @@ class AdminDoorController extends Controller
         ]);
     }
 
-    /**
-     * Audit all physical terminals connectivity via ISAPI
-     */
+    #[OA\Post(
+        path: '/admin/doors/check-all',
+        summary: 'Cek Koneksi Semua Terminal Pintu',
+        description: 'Melakukan audit konektivitas masal untuk seluruh terminal pintu.',
+        tags: ['Door'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Audit seluruh terminal pintu selesai',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Audit konektivitas selesai untuk 4 terminal pintu.',
+                        'total_audited' => 4,
+                        'online_count' => 4
+                    ]
+                )
+            )
+        ]
+    )]
     public function checkAllConnections(Request $request, HikvisionIsapiService $isapiService)
     {
         abort_unless($this->portalAccess->can($request->user(), 'device.manage'), 403);
@@ -264,9 +427,30 @@ class AdminDoorController extends Controller
         ]);
     }
 
-    /**
-     * Get system health monitoring metrics safely without leaking credentials
-     */
+    #[OA\Get(
+        path: '/admin/system-health',
+        summary: 'Kesehatan & Monitoring Sistem',
+        description: 'Mendapatkan status kesehatan aplikasi, database, konektivitas pintu, antrean, dan event log.',
+        tags: ['System Status'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Metrik kesehatan sistem berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            'app' => ['status' => 'healthy', 'app_name' => 'PKP SecureGate'],
+                            'database' => ['connected' => true, 'status' => 'connected'],
+                            'doors' => ['total' => 4, 'online' => 4]
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: 'Unauthorized access')
+        ]
+    )]
     public function systemHealth(Request $request)
     {
         $user = $request->user();

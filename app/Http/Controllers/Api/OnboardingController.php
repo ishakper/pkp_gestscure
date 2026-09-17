@@ -16,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use OpenApi\Attributes as OA;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class OnboardingController extends Controller
@@ -31,9 +32,16 @@ class OnboardingController extends Controller
         $this->portalAccess = $portalAccess;
     }
 
-    /**
-     * Dashboard Metrics
-     */
+    #[OA\Get(
+        path: '/onboarding/metrics',
+        summary: 'Metrik Onboarding & Kontrak',
+        description: 'Mendapatkan statistik ringkas progres onboarding karyawan baru dan masa berlaku kontrak.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik onboarding berhasil diambil')
+        ]
+    )]
     public function metrics(Request $request): JsonResponse
     {
         $admin = $request->user();
@@ -47,9 +55,16 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * List Onboarding Cases
-     */
+    #[OA\Get(
+        path: '/onboarding/cases',
+        summary: 'Daftar Kasus Onboarding',
+        description: 'Mendapatkan daftar penanganan kasus onboarding karyawan baru / magang.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kasus onboarding berhasil diambil')
+        ]
+    )]
     public function cases(Request $request): JsonResponse
     {
         $admin = $request->user();
@@ -59,7 +74,6 @@ class OnboardingController extends Controller
 
         $query = OnboardingCase::with(['employee', 'internship', 'supervisor', 'division', 'position', 'tasks']);
 
-        // Scoping for Supervisor
         if (strtolower((string) $admin->role) === 'supervisor') {
             $supervisorEmpId = $admin->employee_id ?? $admin->id;
             $query->where(function ($q) use ($supervisorEmpId, $admin) {
@@ -108,9 +122,27 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Create Onboarding Case
-     */
+    #[OA\Post(
+        path: '/onboarding/cases',
+        summary: 'Buat Kasus Onboarding Baru',
+        description: 'Mendaftarkan kasus onboarding baru beserta 10 checklist standar.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['start_date', 'employment_type'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-10-01'),
+                    new OA\Property(property: 'employment_type', type: 'string', example: 'PERMANENT')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kasus onboarding berhasil dibuat')
+        ]
+    )]
     public function storeCase(Request $request): JsonResponse
     {
         $admin = $request->user();
@@ -141,9 +173,19 @@ class OnboardingController extends Controller
         ], 201);
     }
 
-    /**
-     * Show Onboarding Case Detail
-     */
+    #[OA\Get(
+        path: '/onboarding/cases/{id}',
+        summary: 'Detail Kasus Onboarding',
+        description: 'Mendapatkan rincian checklist tugas onboarding karyawan.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kasus Onboarding', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail kasus onboarding ditemukan')
+        ]
+    )]
     public function showCase(Request $request, int $id): JsonResponse
     {
         $case = OnboardingCase::with(['employee', 'internship', 'candidate', 'supervisor', 'division', 'position', 'tasks.completedByAdmin'])->findOrFail($id);
@@ -159,9 +201,29 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Update Onboarding Task
-     */
+    #[OA\Put(
+        path: '/onboarding/tasks/{id}',
+        summary: 'Perbarui Status Checklist Task Onboarding',
+        description: 'Memperbarui status tugas checklist (COMPLETED | BLOCKED | IN_PROGRESS).',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Task Onboarding', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['status'],
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'COMPLETED'),
+                    new OA\Property(property: 'notes', type: 'string', example: 'Serah terima laptop dan kartu identitas selesai')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Tugas onboarding berhasil diperbarui')
+        ]
+    )]
     public function updateTask(Request $request, int $taskId): JsonResponse
     {
         $task = OnboardingTask::with('onboardingCase')->findOrFail($taskId);
@@ -186,9 +248,19 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Complete Onboarding Case
-     */
+    #[OA\Post(
+        path: '/onboarding/cases/{id}/complete',
+        summary: 'Selesaikan Kasus Onboarding',
+        description: 'Menyelesaikan seluruh tahapan proses onboarding karyawan.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kasus Onboarding', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Kasus onboarding telah resmi diselesaikan')
+        ]
+    )]
     public function completeCase(Request $request, int $id): JsonResponse
     {
         $case = OnboardingCase::findOrFail($id);
@@ -206,9 +278,16 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * List Contracts
-     */
+    #[OA\Get(
+        path: '/onboarding/contracts',
+        summary: 'Daftar Kontrak Kerja',
+        description: 'Mendapatkan daftar kontrak kerja karyawan.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kontrak kerja berhasil diambil')
+        ]
+    )]
     public function contracts(Request $request): JsonResponse
     {
         $admin = $request->user();
@@ -260,9 +339,28 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Create Contract
-     */
+    #[OA\Post(
+        path: '/onboarding/contracts',
+        summary: 'Buat Kontrak Kerja Baru',
+        description: 'Menerbitkan kontrak kerja baru.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['contract_type', 'title', 'start_date'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'contract_type', type: 'string', example: 'PERMANENT'),
+                    new OA\Property(property: 'title', type: 'string', example: 'Surat Perjanjian Kerja Waktu Tidak Tertentu'),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-10-01')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kontrak kerja berhasil dibuat')
+        ]
+    )]
     public function storeContract(Request $request): JsonResponse
     {
         if (!$this->policy->manageContract($request->user())) {
@@ -295,9 +393,19 @@ class OnboardingController extends Controller
         ], 201);
     }
 
-    /**
-     * Update Contract
-     */
+    #[OA\Put(
+        path: '/onboarding/contracts/{id}',
+        summary: 'Perbarui Kontrak Kerja',
+        description: 'Memperbarui data dan status kontrak kerja.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kontrak', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Kontrak kerja berhasil diperbarui')
+        ]
+    )]
     public function updateContract(Request $request, int $id): JsonResponse
     {
         if (!$this->policy->manageContract($request->user())) {
@@ -326,9 +434,16 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * List Secure Documents
-     */
+    #[OA\Get(
+        path: '/onboarding/documents',
+        summary: 'Daftar Dokumen Karyawan',
+        description: 'Mendapatkan registri dokumen karyawan dengan kontrol hak akses aman.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar dokumen berhasil diambil')
+        ]
+    )]
     public function documents(Request $request): JsonResponse
     {
         $admin = $request->user();
@@ -338,9 +453,7 @@ class OnboardingController extends Controller
 
         $query = EmployeeDocument::with(['employee', 'internship', 'contract', 'uploadedByAdmin', 'verifiedByAdmin']);
 
-        // Scope check for Supervisor
         if (strtolower((string) $admin->role) === 'supervisor') {
-            // Cannot view confidential medical or identity documents
             $query->whereNotIn('category', ['MEDICAL', 'IDENTITY']);
             $supervisorEmpId = $admin->employee_id ?? $admin->id;
             $query->where(function ($q) use ($supervisorEmpId, $admin) {
@@ -396,9 +509,16 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Upload Private Document
-     */
+    #[OA\Post(
+        path: '/onboarding/documents',
+        summary: 'Unggah Dokumen Karyawan (Private Storage)',
+        description: 'Mengunggah berkas dokumen resmi karyawan ke direktori terlindungi.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 201, description: 'Dokumen berhasil diunggah')
+        ]
+    )]
     public function uploadDocument(Request $request): JsonResponse
     {
         if (!$this->policy->manageDocument($request->user())) {
@@ -430,9 +550,28 @@ class OnboardingController extends Controller
         ], 201);
     }
 
-    /**
-     * Verify Document
-     */
+    #[OA\Put(
+        path: '/onboarding/documents/{id}/verify',
+        summary: 'Verifikasi Dokumen Karyawan',
+        description: 'Memverifikasi atau menolak dokumen karyawan.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Dokumen', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['status'],
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'VERIFIED')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Dokumen berhasil diverifikasi')
+        ]
+    )]
     public function verifyDocument(Request $request, int $id): JsonResponse
     {
         if (!$this->portalAccess->can($request->user(), 'document.verify')) {
@@ -453,9 +592,19 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Secure Download Document
-     */
+    #[OA\Get(
+        path: '/onboarding/documents/{id}/download',
+        summary: 'Unduh Dokumen Aman',
+        description: 'Mengunduh berkas fisik dokumen dengan validasi otorisasi dan pencegahan path traversal.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Dokumen', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Stream download berkas dokumen')
+        ]
+    )]
     public function downloadDocument(Request $request, int $id): BinaryFileResponse|JsonResponse
     {
         $doc = EmployeeDocument::findOrFail($id);
@@ -471,7 +620,6 @@ class OnboardingController extends Controller
 
         $absolutePath = $disk->path($doc->file_path);
 
-        // Security check: ensure path is within storage directory to prevent path traversal
         $diskRoot = realpath($disk->path('')) ?: $disk->path('');
         $realFile = realpath($absolutePath) ?: $absolutePath;
         $normDiskRoot = rtrim(str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $diskRoot), DIRECTORY_SEPARATOR);
@@ -487,9 +635,19 @@ class OnboardingController extends Controller
         ]);
     }
 
-    /**
-     * Acknowledge Document
-     */
+    #[OA\Post(
+        path: '/onboarding/documents/{id}/acknowledge',
+        summary: 'Persetujuan / Acknowledgement Dokumen',
+        description: 'Mencatat tanda persetujuan dokumen oleh karyawan.',
+        tags: ['Onboarding & Contracts'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Dokumen', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Acknowledgement dokumen berhasil dicatat')
+        ]
+    )]
     public function acknowledgeDocument(Request $request, int $id): JsonResponse
     {
         $validated = $request->validate([

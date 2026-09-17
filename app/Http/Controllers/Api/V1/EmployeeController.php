@@ -14,11 +14,51 @@ use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Models\Employee;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
 class EmployeeController extends Controller
 {
     private const EMPLOYEE_FIELDS = ['employee_id','hikvision_employee_no','nik','name','email','phone','photo_path','card_no','department','role','role_jabatan','building_id','division_id','position_id','employment_type','employment_status','hire_date','supervisor_id'];
 
+    #[OA\Get(
+        path: '/user-management/employees',
+        summary: 'Daftar Karyawan / Pengguna',
+        description: 'Mendapatkan daftar karyawan dengan pencarian, filter gedung/divisi/posisi/pintu, dan paginasi.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'search', in: 'query', description: 'Cari nama, NIK, atau ID Karyawan', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'building_id', in: 'query', description: 'Filter ID Gedung', required: false, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'division_id', in: 'query', description: 'Filter ID Divisi', required: false, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'position_id', in: 'query', description: 'Filter ID Posisi', required: false, schema: new OA\Schema(type: 'integer')),
+            new OA\Parameter(name: 'door_id', in: 'query', description: 'Filter Hak Akses Pintu', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'page', in: 'query', description: 'Halaman paginasi', required: false, schema: new OA\Schema(type: 'integer', default: 1)),
+            new OA\Parameter(name: 'per_page', in: 'query', description: 'Jumlah data per halaman', required: false, schema: new OA\Schema(type: 'integer', default: 10))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Berhasil mengambil daftar karyawan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'pagination' => ['current_page' => 1, 'per_page' => 10, 'total_records' => 1, 'total_pages' => 1],
+                        'data' => [
+                            [
+                                'id' => 1,
+                                'employee_id' => 'USR-1001',
+                                'name' => 'Budi Santoso',
+                                'email' => 'budi.santoso@example.com',
+                                'phone' => '08123456789',
+                                'employment_status' => 'ACTIVE'
+                            ]
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 401, description: 'Unauthenticated')
+        ]
+    )]
     public function index(Request $request)
     {
         $admin = $request->user();
@@ -33,6 +73,47 @@ class EmployeeController extends Controller
         return response()->json(['status'=>'success','pagination'=>['current_page'=>$employees->currentPage(),'per_page'=>$employees->perPage(),'total_records'=>$employees->total(),'total_pages'=>$employees->lastPage()],'data'=>EmployeeResource::collection($employees)]);
     }
 
+    #[OA\Post(
+        path: '/user-management/employees',
+        summary: 'Tambah Karyawan Baru',
+        description: 'Membuat data induk karyawan baru beserta status biometrik awal dan alokasi pintu.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['name', 'email'],
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Budi Santoso'),
+                    new OA\Property(property: 'email', type: 'string', format: 'email', example: 'budi.santoso@example.com'),
+                    new OA\Property(property: 'nik', type: 'string', example: '3171012345670001'),
+                    new OA\Property(property: 'phone', type: 'string', example: '08123456789'),
+                    new OA\Property(property: 'card_no', type: 'string', example: 'CARD-99081'),
+                    new OA\Property(property: 'role', type: 'string', example: 'Staff'),
+                    new OA\Property(property: 'door_ids', type: 'array', items: new OA\Items(type: 'string'), example: ['DOOR-001'])
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 201,
+                description: 'Karyawan berhasil ditambahkan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Karyawan berhasil ditambahkan',
+                        'data' => [
+                            'id' => 1,
+                            'employee_id' => 'USR-1001',
+                            'name' => 'Budi Santoso',
+                            'email' => 'budi.santoso@example.com'
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: 'Validasi input gagal')
+        ]
+    )]
     public function store(StoreEmployeeRequest $request)
     {
         $this->authorize('create', Employee::class);
@@ -45,7 +126,6 @@ class EmployeeController extends Controller
         $values['employment_status']=$values['employment_status'] ?? 'ACTIVE';
         $employee=Employee::create($values);
         $hasFp=(bool)$request->input('fingerprint_enrolled',false); $cardEnrolled=!empty($employee->card_no)||(bool)$request->input('card_enrolled',false);
-        // The device retains biometric templates. This system stores enrollment state only.
         BiometricStatus::create(['employee_id'=>$employee->id,'has_fingerprint'=>$hasFp,'fingerprint_enrolled'=>$hasFp,'card_enrolled'=>$cardEnrolled,'biometric_template'=>null]);
         $this->assignInitialDoors($employee, $request->input('door_ids', []));
         $this->audit($request, 'create_employee', $employee, 'Created employee master record');
@@ -53,6 +133,37 @@ class EmployeeController extends Controller
     }
 
     protected function findEmployeeByIdentifier($id): Employee { return Employee::where('id',$id)->orWhere('employee_id',$id)->firstOrFail(); }
+
+    #[OA\Get(
+        path: '/user-management/employees/{id}/360',
+        summary: 'Profil 360 Karyawan',
+        description: 'Mendapatkan pandangan komprehensif data karyawan 360 (organisasi, akses pintu, aset, skill, dan log aktivitas).',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID (misal USR-1001)', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Berhasil mengambil profil 360',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            'employee' => ['id' => 1, 'employee_id' => 'USR-1001', 'name' => 'Budi Santoso'],
+                            'overview' => ['employment_status' => 'ACTIVE'],
+                            'access' => ['assigned_doors' => []],
+                            'skills' => [],
+                            'tasks' => [],
+                            'assets' => []
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 404, description: 'Karyawan tidak ditemukan')
+        ]
+    )]
     public function profile360(Request $request, $id)
     {
         $employee = $this->findEmployeeByIdentifier($id)->load([
@@ -160,8 +271,64 @@ class EmployeeController extends Controller
             'audit_summary'=>['access_log_count'=>$employee->accessLogs->count()]
         ]]);
     }
+
+    #[OA\Get(
+        path: '/user-management/employees/{id}',
+        summary: 'Detail Karyawan',
+        description: 'Mendapatkan detail karyawan spesifik berdasarkan ID.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Detail karyawan ditemukan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => ['id' => 1, 'employee_id' => 'USR-1001', 'name' => 'Budi Santoso']
+                    ]
+                )
+            ),
+            new OA\Response(response: 404, description: 'Karyawan tidak ditemukan')
+        ]
+    )]
     public function show($id) { $employee=$this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position']); $this->authorize('view',$employee); return response()->json(['status'=>'success','data'=>new EmployeeResource($employee)]); }
 
+    #[OA\Put(
+        path: '/user-management/employees/{id}',
+        summary: 'Perbarui Data Karyawan',
+        description: 'Memperbarui informasi data induk karyawan.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Budi Santoso Update'),
+                    new OA\Property(property: 'employment_status', type: 'string', example: 'ACTIVE')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Data karyawan berhasil diperbarui',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Data karyawan berhasil diperbarui'
+                    ]
+                )
+            ),
+            new OA\Response(response: 404, description: 'Karyawan tidak ditemukan')
+        ]
+    )]
     public function update(UpdateEmployeeRequest $request, $id)
     {
         $employee=$this->findEmployeeByIdentifier($id)->load('biometricStatus'); $this->authorize('update',$employee);
@@ -174,10 +341,89 @@ class EmployeeController extends Controller
         return response()->json(['status'=>'success','message'=>'Data karyawan berhasil diperbarui','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position']))]);
     }
 
+    #[OA\Delete(
+        path: '/user-management/employees/{id}',
+        summary: 'Nonaktifkan Karyawan',
+        description: 'Mengubah status karyawan menjadi INACTIVE dan mencabut semua hak akses pintu.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Karyawan berhasil dinonaktifkan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Karyawan dinonaktifkan; riwayat akses tetap tersimpan.'
+                    ]
+                )
+            )
+        ]
+    )]
     public function destroy(Request $request, $id) { $employee=$this->findEmployeeByIdentifier($id); $this->authorize('delete',$employee); $employee->update(['employment_status'=>'INACTIVE']); app(\App\Services\AccessProvisioningService::class)->revokeEmployeeAccess($employee, 'Karyawan dinonaktifkan', $request->user()); $this->audit($request,'deactivate_employee',$employee,'Marked employee inactive; historical access logs preserved'); return response()->json(['status'=>'success','message'=>'Karyawan dinonaktifkan; riwayat akses tetap tersimpan.']); }
 
+    #[OA\Post(
+        path: '/user-management/employees/{id}/door-access',
+        summary: 'Berikan Hak Akses Pintu',
+        description: 'Memberikan hak akses pintu spesifik kepada karyawan.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['door_id'],
+                properties: [
+                    new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Hak akses berhasil diberikan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Hak akses Pintu Utama Server berhasil diberikan. Sinkronisasi ke perangkat sedang diproses.',
+                        'data' => ['employee_id' => 'USR-1001', 'door_id' => 'DOOR-001', 'sync_status' => 'pending']
+                    ]
+                )
+            )
+        ]
+    )]
     public function assignDoorAccess(AssignDoorAccessRequest $request, $id) { $employee=$this->findEmployeeByIdentifier($id); $door=Door::where('door_id',$request->door_id)->orWhere('id',$request->door_id)->firstOrFail(); $this->authorize('assignDoor',[$employee,$door]); $assignment=DoorAssignment::updateOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>0]); SyncDoorAccessJob::dispatch($assignment->id); $this->audit($request,'assign_door_access',$employee,"Assigned door {$door->door_id}"); return response()->json(['status'=>'success','message'=>"Hak akses {$door->door_name} berhasil diberikan. Sinkronisasi ke perangkat sedang diproses.",'data'=>['employee_id'=>$employee->employee_id,'door_id'=>$door->door_id,'sync_status'=>$assignment->sync_status]]); }
+
+    #[OA\Delete(
+        path: '/user-management/employees/{id}/door-access/{door_id}',
+        summary: 'Cabut Hak Akses Pintu',
+        description: 'Mencabut hak akses pintu spesifik dari karyawan.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'ID Pintu', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Hak akses berhasil dicabut',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Hak akses Pintu Utama Server berhasil dicabut.'
+                    ]
+                )
+            )
+        ]
+    )]
     public function revokeDoorAccess(Request $request,$id,$door_id) { $employee=$this->findEmployeeByIdentifier($id); $door=Door::where('door_id',$door_id)->orWhere('id',$door_id)->firstOrFail(); $this->authorize('assignDoor',[$employee,$door]); DoorAssignment::where('employee_id',$employee->id)->where('door_id',$door->id)->delete(); $this->audit($request,'revoke_door_access',$employee,"Revoked door {$door->door_id}"); return response()->json(['status'=>'success','message'=>"Hak akses {$door->door_name} berhasil dicabut."]); }
+
     private function assignInitialDoors(Employee $employee,array $doorIds): void { foreach (Door::whereIn('door_id',$doorIds)->orWhereIn('id',$doorIds)->get() as $door) { $assignment=DoorAssignment::firstOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>0]); SyncDoorAccessJob::dispatch($assignment->id); } }
     private function audit(Request $request,string $action,Employee $employee,string $description): void { ActivityLog::create(['admin_id'=>$request->user()?->id,'action'=>$action,'subject_type'=>'Employee','subject_id'=>$employee->id,'description'=>$description.' ['.$employee->employee_id.']','timestamp'=>now()]); }
 }
