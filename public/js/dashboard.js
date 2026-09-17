@@ -4333,6 +4333,148 @@ async function revokeAllAccessForEmployeeModal() {
     }
 }
 
+// Card Enrollment Modal Functions
+async function openCardEnrollModal(empId) {
+    try {
+        const empRes = await apiFetch(`/user-management/users/${empId}`);
+        const employee = empRes && (empRes.data || empRes);
+        if (!employee) throw new Error('Karyawan tidak ditemukan');
+
+        const elId = document.getElementById('enrollModalEmpId');
+        const elName = document.getElementById('enrollModalEmpName');
+        const elCard = document.getElementById('enrollCardNumberInput');
+        const elNotes = document.getElementById('enrollNotesInput');
+
+        if (elId) elId.value = employee.id || employee.employee_id;
+        if (elName) elName.innerText = `${employee.name} (${employee.employee_id || employee.id})`;
+        if (elCard) elCard.value = employee.card_no || '';
+        if (elNotes) elNotes.value = '';
+
+        openModal('cardEnrollModal');
+    } catch (e) {
+        showToast(`Gagal membuka dialog enroll kartu: ${e.message}`, 'error');
+    }
+}
+
+async function submitCardEnrollment(event) {
+    event.preventDefault();
+    const empId = document.getElementById('enrollModalEmpId')?.value;
+    const cardNumber = document.getElementById('enrollCardNumberInput')?.value?.trim();
+    const notes = document.getElementById('enrollNotesInput')?.value?.trim();
+
+    if (!empId || !cardNumber) {
+        showToast('Nomor kartu wajib diisi.', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btnSubmitCardEnroll');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div> Mengirim...';
+    }
+
+    try {
+        const res = await apiFetch(`/user-management/employees/${empId}/enroll-card`, {
+            method: 'POST',
+            body: JSON.stringify({
+                card_number: cardNumber,
+                notes: notes
+            })
+        });
+
+        if (res && (res.status === 'success' || res.success)) {
+            showToast(res.message || `Kartu ${cardNumber} berhasil didaftarkan.`, 'success');
+            closeModal('cardEnrollModal');
+            if (typeof loadAccessMatrixData === 'function') await loadAccessMatrixData();
+            if (typeof loadCredentials === 'function') loadCredentials();
+            if (typeof loadEmployees === 'function') loadEmployees();
+            if (typeof loadAccessMetrics === 'function') loadAccessMetrics();
+        } else {
+            showToast(res.message || 'Gagal mendaftarkan kartu.', 'error');
+        }
+    } catch (e) {
+        showToast(`Gagal: ${e.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '💳 Daftarkan Kartu (ISAPI Sync)';
+        }
+    }
+}
+
+// Lost/Block Card Modal Functions
+async function openLostCardModal(empId, cardNo = '') {
+    try {
+        const empRes = await apiFetch(`/user-management/users/${empId}`);
+        const employee = empRes && (empRes.data || empRes);
+        if (!employee) throw new Error('Karyawan tidak ditemukan');
+
+        const elId = document.getElementById('lostModalEmpId');
+        const elName = document.getElementById('lostModalEmpName');
+        const elCard = document.getElementById('lostModalCardNo');
+        const elCardDisplay = document.getElementById('lostModalCardDisplay');
+        const elReason = document.getElementById('lostCardReasonInput');
+
+        const targetCard = cardNo || employee.card_no || 'Semua Kartu Terdaftar';
+
+        if (elId) elId.value = employee.id || employee.employee_id;
+        if (elName) elName.innerText = `${employee.name} (${employee.employee_id || employee.id}) • ${employee.department || '-'}`;
+        if (elCard) elCard.value = cardNo || employee.card_no || '';
+        if (elCardDisplay) elCardDisplay.innerText = targetCard;
+        if (elReason) elReason.value = '';
+
+        openModal('lostCardModal');
+    } catch (e) {
+        showToast(`Gagal membuka dialog blokir kartu: ${e.message}`, 'error');
+    }
+}
+
+async function submitBlockLostCard(event) {
+    event.preventDefault();
+    const empId = document.getElementById('lostModalEmpId')?.value;
+    const cardNo = document.getElementById('lostModalCardNo')?.value;
+    const reason = document.getElementById('lostCardReasonInput')?.value?.trim();
+
+    if (!empId || !reason) {
+        showToast('Alasan pemblokiran kartu wajib diisi.', 'warning');
+        return;
+    }
+
+    const btn = document.getElementById('btnSubmitBlockLostCard');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div> Memblokir Kartu...';
+    }
+
+    try {
+        const res = await apiFetch(`/user-management/employees/${empId}/block-lost-card`, {
+            method: 'POST',
+            body: JSON.stringify({
+                card_number: cardNo,
+                reason: reason
+            })
+        });
+
+        if (res && (res.status === 'success' || res.success)) {
+            showToast(res.message || 'Kartu berhasil diblokir dan seluruh akses pintu dicabut.', 'success');
+            closeModal('lostCardModal');
+            if (typeof loadAccessMatrixData === 'function') await loadAccessMatrixData();
+            if (typeof loadCredentials === 'function') loadCredentials();
+            if (typeof loadEmployees === 'function') loadEmployees();
+            if (typeof loadAccessMetrics === 'function') loadAccessMetrics();
+        } else {
+            showToast(res.message || 'Gagal memblokir kartu.', 'error');
+        }
+    } catch (e) {
+        showToast(`Gagal: ${e.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '🚨 Konfirmasi Blokir Kartu & Revoke Akses';
+        }
+    }
+}
+
 async function loadAccessMetrics() {
     try {
         const res = await apiFetch('/api/v1/access/metrics');

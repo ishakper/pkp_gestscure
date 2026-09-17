@@ -4241,6 +4241,79 @@
     </div>
 </div>
 
+<!-- MODAL 1C: CARD ENROLLMENT MODAL -->
+<div class="modal-overlay" id="cardEnrollModal">
+    <div class="modal-card" style="max-width: 520px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">💳 Registrasi / Enroll Kartu RFID Baru</h3>
+                <div style="font-size: 0.85rem; color: var(--primary); font-weight: 600; margin-top: 2px;" id="enrollModalEmpName">Nama Karyawan</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('cardEnrollModal')">✖</button>
+        </div>
+
+        <form id="cardEnrollForm" onsubmit="submitCardEnrollment(event)">
+            <input type="hidden" id="enrollModalEmpId">
+            <div style="margin-bottom: 1rem; background: rgba(56, 189, 248, 0.1); border: 1px solid rgba(56, 189, 248, 0.3); border-radius: 0.5rem; padding: 0.75rem; font-size: 0.8rem; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+                <span>ℹ️</span>
+                <div>Kartu RFID yang didaftarkan akan otomatis diterbitkan sebagai kredensial <code>ACTIVE</code> dan di-sync ke terminal pintu fisik.</div>
+            </div>
+
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nomor Kartu RFID (e.g. CARD-889900) *</label>
+                <input type="text" id="enrollCardNumberInput" class="form-control" placeholder="CARD-100234" required style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+            </div>
+
+            <div class="form-row" style="margin-bottom: 1.25rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Catatan / Keterangan Kartu</label>
+                <input type="text" id="enrollNotesInput" class="form-control" placeholder="Kartu Mifare 13.56MHz diterbitkan oleh HR" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('cardEnrollModal')">Batal</button>
+                <button type="submit" class="btn-primary" id="btnSubmitCardEnroll">
+                    💳 Daftarkan Kartu (ISAPI Sync)
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL 1D: LOST / BLOCK CARD CONFIRMATION MODAL -->
+<div class="modal-overlay" id="lostCardModal">
+    <div class="modal-card" style="max-width: 540px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" style="color: #f87171;">🚨 Blokir Kartu Hilang & Cabut Akses Pintu</h3>
+                <div style="font-size: 0.85rem; color: var(--text-muted);" id="lostModalEmpName">Nama Karyawan</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('lostCardModal')">✖</button>
+        </div>
+
+        <form id="lostCardForm" onsubmit="submitBlockLostCard(event)">
+            <input type="hidden" id="lostModalEmpId">
+            <input type="hidden" id="lostModalCardNo">
+
+            <div style="margin-bottom: 1.25rem; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 0.6rem; padding: 1rem; color: #f87171; font-size: 0.85rem; line-height: 1.5;">
+                ⚠️ <strong>Perhatian Keamanan:</strong><br>
+                Kartu <strong id="lostModalCardDisplay" style="color: #fff;">-</strong> akan diubah statusnya menjadi <span class="badge" style="background: rgba(239,68,68,0.3); color: #ef4444;">BLOCKED</span> secara permanen dan <strong>SEMUA hak akses pintu fisik</strong> karyawan ini akan dicabut seketika.
+            </div>
+
+            <div class="form-row" style="margin-bottom: 1.25rem;">
+                <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Alasan Pemblokiran Kartu *</label>
+                <textarea id="lostCardReasonInput" class="form-control" rows="3" placeholder="Contoh: Kartu dompet tertinggal di taksi / hilang di area luar kantor..." required style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;"></textarea>
+            </div>
+
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('lostCardModal')">Batal</button>
+                <button type="submit" class="btn-primary" id="btnSubmitBlockLostCard" style="background: #ef4444; border-color: #dc2626;">
+                    🚨 Konfirmasi Blokir Kartu & Revoke Akses
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- MODAL 2: ADD / EDIT EMPLOYEE MODAL -->
 <div class="modal-overlay" id="employeeModal">
     <div class="modal-card">

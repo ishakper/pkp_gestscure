@@ -60,6 +60,8 @@ Route::prefix('v1')->group(function () {
             Route::delete('/employees/{id}/door-access/{door_id}', [EmployeeController::class, 'revokeDoorAccess']);
             Route::post('/employees/{id}/sync-biometric', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncEmployeeBiometric']);
             Route::get('/employees/{id}/door-sync-status', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'getEmployeeSyncStatus']);
+            Route::post('/employees/{id}/enroll-card', [EmployeeController::class, 'enrollCard']);
+            Route::post('/employees/{id}/block-lost-card', [EmployeeController::class, 'blockLostCard']);
         });
 
         // Admin Pillar
