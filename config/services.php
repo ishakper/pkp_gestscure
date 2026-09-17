@@ -44,6 +44,8 @@ return [
         'device_secret' => env('ISAPI_DEVICE_SECRET'),
         'listener_ip' => env('HIKVISION_LISTENER_IP', '192.168.90.64'),
         'listener_port' => (int) env('HIKVISION_LISTENER_PORT', 8080),
+        'stream_max_event_age_seconds' => (int) env('HIKVISION_STREAM_MAX_EVENT_AGE_SECONDS', 120),
+        'stream_max_future_skew_seconds' => (int) env('HIKVISION_STREAM_MAX_FUTURE_SKEW_SECONDS', 300),
     ],
 
     'doors' => [
