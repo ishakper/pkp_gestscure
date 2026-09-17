@@ -40,8 +40,12 @@ php artisan route:clear || true
 php artisan view:clear || true
 
 # 6. Run Database Migrations
-echo "Running database migrations..."
-php artisan migrate --force
+if [ "${SKIP_MIGRATIONS:-false}" = "true" ]; then
+    echo "SKIP_MIGRATIONS=true: Skipping database migrations on container startup."
+else
+    echo "Running database migrations..."
+    php artisan migrate --force
+fi
 
 # 7. Cache Configurations, Routes, and Views for Production
 echo "Optimizing and caching Laravel configuration & routes..."
