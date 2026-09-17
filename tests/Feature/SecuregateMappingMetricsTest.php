@@ -262,11 +262,8 @@ class SecuregateMappingMetricsTest extends TestCase
             'employment_status' => 'ACTIVE',
         ]);
 
-        // Mock Cache::has / Cache::increment to throw an exception
-        Cache::shouldReceive('has')->andThrow(new \RuntimeException('Redis connection timeout'));
-        Cache::shouldReceive('increment')->andThrow(new \RuntimeException('Redis connection timeout'));
-        Cache::shouldReceive('forever')->andThrow(new \RuntimeException('Redis connection timeout'));
-        Cache::shouldReceive('get')->andReturn([]);
+        // Mock DB::statement to throw an exception
+        \Illuminate\Support\Facades\DB::shouldReceive('statement')->andThrow(new \RuntimeException('Database connection failure'));
 
         $payload = [
             'door_id' => 'DOOR-B',

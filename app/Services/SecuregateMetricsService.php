@@ -2,13 +2,13 @@
 
 namespace App\Services;
 
-use Illuminate\Support\Facades\Cache;
+use App\Models\SecuregateMetric;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 class SecuregateMetricsService
 {
-    private const CACHE_PREFIX = 'securegate:metrics:';
-
     /**
      * Record an access event and its resolution, mapping result, decision, and ingestion status.
      * All operations fail-open: any exception is caught and logged safely without rethrowing.
@@ -92,25 +92,22 @@ class SecuregateMetricsService
     }
 
     /**
-     * Increment a metric counter in cache store.
+     * Increment a metric counter in persistent DB store atomically.
+     * Uses atomic INSERT ... ON CONFLICT DO UPDATE to ensure strict multi-worker safety.
      */
     public function incrementCounter(string $metricName, array $labels = [], int $step = 1): void
     {
         try {
             $key = $this->buildMetricKey($metricName, $labels);
-            if (Cache::has($key)) {
-                Cache::increment($key, $step);
-            } else {
-                Cache::forever($key, $step);
-            }
+            $labelsJson = !empty($labels) ? json_encode($labels) : null;
+            $now = now()->toDateTimeString();
 
-            // Register key in metric index for fast scraping/rendering
-            $indexKey = self::CACHE_PREFIX . 'index';
-            $index = Cache::get($indexKey, []);
-            if (!in_array($key, $index, true)) {
-                $index[] = $key;
-                Cache::forever($indexKey, $index);
-            }
+            DB::statement(
+                'INSERT INTO securegate_metrics (metric_key, name, labels_json, value, created_at, updated_at) ' .
+                'VALUES (?, ?, ?, ?, ?, ?) ' .
+                'ON CONFLICT(metric_key) DO UPDATE SET value = value + excluded.value, updated_at = excluded.updated_at',
+                [$key, $metricName, $labelsJson, $step, $now, $now]
+            );
         } catch (\Throwable $e) {
             Log::warning('[SecuregateMetricsService] Failed to increment counter', [
                 'metric' => $metricName,
@@ -125,24 +122,22 @@ class SecuregateMetricsService
     public function getMetricsSnapshot(): array
     {
         try {
-            $indexKey = self::CACHE_PREFIX . 'index';
-            $index = Cache::get($indexKey, []);
-            $metrics = [];
-
-            foreach ($index as $key) {
-                $val = (int) Cache::get($key, 0);
-                // Parse key: securegate:metrics:<name>:<label_hash>
-                $parsed = $this->parseMetricKey($key);
-                if ($parsed) {
-                    $metrics[] = [
-                        'name' => $parsed['name'],
-                        'labels' => $parsed['labels'],
-                        'value' => $val,
-                    ];
-                }
+            if (!Schema::hasTable('securegate_metrics')) {
+                return ['metrics' => [], 'mapping_coverage_ratio' => null];
             }
 
-            // Calculate mapping coverage ratio
+            $rows = DB::table('securegate_metrics')->get();
+            $metrics = [];
+
+            foreach ($rows as $row) {
+                $labels = !empty($row->labels_json) ? json_decode($row->labels_json, true) : [];
+                $metrics[] = [
+                    'name' => $row->name,
+                    'labels' => is_array($labels) ? $labels : [],
+                    'value' => (int) $row->value,
+                ];
+            }
+
             $coverage = $this->calculateMappingCoverageRatio();
 
             return [
@@ -169,11 +164,18 @@ class SecuregateMetricsService
     public function calculateMappingCoverageRatio(): ?float
     {
         try {
+            if (!Schema::hasTable('securegate_metrics')) {
+                return null;
+            }
+
             $mappedKey = $this->buildMetricKey('securegate_access_events_total', ['event_class' => 'mapped_identity']);
             $unmappedKey = $this->buildMetricKey('securegate_access_events_total', ['event_class' => 'unmapped_identity']);
 
-            $mappedCount = (int) Cache::get($mappedKey, 0);
-            $unmappedCount = (int) Cache::get($unmappedKey, 0);
+            $mappedRow = DB::table('securegate_metrics')->where('metric_key', $mappedKey)->first();
+            $unmappedRow = DB::table('securegate_metrics')->where('metric_key', $unmappedKey)->first();
+
+            $mappedCount = $mappedRow ? (int) $mappedRow->value : 0;
+            $unmappedCount = $unmappedRow ? (int) $unmappedRow->value : 0;
 
             $denominator = $mappedCount + $unmappedCount;
             if ($denominator <= 0) {
@@ -284,12 +286,9 @@ class SecuregateMetricsService
     public function resetMetrics(): void
     {
         try {
-            $indexKey = self::CACHE_PREFIX . 'index';
-            $index = Cache::get($indexKey, []);
-            foreach ($index as $key) {
-                Cache::forget($key);
+            if (Schema::hasTable('securegate_metrics')) {
+                DB::table('securegate_metrics')->truncate();
             }
-            Cache::forget($indexKey);
         } catch (\Throwable $e) {
             // ignore
         }
@@ -297,40 +296,23 @@ class SecuregateMetricsService
 
     private function getCounterValue(string $metricName, array $labels = []): int
     {
-        $key = $this->buildMetricKey($metricName, $labels);
-        return (int) Cache::get($key, 0);
+        try {
+            if (!Schema::hasTable('securegate_metrics')) {
+                return 0;
+            }
+            $key = $this->buildMetricKey($metricName, $labels);
+            $row = DB::table('securegate_metrics')->where('metric_key', $key)->first();
+            return $row ? (int) $row->value : 0;
+        } catch (\Throwable $e) {
+            return 0;
+        }
     }
 
     private function buildMetricKey(string $name, array $labels): string
     {
         ksort($labels);
         $labelStr = http_build_query($labels);
-        $metaKey = self::CACHE_PREFIX . 'meta:' . md5($labelStr);
-        Cache::forever($metaKey, json_encode(['name' => $name, 'labels' => $labels]));
-        return self::CACHE_PREFIX . $name . ':' . md5($labelStr);
-    }
-
-    private function parseMetricKey(string $key): ?array
-    {
-        $parts = explode(':', $key);
-        if (count($parts) < 4) {
-            return null;
-        }
-        $name = $parts[2];
-        $hash = $parts[3];
-        $metaKey = self::CACHE_PREFIX . 'meta:' . $hash;
-        $metaRaw = Cache::get($metaKey);
-        if ($metaRaw) {
-            $meta = json_decode($metaRaw, true);
-            return [
-                'name' => $meta['name'] ?? $name,
-                'labels' => $meta['labels'] ?? [],
-            ];
-        }
-        return [
-            'name' => $name,
-            'labels' => [],
-        ];
+        return $name . ($labelStr ? ':' . md5($labelStr) : '');
     }
 
     private function formatLabels(array $labels): string
