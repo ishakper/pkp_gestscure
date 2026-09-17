@@ -11,12 +11,10 @@ use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use OpenApi\Attributes as OA;
 
 class BiometricProvisioningController extends Controller
 {
-    /**
-     * Common authorization check for biometric provisioning.
-     */
     private function authorizeProvisioning(Request $request, ?Door $door = null): ?JsonResponse
     {
         $actor = $request->user();
@@ -26,7 +24,6 @@ class BiometricProvisioningController extends Controller
 
         $role = strtolower((string) $actor->role);
 
-        // 1. Technical roles (developer, devops, infra_admin) denied
         if (in_array($role, ['developer', 'devops', 'infra_admin'], true) && !$actor->isSuperAdmin()) {
             return response()->json([
                 'status' => 'error',
@@ -35,7 +32,6 @@ class BiometricProvisioningController extends Controller
             ], 403);
         }
 
-        // 2. Employee and intern self-provisioning denied
         if (in_array($role, ['employee', 'intern'], true)) {
             return response()->json([
                 'status' => 'error',
@@ -44,7 +40,6 @@ class BiometricProvisioningController extends Controller
             ], 403);
         }
 
-        // 3. Only super_admin, hrd, and building_admin permitted
         if (!$actor->isSuperAdmin() && !in_array($role, ['hrd', 'building_admin'], true)) {
             return response()->json([
                 'status' => 'error',
@@ -53,7 +48,6 @@ class BiometricProvisioningController extends Controller
             ], 403);
         }
 
-        // 4. Building Admin cross-building scoping check
         if ($actor->isBuildingAdmin() && $actor->assigned_building && $door) {
             if ($door->location !== $actor->assigned_building) {
                 return response()->json([
@@ -67,10 +61,44 @@ class BiometricProvisioningController extends Controller
         return null;
     }
 
-    /**
-     * Synchronize employee biometric profile, card credentials, and access rights
-     * to selected or all assigned doors.
-     */
+    #[OA\Post(
+        path: '/user-management/employees/{id}/sync-biometric',
+        summary: 'Sinkronisasi Profil Biometrik & Akses Pintu',
+        description: 'Menyinkronkan profil karyawan, nomor kartu, dan hak akses pintu ke perangkat fisik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'door_ids', type: 'array', items: new OA\Items(type: 'string'), example: ['DOOR-001']),
+                    new OA\Property(property: 'mode', type: 'string', example: 'sync')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Profil biometrik berhasil disinkronkan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Profil biometrik dan hak akses berhasil disinkronkan ke 1 pintu.',
+                        'data' => [
+                            'employee' => ['id' => 1, 'employee_id' => 'USR-1001', 'name' => 'Budi Santoso', 'card_no' => 'CARD-99081'],
+                            'synced_doors' => [['door_id' => 'DOOR-001', 'status' => 'synced']],
+                            'failed_doors' => []
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 403, description: 'Access Denied'),
+            new OA\Response(response: 422, description: 'Karyawan belum memiliki penugasan pintu')
+        ]
+    )]
     public function syncEmployeeBiometric(Request $request, $id, HikvisionIsapiService $isapiService): JsonResponse
     {
         if ($authError = $this->authorizeProvisioning($request)) {
@@ -91,7 +119,6 @@ class BiometricProvisioningController extends Controller
             ], 403);
         }
 
-        // 1. Resolve doors
         $doorInputs = $request->input('door_ids') ?? $request->input('door_id');
         $doorsQuery = Door::query();
 
@@ -101,7 +128,6 @@ class BiometricProvisioningController extends Controller
                 $q->whereIn('door_id', $doorArray)->orWhereIn('id', $doorArray);
             });
         } else {
-            // Default to all currently assigned doors
             $assignedDoorIds = DoorAssignment::where('employee_id', $employee->id)->pluck('door_id');
             if ($assignedDoorIds->isEmpty()) {
                 return response()->json([
@@ -123,7 +149,6 @@ class BiometricProvisioningController extends Controller
             ], 404);
         }
 
-        // Strict cross-building check for building admin
         if ($admin->isBuildingAdmin() && $admin->assigned_building) {
             $crossBuildingDoors = $doors->filter(fn($d) => $d->location !== $admin->assigned_building);
             if ($crossBuildingDoors->isNotEmpty()) {
@@ -156,7 +181,6 @@ class BiometricProvisioningController extends Controller
                     'message' => 'Sinkronisasi dijadwalkan di antrean latar belakang',
                 ];
             } else {
-                // Immediate Synchronous Provisioning
                 $res = $isapiService->provisionEmployeeAccess($door, $employee, $request->only([
                     'userType', 'userVerifyMode', 'closeDelay', 'beginTime', 'endTime',
                 ]));
@@ -196,7 +220,6 @@ class BiometricProvisioningController extends Controller
             }
         }
 
-        // Audit Log - zero raw payload, zero card credentials
         ActivityLog::create([
             'admin_id' => $admin?->id,
             'action' => 'biometric_user_provisioning',
@@ -230,9 +253,31 @@ class BiometricProvisioningController extends Controller
         ], $statusCode);
     }
 
-    /**
-     * Direct endpoint to sync a single employee's biometric profile to a specific door.
-     */
+    #[OA\Post(
+        path: '/admin/doors/{door_id}/sync-employee/{employee_id}',
+        summary: 'Sinkronisasi Karyawan ke Pintu Tunggal',
+        description: 'Sinkronisasi langsung biometrik dan kredensial karyawan ke satu terminal pintu fisik.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Kode Pintu', required: true, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'employee_id', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Berhasil disinkronkan ke pintu',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Profil dan kredensial untuk Budi Santoso berhasil disinkronkan ke DOOR-001',
+                        'data' => ['door_id' => 'DOOR-001', 'employee_id' => 'USR-1001', 'sync_status' => 'synced']
+                    ]
+                )
+            ),
+            new OA\Response(response: 502, description: 'Gagal provisioning ke perangkat hardware')
+        ]
+    )]
     public function syncDoorEmployee(Request $request, $door_id, $employee_id, HikvisionIsapiService $isapiService): JsonResponse
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
@@ -315,9 +360,33 @@ class BiometricProvisioningController extends Controller
         ], $result['statusCode'] ?? 502);
     }
 
-    /**
-     * Get door synchronization and biometric status for an employee.
-     */
+    #[OA\Get(
+        path: '/user-management/employees/{id}/door-sync-status',
+        summary: 'Status Sinkronisasi Pintu Karyawan',
+        description: 'Mendapatkan status sinkronisasi pintu dan biometrik karyawan.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Status sinkronisasi ditemukan',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            'employee' => ['id' => 1, 'employee_id' => 'USR-1001', 'name' => 'Budi Santoso'],
+                            'assignments' => [
+                                ['assignment_id' => 1, 'door_id' => 'DOOR-001', 'sync_status' => 'synced']
+                            ]
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function getEmployeeSyncStatus(Request $request, $id): JsonResponse
     {
         $actor = $request->user();
@@ -327,7 +396,6 @@ class BiometricProvisioningController extends Controller
 
         $role = strtolower((string) $actor->role);
 
-        // Technical roles denied
         if (in_array($role, ['developer', 'devops', 'infra_admin'], true) && !$actor->isSuperAdmin()) {
             return response()->json([
                 'status' => 'error',

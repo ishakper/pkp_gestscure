@@ -17,27 +17,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use OpenApi\Attributes as OA;
 
-/**
- * AttendanceController
- *
- * Endpoints:
- *  GET    /api/v1/attendance/metrics                   — dashboard KPIs
- *  GET    /api/v1/attendance/calendars                 — list work calendars
- *  POST   /api/v1/attendance/calendars                 — create work calendar
- *  GET    /api/v1/attendance/calendars/{id}            — show calendar detail
- *  PUT    /api/v1/attendance/calendars/{id}            — update calendar
- *  POST   /api/v1/attendance/calendars/{id}/days       — upsert schedule day(s)
- *  GET    /api/v1/attendance/holidays                  — list public holidays
- *  POST   /api/v1/attendance/holidays                  — create public holiday
- *  DELETE /api/v1/attendance/holidays/{id}             — remove holiday
- *  POST   /api/v1/attendance/employees/{id}/assign-calendar — assign calendar to employee
- *  GET    /api/v1/attendance/records                   — list attendance records (scoped)
- *  POST   /api/v1/attendance/records                   — record/update attendance
- *  GET    /api/v1/attendance/records/{id}              — show single record
- *  POST   /api/v1/attendance/records/{id}/verify       — HR verification
- *  GET    /api/v1/attendance/employees/{id}/summary    — employee attendance summary
- */
 class AttendanceController extends Controller
 {
     protected AttendanceProcessor $processor;
@@ -54,10 +35,16 @@ class AttendanceController extends Controller
         $this->portalAccess = $portalAccess;
     }
 
-    // -----------------------------------------------------------------------
-    // METRICS
-    // -----------------------------------------------------------------------
-
+    #[OA\Get(
+        path: '/attendance/metrics',
+        summary: 'Metrik Rekap Presensi Karyawan',
+        description: 'Mendapatkan statistik ringkas kehadiran, keterlambatan, dan jam kerja.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik presensi berhasil diambil')
+        ]
+    )]
     public function metrics(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -67,10 +54,16 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $this->processor->getMetrics($actor)]);
     }
 
-    // -----------------------------------------------------------------------
-    // WORK CALENDARS
-    // -----------------------------------------------------------------------
-
+    #[OA\Get(
+        path: '/attendance/calendars',
+        summary: 'Daftar Kalender Kerja',
+        description: 'Mendapatkan daftar kalender jadwal kerja operasional.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kalender kerja berhasil diambil')
+        ]
+    )]
     public function calendars(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -83,6 +76,27 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $query->get()]);
     }
 
+    #[OA\Post(
+        path: '/attendance/calendars',
+        summary: 'Buat Kalender Kerja Baru',
+        description: 'Mendaftarkan kalender jadwal jam kerja operasional perusahaan.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['name', 'code'],
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Jam Kerja Reguler Office'),
+                    new OA\Property(property: 'code', type: 'string', example: 'CAL-REGULAR'),
+                    new OA\Property(property: 'late_tolerance_minutes', type: 'integer', example: 15)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kalender kerja berhasil dibuat')
+        ]
+    )]
     public function storeCalendar(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -126,6 +140,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $calendar->load('scheduleDays')], 201);
     }
 
+    #[OA\Get(
+        path: '/attendance/calendars/{id}',
+        summary: 'Detail Kalender Kerja',
+        description: 'Mendapatkan rincian hari kerja kalender.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kalender Kerja', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail kalender kerja ditemukan')
+        ]
+    )]
     public function showCalendar(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -138,6 +165,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $calendar]);
     }
 
+    #[OA\Put(
+        path: '/attendance/calendars/{id}',
+        summary: 'Perbarui Kalender Kerja',
+        description: 'Memperbarui toleransi keterlambatan dan status kalender kerja.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kalender Kerja', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Kalender kerja berhasil diperbarui')
+        ]
+    )]
     public function updateCalendar(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -160,6 +200,28 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $calendar->load('scheduleDays')]);
     }
 
+    #[OA\Post(
+        path: '/attendance/calendars/{id}/days',
+        summary: 'Upsert Jadwal Hari Kerja Kalender',
+        description: 'Menyimpan jadwal jam masuk / pulang kerja per hari dalam seminggu.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kalender Kerja', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['days'],
+                properties: [
+                    new OA\Property(property: 'days', type: 'array', items: new OA\Items(type: 'object'))
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Jadwal hari kerja berhasil disimpan')
+        ]
+    )]
     public function upsertCalendarDays(Request $request, int $calendarId): JsonResponse
     {
         $actor = $request->user();
@@ -190,10 +252,16 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $calendar->load('scheduleDays')]);
     }
 
-    // -----------------------------------------------------------------------
-    // PUBLIC HOLIDAYS
-    // -----------------------------------------------------------------------
-
+    #[OA\Get(
+        path: '/attendance/holidays',
+        summary: 'Daftar Hari Libur Nasional / Perusahaan',
+        description: 'Mendapatkan daftar hari libur nasional.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar hari libur berhasil diambil')
+        ]
+    )]
     public function holidays(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -209,6 +277,26 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $query->get()]);
     }
 
+    #[OA\Post(
+        path: '/attendance/holidays',
+        summary: 'Tambah Hari Libur',
+        description: 'Mendaftarkan tanggal hari libur.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['holiday_date', 'name'],
+                properties: [
+                    new OA\Property(property: 'holiday_date', type: 'string', format: 'date', example: '2026-12-25'),
+                    new OA\Property(property: 'name', type: 'string', example: 'Hari Raya Natal')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Hari libur berhasil didaftarkan')
+        ]
+    )]
     public function storeHoliday(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -229,6 +317,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $holiday], 201);
     }
 
+    #[OA\Delete(
+        path: '/attendance/holidays/{id}',
+        summary: 'Hapus Hari Libur',
+        description: 'Menghapus tanggal hari libur.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Holiday', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Hari libur berhasil dihapus')
+        ]
+    )]
     public function destroyHoliday(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -242,10 +343,29 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'message' => 'Holiday removed.']);
     }
 
-    // -----------------------------------------------------------------------
-    // EMPLOYEE CALENDAR ASSIGNMENTS
-    // -----------------------------------------------------------------------
-
+    #[OA\Post(
+        path: '/attendance/employees/{id}/assign-calendar',
+        summary: 'Alokasikan Kalender Kerja ke Karyawan',
+        description: 'Menugaskan kalender jadwal kerja operasional spesifik ke karyawan.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['work_calendar_id', 'effective_from'],
+                properties: [
+                    new OA\Property(property: 'work_calendar_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'effective_from', type: 'string', format: 'date', example: '2026-10-01')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Penugasan kalender berhasil disimpan')
+        ]
+    )]
     public function assignCalendar(Request $request, int $employeeId): JsonResponse
     {
         $actor = $request->user();
@@ -261,7 +381,6 @@ class AttendanceController extends Controller
             'effective_until'  => 'nullable|date|after_or_equal:effective_from',
         ]);
 
-        // Close any open assignment first
         EmployeeCalendarAssignment::where('employee_id', $employee->id)
             ->whereNull('effective_until')
             ->where('effective_from', '<', $data['effective_from'])
@@ -278,10 +397,16 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $assignment->load('workCalendar')], 201);
     }
 
-    // -----------------------------------------------------------------------
-    // ATTENDANCE RECORDS
-    // -----------------------------------------------------------------------
-
+    #[OA\Get(
+        path: '/attendance/records',
+        summary: 'Daftar Catatan Presensi Kehadiran',
+        description: 'Mendapatkan daftar catatan kalkulasi kehadiran karyawan.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Catatan presensi berhasil diambil')
+        ]
+    )]
     public function records(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -299,7 +424,6 @@ class AttendanceController extends Controller
         ])
             ->orderByDesc('attendance_date');
 
-        // Self-service: employees see only their own
         if ($this->policy->self($actor) && !$this->policy->viewAny($actor)) {
             $employee = Employee::where('email', $actor->email)->first();
             if ($employee) {
@@ -325,16 +449,33 @@ class AttendanceController extends Controller
             $query->where('status', $request->input('status'));
         }
 
-        // Building scope for management portal users — if actor has assigned_building,
-        // only their employees are included (resolved via Employee.building_id)
-        // This is a stub for now; fine-grained building scope can be added in a later sprint
-        // when Admin gains a building_id FK.
-
         $records = $query->paginate($request->input('per_page', 30));
 
         return response()->json(['success' => true, 'data' => $records]);
     }
 
+    #[OA\Post(
+        path: '/attendance/records',
+        summary: 'Input/Update Catatan Presensi Manual',
+        description: 'Memasukkan atau mengedit catatan presensi karyawan.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['employee_id', 'attendance_date'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'attendance_date', type: 'string', format: 'date', example: '2026-09-17'),
+                    new OA\Property(property: 'clock_in_at', type: 'string', format: 'date-time', example: '2026-09-17 08:00:00'),
+                    new OA\Property(property: 'status', type: 'string', example: 'PRESENT')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Catatan presensi berhasil disimpan')
+        ]
+    )]
     public function record(Request $request): JsonResponse
     {
         $actor = $request->user();
@@ -364,6 +505,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $attendance->load(['employee:id,name,employee_id', 'workCalendar:id,name'])], 201);
     }
 
+    #[OA\Get(
+        path: '/attendance/records/{id}',
+        summary: 'Detail Catatan Presensi',
+        description: 'Mendapatkan rincian catatan presensi single.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Presensi', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Catatan presensi ditemukan')
+        ]
+    )]
     public function showRecord(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -376,6 +530,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $attendance]);
     }
 
+    #[OA\Post(
+        path: '/attendance/records/{id}/verify',
+        summary: 'Verifikasi Presensi (HRD)',
+        description: 'Verifikasi validasi HRD atas catatan presensi.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Presensi', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Presensi berhasil diverifikasi')
+        ]
+    )]
     public function verifyRecord(Request $request, int $id): JsonResponse
     {
         $actor = $request->user();
@@ -392,6 +559,19 @@ class AttendanceController extends Controller
         return response()->json(['success' => true, 'data' => $attendance->fresh()]);
     }
 
+    #[OA\Get(
+        path: '/attendance/employees/{id}/summary',
+        summary: 'Ringkasan Rekap Presensi Karyawan',
+        description: 'Mendapatkan ringkasan statistik kehadiran bulanan per karyawan.',
+        tags: ['Attendance'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Karyawan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Ringkasan presensi berhasil diambil')
+        ]
+    )]
     public function employeeSummary(Request $request, int $employeeId): JsonResponse
     {
         $actor = $request->user();

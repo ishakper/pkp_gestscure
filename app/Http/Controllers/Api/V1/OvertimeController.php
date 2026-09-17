@@ -8,6 +8,7 @@ use App\Services\OvertimeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use OpenApi\Attributes as OA;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class OvertimeController extends Controller
@@ -16,9 +17,24 @@ class OvertimeController extends Controller
         protected OvertimeService $service
     ) {}
 
-    /**
-     * List overtime requests with scoping and filters.
-     */
+    #[OA\Get(
+        path: '/api/v1/overtime-requests',
+        summary: 'Daftar Pengajuan Lembur',
+        description: 'Mengambil daftar permohonan lembur karyawan dengan filter status dan tanggal.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'status', in: 'query', description: 'Filter status (SUBMITTED, APPROVED, REJECTED, CANCELLED)', required: false, schema: new OA\Schema(type: 'string', example: 'SUBMITTED')),
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+            new OA\Parameter(name: 'from_date', in: 'query', description: 'Tanggal awal lembur', required: false, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-03-01')),
+            new OA\Parameter(name: 'to_date', in: 'query', description: 'Tanggal akhir lembur', required: false, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-03-31')),
+            new OA\Parameter(name: 'per_page', in: 'query', description: 'Jumlah item per halaman', required: false, schema: new OA\Schema(type: 'integer', example: 15)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar permohonan lembur berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function index(Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -76,9 +92,36 @@ class OvertimeController extends Controller
         ]);
     }
 
-    /**
-     * Submit a new overtime request.
-     */
+    #[OA\Post(
+        path: '/api/v1/overtime-requests',
+        summary: 'Ajukan Permohonan Lembur',
+        description: 'Membuat pengajuan lembur kerja beserta durasi, referensi tugas proyek, dan lampiran.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['overtime_date', 'requested_start', 'requested_end', 'reason'],
+                    properties: [
+                        new OA\Property(property: 'overtime_date', type: 'string', format: 'date', example: '2026-03-25'),
+                        new OA\Property(property: 'requested_start', type: 'string', example: '17:30'),
+                        new OA\Property(property: 'requested_end', type: 'string', example: '20:30'),
+                        new OA\Property(property: 'reason', type: 'string', example: 'Penyelesaian migrasi server basis data produksi'),
+                        new OA\Property(property: 'project_task_reference', type: 'string', example: 'TASK-9082'),
+                        new OA\Property(property: 'employee_id', type: 'integer', example: 10),
+                        new OA\Property(property: 'attachment', type: 'string', format: 'binary', description: 'Surat perintah lembur / berkas pendukung (PDF/JPG/PNG)'),
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Pengajuan lembur berhasil dibuat'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Validasi gagal')
+        ]
+    )]
     public function store(Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -110,9 +153,20 @@ class OvertimeController extends Controller
         ], 201);
     }
 
-    /**
-     * Show overtime request details.
-     */
+    #[OA\Get(
+        path: '/api/v1/overtime-requests/{id}',
+        summary: 'Detail Pengajuan Lembur',
+        description: 'Mengambil detail permohonan lembur berdasarkan ID.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lembur', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail pengajuan lembur berhasil ditemukan'),
+            new OA\Response(response: 404, description: 'Pengajuan tidak ditemukan')
+        ]
+    )]
     public function show(int $id): JsonResponse
     {
         $overtime = OvertimeRequest::with([
@@ -130,9 +184,28 @@ class OvertimeController extends Controller
         ]);
     }
 
-    /**
-     * Approve an overtime request.
-     */
+    #[OA\Post(
+        path: '/api/v1/overtime-requests/{id}/approve',
+        summary: 'Setujui Pengajuan Lembur',
+        description: 'Menyetujui permohonan lembur dan menetapkan total durasi menit lembur disetujui.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lembur', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: false,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'approved_minutes', type: 'integer', example: 180, description: 'Jumlah menit lembur yang disetujui'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Pengajuan lembur berhasil disetujui'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function approve(int $id, Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -150,9 +223,30 @@ class OvertimeController extends Controller
         ]);
     }
 
-    /**
-     * Reject an overtime request.
-     */
+    #[OA\Post(
+        path: '/api/v1/overtime-requests/{id}/reject',
+        summary: 'Tolak Pengajuan Lembur',
+        description: 'Menolak permohonan lembur beserta catatan alasan penolakan.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lembur', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Anggaran lembur departemen bulan ini sudah mencapai limit'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Pengajuan lembur berhasil ditolak'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Alasan penolakan wajib diisi')
+        ]
+    )]
     public function reject(int $id, Request $request): JsonResponse
     {
         $actor = Auth::user();
@@ -173,9 +267,20 @@ class OvertimeController extends Controller
         ]);
     }
 
-    /**
-     * Cancel an overtime request.
-     */
+    #[OA\Post(
+        path: '/api/v1/overtime-requests/{id}/cancel',
+        summary: 'Batalkan Pengajuan Lembur',
+        description: 'Membatalkan permohonan lembur yang belum diproses.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lembur', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Pengajuan lembur berhasil dibatalkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function cancel(int $id): JsonResponse
     {
         $actor = Auth::user();
@@ -192,9 +297,21 @@ class OvertimeController extends Controller
         ]);
     }
 
-    /**
-     * Download supporting document attachment.
-     */
+    #[OA\Get(
+        path: '/api/v1/overtime-requests/{id}/attachment',
+        summary: 'Unduh Berkas Lampiran Pengajuan Lembur',
+        description: 'Mengunduh atau stream berkas pendukung permohonan lembur.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lembur', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Berkas lampiran dikembalikan (Binary stream)'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 404, description: 'Berkas tidak ditemukan')
+        ]
+    )]
     public function attachment(int $id): BinaryFileResponse|JsonResponse
     {
         $actor = Auth::user();
@@ -203,9 +320,17 @@ class OvertimeController extends Controller
         return $this->service->downloadAttachment($actor, $overtime);
     }
 
-    /**
-     * Get overtime metrics.
-     */
+    #[OA\Get(
+        path: '/api/v1/overtime-requests/metrics',
+        summary: 'Metrik & Statistik Pengajuan Lembur',
+        description: 'Mengambil statistik jumlah pengajuan lembur dan akumulasi total menit disetujui.',
+        security: [['sanctum' => []]],
+        tags: ['Overtime'],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik pengajuan lembur berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function metrics(): JsonResponse
     {
         $actor = Auth::user();

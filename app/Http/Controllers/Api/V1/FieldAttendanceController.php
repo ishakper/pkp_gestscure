@@ -15,6 +15,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use OpenApi\Attributes as OA;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class FieldAttendanceController extends Controller
@@ -29,6 +30,21 @@ class FieldAttendanceController extends Controller
     // FIELD LOCATIONS
     // =========================================================================
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/locations',
+        summary: 'Daftar Lokasi Presensi Lapangan',
+        description: 'Mengambil daftar lokasi presensi lapangan / geofence dengan pencarian dan filter status aktif.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'search', in: 'query', description: 'Kata kunci nama lokasi / proyek / klien', required: false, schema: new OA\Schema(type: 'string', example: 'Proyek Lapangan A')),
+            new OA\Parameter(name: 'is_active', in: 'query', description: 'Filter status aktif (true/false)', required: false, schema: new OA\Schema(type: 'boolean', example: true)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar lokasi presensi lapangan berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function listLocations(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -54,6 +70,36 @@ class FieldAttendanceController extends Controller
         return response()->json($query->orderBy('name')->paginate(20));
     }
 
+    #[OA\Post(
+        path: '/api/v1/field-attendance/locations',
+        summary: 'Tambah Lokasi Presensi Lapangan Baru',
+        description: 'Membuat lokasi presensi lapangan baru beserta koordinat geofence (latitude, longitude, radius).',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['name', 'latitude', 'longitude', 'radius_meters'],
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Site Proyek Konstruksi B'),
+                    new OA\Property(property: 'project_name', type: 'string', example: 'Pembangunan Gedung C'),
+                    new OA\Property(property: 'client_name', type: 'string', example: 'PT Mitra Utama'),
+                    new OA\Property(property: 'site_address', type: 'string', example: 'Jl. Jendral Sudirman No. 123, Jakarta'),
+                    new OA\Property(property: 'latitude', type: 'number', format: 'float', example: -6.2088),
+                    new OA\Property(property: 'longitude', type: 'number', format: 'float', example: 106.8456),
+                    new OA\Property(property: 'radius_meters', type: 'integer', example: 150),
+                    new OA\Property(property: 'valid_from', type: 'string', format: 'date', example: '2026-01-01'),
+                    new OA\Property(property: 'valid_until', type: 'string', format: 'date', example: '2026-12-31'),
+                    new OA\Property(property: 'is_active', type: 'boolean', example: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Lokasi presensi lapangan berhasil dibuat'),
+            new OA\Response(response: 403, description: 'Akses ditolak / tidak memiliki kewenangan'),
+            new OA\Response(response: 422, description: 'Validasi gagal')
+        ]
+    )]
     public function storeLocation(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -89,6 +135,20 @@ class FieldAttendanceController extends Controller
         return response()->json($location, 201);
     }
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/locations/{id}',
+        summary: 'Detail Lokasi Presensi Lapangan',
+        description: 'Mengambil detail lengkap lokasi presensi lapangan berdasarkan ID.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lokasi', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail lokasi berhasil ditemukan'),
+            new OA\Response(response: 404, description: 'Lokasi tidak ditemukan')
+        ]
+    )]
     public function showLocation(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
@@ -100,6 +160,31 @@ class FieldAttendanceController extends Controller
         return response()->json($location);
     }
 
+    #[OA\Put(
+        path: '/api/v1/field-attendance/locations/{id}',
+        summary: 'Perbarui Lokasi Presensi Lapangan',
+        description: 'Memperbarui data atau parameter geofence lokasi presensi lapangan.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lokasi', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'name', type: 'string', example: 'Site Proyek Karyawan Update'),
+                    new OA\Property(property: 'radius_meters', type: 'integer', example: 200),
+                    new OA\Property(property: 'is_active', type: 'boolean', example: true),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Lokasi presensi berhasil diperbarui'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 404, description: 'Lokasi tidak ditemukan')
+        ]
+    )]
     public function updateLocation(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
@@ -136,6 +221,21 @@ class FieldAttendanceController extends Controller
         return response()->json($location);
     }
 
+    #[OA\Delete(
+        path: '/api/v1/field-attendance/locations/{id}',
+        summary: 'Hapus Lokasi Presensi Lapangan',
+        description: 'Menghapus lokasi presensi lapangan dari sistem.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lokasi', required: true, schema: new OA\Schema(type: 'integer', example: 1)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Lokasi berhasil dihapus'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 404, description: 'Lokasi tidak ditemukan')
+        ]
+    )]
     public function destroyLocation(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
@@ -162,6 +262,21 @@ class FieldAttendanceController extends Controller
     // FIELD ASSIGNMENTS
     // =========================================================================
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/assignments',
+        summary: 'Daftar Penugasan Lapangan',
+        description: 'Mengambil daftar penugasan lokasi lapangan untuk karyawan.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+            new OA\Parameter(name: 'status', in: 'query', description: 'Filter status (ACTIVE, PENDING, COMPLETED, REVOKED)', required: false, schema: new OA\Schema(type: 'string', example: 'ACTIVE')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar penugasan lapangan berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function listAssignments(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -193,6 +308,33 @@ class FieldAttendanceController extends Controller
         return response()->json($query->orderByDesc('start_date')->paginate(20));
     }
 
+    #[OA\Post(
+        path: '/api/v1/field-attendance/assignments',
+        summary: 'Buat Penugasan Lapangan Baru',
+        description: 'Menugaskan karyawan ke lokasi lapangan tertentu pada periode tanggal tertentu.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['employee_id', 'field_location_id', 'start_date', 'end_date'],
+                properties: [
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 10),
+                    new OA\Property(property: 'field_location_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-03-01'),
+                    new OA\Property(property: 'end_date', type: 'string', format: 'date', example: '2026-03-31'),
+                    new OA\Property(property: 'supervisor_id', type: 'integer', example: 2),
+                    new OA\Property(property: 'status', type: 'string', enum: ['ACTIVE', 'PENDING', 'COMPLETED', 'REVOKED'], example: 'ACTIVE'),
+                    new OA\Property(property: 'notes', type: 'string', example: 'Penugasan audit lapangan site Surabaya'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Penugasan lapangan berhasil dibuat'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Validasi gagal')
+        ]
+    )]
     public function storeAssignment(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -228,6 +370,17 @@ class FieldAttendanceController extends Controller
         return response()->json($assignment->load(['employee', 'fieldLocation', 'supervisor']), 201);
     }
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/assignments/my',
+        summary: 'Penugasan Lapangan Saya Hari Ini',
+        description: 'Mengambil penugasan lapangan aktif untuk pengguna yang sedang login pada hari ini.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        responses: [
+            new OA\Response(response: 200, description: 'Penugasan aktif berhasil didapatkan'),
+            new OA\Response(response: 404, description: 'Profil karyawan tidak ditemukan')
+        ]
+    )]
     public function myAssignment(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -258,6 +411,36 @@ class FieldAttendanceController extends Controller
     // CHECK-IN / CHECK-OUT
     // =========================================================================
 
+    #[OA\Post(
+        path: '/api/v1/field-attendance/check-in',
+        summary: 'Check-in Presensi Lapangan',
+        description: 'Melakukan check-in presensi lapangan dengan menyertakan bukti foto swafoto dan lokasi GPS.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['latitude', 'longitude', 'accuracy_meters', 'photo'],
+                    properties: [
+                        new OA\Property(property: 'latitude', type: 'number', format: 'float', example: -6.2088),
+                        new OA\Property(property: 'longitude', type: 'number', format: 'float', example: 106.8456),
+                        new OA\Property(property: 'accuracy_meters', type: 'number', format: 'float', example: 5.0),
+                        new OA\Property(property: 'captured_at', type: 'string', format: 'date-time', example: '2026-03-17T08:00:00Z'),
+                        new OA\Property(property: 'photo', type: 'string', format: 'binary', description: 'Berkas foto swafoto presensi (JPG/PNG/WEBP)'),
+                        new OA\Property(property: 'notes', type: 'string', example: 'Tiba di lokasi site proyek'),
+                        new OA\Property(property: 'employee_id', type: 'integer', description: 'ID Karyawan (opsional, default ID sendiri)', example: 10),
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Check-in lapangan berhasil dicatat'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Validasi gagal / lokasi diluar geofence / foto tidak valid')
+        ]
+    )]
     public function checkIn(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -310,6 +493,36 @@ class FieldAttendanceController extends Controller
         ], 201);
     }
 
+    #[OA\Post(
+        path: '/api/v1/field-attendance/check-out',
+        summary: 'Check-out Presensi Lapangan',
+        description: 'Melakukan check-out presensi lapangan dengan menyertakan bukti foto swafoto dan lokasi GPS.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\MediaType(
+                mediaType: 'multipart/form-data',
+                schema: new OA\Schema(
+                    required: ['latitude', 'longitude', 'accuracy_meters', 'photo'],
+                    properties: [
+                        new OA\Property(property: 'latitude', type: 'number', format: 'float', example: -6.2088),
+                        new OA\Property(property: 'longitude', type: 'number', format: 'float', example: 106.8456),
+                        new OA\Property(property: 'accuracy_meters', type: 'number', format: 'float', example: 5.0),
+                        new OA\Property(property: 'captured_at', type: 'string', format: 'date-time', example: '2026-03-17T17:00:00Z'),
+                        new OA\Property(property: 'photo', type: 'string', format: 'binary', description: 'Berkas foto swafoto presensi (JPG/PNG/WEBP)'),
+                        new OA\Property(property: 'notes', type: 'string', example: 'Pekerjaan site selesai'),
+                        new OA\Property(property: 'employee_id', type: 'integer', description: 'ID Karyawan (opsional, default ID sendiri)', example: 10),
+                    ]
+                )
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Check-out lapangan berhasil dicatat'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 422, description: 'Validasi gagal / foto tidak valid')
+        ]
+    )]
     public function checkOut(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -366,6 +579,20 @@ class FieldAttendanceController extends Controller
     // STATUS & RECORDS
     // =========================================================================
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/status-today',
+        summary: 'Status Presensi Lapangan Hari Ini',
+        description: 'Mengambil ringkasan penugasan dan riwayat bukti presensi lapangan karyawan pada hari ini.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Status presensi hari ini berhasil didapatkan'),
+            new OA\Response(response: 404, description: 'Karyawan tidak ditemukan')
+        ]
+    )]
     public function statusToday(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -405,6 +632,24 @@ class FieldAttendanceController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/records',
+        summary: 'Daftar Riwayat Bukti Presensi Lapangan',
+        description: 'Mengambil riwayat bukti check-in/check-out presensi lapangan beserta status verifikasi geofence.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'employee_id', in: 'query', description: 'Filter ID Karyawan', required: false, schema: new OA\Schema(type: 'integer', example: 10)),
+            new OA\Parameter(name: 'location_id', in: 'query', description: 'Filter ID Lokasi Lapangan', required: false, schema: new OA\Schema(type: 'integer', example: 1)),
+            new OA\Parameter(name: 'date', in: 'query', description: 'Filter Tanggal (YYYY-MM-DD)', required: false, schema: new OA\Schema(type: 'string', format: 'date', example: '2026-03-17')),
+            new OA\Parameter(name: 'type', in: 'query', description: 'Tipe presensi (CHECK_IN / CHECK_OUT)', required: false, schema: new OA\Schema(type: 'string', example: 'CHECK_IN')),
+            new OA\Parameter(name: 'geofence_result', in: 'query', description: 'Hasil geofence (VALID, OUTSIDE_GEOFENCE, LOW_ACCURACY)', required: false, schema: new OA\Schema(type: 'string', example: 'VALID')),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Riwayat bukti presensi berhasil didapatkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak')
+        ]
+    )]
     public function listRecords(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -446,6 +691,21 @@ class FieldAttendanceController extends Controller
         return response()->json($query->orderByDesc('captured_at')->paginate(20));
     }
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/records/{id}',
+        summary: 'Detail Bukti Presensi Lapangan',
+        description: 'Mengambil detail riwayat bukti presensi lapangan berdasarkan ID record.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Record Evidence', required: true, schema: new OA\Schema(type: 'integer', example: 100)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail bukti presensi berhasil ditemukan'),
+            new OA\Response(response: 403, description: 'Akses ditolak'),
+            new OA\Response(response: 404, description: 'Record tidak ditemukan')
+        ]
+    )]
     public function showRecord(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
@@ -462,6 +722,30 @@ class FieldAttendanceController extends Controller
     // MANUAL OVERRIDE
     // =========================================================================
 
+    #[OA\Post(
+        path: '/api/v1/field-attendance/records/{id}/override',
+        summary: 'Override Manual Bukti Presensi Lapangan',
+        description: 'Melakukan override status geofence bukti presensi secara manual oleh HRD/Admin.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Record Evidence', required: true, schema: new OA\Schema(type: 'integer', example: 100)),
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Verifikasi manual HRD: sinyal GPS terhalang struktur bangunan site'),
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Override manual presensi berhasil diterapkan'),
+            new OA\Response(response: 403, description: 'Akses ditolak / tidak berhak override'),
+            new OA\Response(response: 422, description: 'Alasan override wajib diisi minimal 5 karakter')
+        ]
+    )]
     public function overrideRecord(Request $request, int $id): JsonResponse
     {
         $user = $request->user();
@@ -487,6 +771,21 @@ class FieldAttendanceController extends Controller
     // SECURE PHOTO STREAM / DOWNLOAD
     // =========================================================================
 
+    #[OA\Get(
+        path: '/api/v1/field-attendance/records/{id}/photo',
+        summary: 'Unduh / Stream Foto Swafoto Bukti Presensi Lapangan',
+        description: 'Mendapatkan stream foto swafoto bukti presensi secara aman dengan kontrol otorisasi.',
+        security: [['sanctum' => []]],
+        tags: ['Field Attendance'],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Record Evidence', required: true, schema: new OA\Schema(type: 'integer', example: 100)),
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Foto bukti presensi dikembalikan (Binary stream image)'),
+            new OA\Response(response: 403, description: 'Akses foto ditolak'),
+            new OA\Response(response: 404, description: 'Berkas foto tidak ditemukan di server')
+        ]
+    )]
     public function downloadPhoto(Request $request, int $id): BinaryFileResponse|JsonResponse
     {
         $user = $request->user();

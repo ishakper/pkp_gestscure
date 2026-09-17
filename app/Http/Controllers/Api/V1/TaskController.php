@@ -10,9 +10,25 @@ use App\Models\TaskWorklog;
 use App\Models\WorkTask;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use OpenApi\Attributes as OA;
 
 class TaskController extends Controller
 {
+    #[OA\Get(
+        path: '/tasks',
+        summary: 'Daftar Tugas Kerja',
+        description: 'Mendapatkan daftar tugas kerja karyawan (Task & Worklog).',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'status', in: 'query', description: 'Filter status (TODO | IN_PROGRESS | BLOCKED | DONE)', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'priority', in: 'query', description: 'Filter prioritas (LOW | MEDIUM | HIGH | URGENT)', required: false, schema: new OA\Schema(type: 'string')),
+            new OA\Parameter(name: 'page', in: 'query', description: 'Halaman', required: false, schema: new OA\Schema(type: 'integer', default: 1))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar tugas berhasil diambil')
+        ]
+    )]
     public function index(Request $request)
     {
         $admin = $request->user();
@@ -33,6 +49,29 @@ class TaskController extends Controller
         ], 'data' => $tasks]);
     }
 
+    #[OA\Post(
+        path: '/tasks',
+        summary: 'Buat Tugas Kerja Baru',
+        description: 'Membuat tugas pekerjaan baru dan menetapkannya ke karyawan.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['title', 'employee_id'],
+                properties: [
+                    new OA\Property(property: 'title', type: 'string', example: 'Setup Integrasi Swagger API Docs'),
+                    new OA\Property(property: 'description', type: 'string', example: 'Menambahkan dokumentasi Swagger OpenAPI 3.0'),
+                    new OA\Property(property: 'employee_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'priority', type: 'string', example: 'HIGH'),
+                    new OA\Property(property: 'due_date', type: 'string', format: 'date', example: '2026-09-30')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Tugas kerja berhasil dibuat')
+        ]
+    )]
     public function store(Request $request)
     {
         $admin = $request->user();
@@ -59,12 +98,47 @@ class TaskController extends Controller
         return response()->json(['status' => 'success', 'data' => $task->load('employee')], 201);
     }
 
+    #[OA\Get(
+        path: '/tasks/{task}',
+        summary: 'Detail Tugas Kerja',
+        description: 'Mendapatkan rincian tugas kerja spesifik.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'task', in: 'path', description: 'ID Task', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail tugas ditemukan')
+        ]
+    )]
     public function show(Request $request, WorkTask $task)
     {
         abort_unless($this->canView($request->user(), $task), 403);
         return response()->json(['status' => 'success', 'data' => $task->load(['employee', 'assigner', 'worklogs.employee'])]);
     }
 
+    #[OA\Put(
+        path: '/tasks/{task}',
+        summary: 'Perbarui Tugas Kerja',
+        description: 'Memperbarui status, progress, atau detail tugas kerja.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'task', in: 'path', description: 'ID Task', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                properties: [
+                    new OA\Property(property: 'status', type: 'string', example: 'DONE'),
+                    new OA\Property(property: 'progress', type: 'integer', example: 100)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Tugas kerja berhasil diperbarui')
+        ]
+    )]
     public function update(Request $request, WorkTask $task)
     {
         abort_unless($this->canManage($request->user(), $task), 403);
@@ -84,12 +158,49 @@ class TaskController extends Controller
         return response()->json(['status' => 'success', 'data' => $task->fresh('employee')]);
     }
 
+    #[OA\Get(
+        path: '/tasks/{task}/worklogs',
+        summary: 'Daftar Worklog Tugas',
+        description: 'Mendapatkan daftar catatan jam kerja (worklog) untuk tugas kerja spesifik.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'task', in: 'path', description: 'ID Task', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar worklog berhasil diambil')
+        ]
+    )]
     public function worklogs(Request $request, WorkTask $task)
     {
         abort_unless($this->canView($request->user(), $task), 403);
         return response()->json(['status' => 'success', 'data' => $task->worklogs()->with('employee')->latest('work_date')->latest()->paginate(20)]);
     }
 
+    #[OA\Post(
+        path: '/tasks/{task}/worklogs',
+        summary: 'Tambah Worklog Tugas',
+        description: 'Menambahkan riwayat durasi pengerjaan (jam kerja/worklog) pada tugas.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'task', in: 'path', description: 'ID Task', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['work_date', 'duration_minutes'],
+                properties: [
+                    new OA\Property(property: 'work_date', type: 'string', format: 'date', example: '2026-09-17'),
+                    new OA\Property(property: 'duration_minutes', type: 'integer', example: 120),
+                    new OA\Property(property: 'notes', type: 'string', example: 'Melakukan koding controller Swagger OpenAPI')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Worklog berhasil ditambahkan')
+        ]
+    )]
     public function storeWorklog(Request $request, WorkTask $task)
     {
         $admin = $request->user();
@@ -101,6 +212,32 @@ class TaskController extends Controller
         return response()->json(['status' => 'success', 'data' => $worklog->load('employee')], 201);
     }
 
+    #[OA\Get(
+        path: '/tasks/metrics',
+        summary: 'Metrik Statistik Tugas Kerja',
+        description: 'Mendapatkan ringkasan statistik total, TODO, IN_PROGRESS, BLOCKED, dan DONE.',
+        tags: ['Tasks & Worklogs'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Metrik tugas berhasil diambil',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'data' => [
+                            'total' => 10,
+                            'todo' => 3,
+                            'in_progress' => 4,
+                            'blocked' => 1,
+                            'done' => 2,
+                            'overdue' => 0
+                        ]
+                    ]
+                )
+            )
+        ]
+    )]
     public function metrics(Request $request)
     {
         $query = WorkTask::query();

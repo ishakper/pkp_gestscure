@@ -12,6 +12,7 @@ use App\Services\RecruitmentService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use OpenApi\Attributes as OA;
 
 class RecruitmentController extends Controller
 {
@@ -29,6 +30,16 @@ class RecruitmentController extends Controller
         return Auth::guard('sanctum')->user() ?? Auth::user();
     }
 
+    #[OA\Get(
+        path: '/recruitment/metrics',
+        summary: 'Metrik Rekrutmen & ATS',
+        description: 'Mendapatkan statistik ringkas pelamar, lowongan aktif, dan konversi rekrutmen.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Metrik rekrutmen berhasil diambil')
+        ]
+    )]
     public function metrics(): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -42,6 +53,16 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/recruitment/vacancies',
+        summary: 'Daftar Lowongan Kerja',
+        description: 'Mendapatkan daftar lowongan pekerjaan terbuka.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar lowongan kerja berhasil diambil')
+        ]
+    )]
     public function vacancies(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -76,6 +97,29 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/recruitment/vacancies',
+        summary: 'Tambah Lowongan Kerja',
+        description: 'Membuat posisi lowongan pekerjaan baru.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['title', 'employment_type', 'experience_level', 'quota', 'description'],
+                properties: [
+                    new OA\Property(property: 'title', type: 'string', example: 'Frontend Developer'),
+                    new OA\Property(property: 'employment_type', type: 'string', example: 'FULL_TIME'),
+                    new OA\Property(property: 'experience_level', type: 'string', example: 'MID'),
+                    new OA\Property(property: 'quota', type: 'integer', example: 2),
+                    new OA\Property(property: 'description', type: 'string', example: 'Mengembangkan aplikasi web React/Vue')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Lowongan pekerjaan berhasil dibuat')
+        ]
+    )]
     public function storeVacancy(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -108,6 +152,19 @@ class RecruitmentController extends Controller
         ], 201);
     }
 
+    #[OA\Get(
+        path: '/recruitment/vacancies/{id}',
+        summary: 'Detail Lowongan Kerja',
+        description: 'Mendapatkan rincian lowongan kerja beserta daftarnya.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lowongan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail lowongan ditemukan')
+        ]
+    )]
     public function showVacancy(int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -124,6 +181,19 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Put(
+        path: '/recruitment/vacancies/{id}',
+        summary: 'Perbarui Lowongan Kerja',
+        description: 'Memperbarui data lowongan kerja.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lowongan', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Lowongan kerja diperbarui')
+        ]
+    )]
     public function updateVacancy(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -158,6 +228,16 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/recruitment/candidates',
+        summary: 'Daftar Kandidat Pelamar',
+        description: 'Mendapatkan daftar kandidat dalam database rekrutmen.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar kandidat berhasil diambil')
+        ]
+    )]
     public function candidates(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -190,6 +270,28 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/recruitment/candidates',
+        summary: 'Tambah Data Kandidat',
+        description: 'Mendaftarkan kandidat baru.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['first_name', 'email', 'phone'],
+                properties: [
+                    new OA\Property(property: 'first_name', type: 'string', example: 'Ahmad'),
+                    new OA\Property(property: 'last_name', type: 'string', example: 'Fauzi'),
+                    new OA\Property(property: 'email', type: 'string', format: 'email', example: 'ahmad.fauzi@example.com'),
+                    new OA\Property(property: 'phone', type: 'string', example: '081299887766')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Kandidat berhasil didaftarkan')
+        ]
+    )]
     public function storeCandidate(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -223,6 +325,19 @@ class RecruitmentController extends Controller
         ], 201);
     }
 
+    #[OA\Get(
+        path: '/recruitment/candidates/{id}',
+        summary: 'Detail Data Kandidat',
+        description: 'Mendapatkan rincian profil kandidat pelamar.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Kandidat', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Detail kandidat ditemukan')
+        ]
+    )]
     public function showCandidate(int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -239,6 +354,16 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Get(
+        path: '/recruitment/applications',
+        summary: 'Daftar Berkas Lamaran',
+        description: 'Mendapatkan daftar berkas lamaran pekerjaan.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        responses: [
+            new OA\Response(response: 200, description: 'Daftar lamaran berhasil diambil')
+        ]
+    )]
     public function applications(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -260,7 +385,6 @@ class RecruitmentController extends Controller
             $query->where('status', $request->query('status'));
         }
 
-        // Supervisor Scoping: only vacancies in their division or where they are scheduled interviewer
         if ($admin->role === 'supervisor') {
             $divisionId = $admin->employee?->division_id;
             $adminId = $admin->id;
@@ -285,6 +409,26 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/recruitment/applications',
+        summary: 'Daftarkan Lamaran Kandidat',
+        description: 'Mendaftarkan lamaran kandidat pada lowongan pekerjaan.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['job_vacancy_id', 'candidate_id'],
+                properties: [
+                    new OA\Property(property: 'job_vacancy_id', type: 'integer', example: 1),
+                    new OA\Property(property: 'candidate_id', type: 'integer', example: 1)
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Lamaran kandidat berhasil didaftarkan')
+        ]
+    )]
     public function apply(Request $request): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -311,6 +455,28 @@ class RecruitmentController extends Controller
         ], 201);
     }
 
+    #[OA\Post(
+        path: '/recruitment/applications/{id}/stage',
+        summary: 'Ubah Tahapan Lamaran',
+        description: 'Memindahkan kandidat ke tahapan rekrutmen berikutnya.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lamaran', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['stage'],
+                properties: [
+                    new OA\Property(property: 'stage', type: 'string', example: 'USER_INTERVIEW')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Tahapan lamaran berhasil diubah')
+        ]
+    )]
     public function transitionStage(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -334,6 +500,29 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/recruitment/applications/{id}/interview',
+        summary: 'Jadwalkan Interview',
+        description: 'Membuat jadwal wawancara/interview untuk lamaran kandidat.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lamaran', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['stage_code', 'scheduled_at'],
+                properties: [
+                    new OA\Property(property: 'stage_code', type: 'string', example: 'USER_INTERVIEW'),
+                    new OA\Property(property: 'scheduled_at', type: 'string', format: 'date-time', example: '2026-09-25 10:00:00')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Jadwal interview berhasil dibuat')
+        ]
+    )]
     public function scheduleInterview(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -360,6 +549,30 @@ class RecruitmentController extends Controller
         ], 201);
     }
 
+    #[OA\Put(
+        path: '/recruitment/interviews/{id}/feedback',
+        summary: 'Kirim Feedback Interview',
+        description: 'Mengisi catatan hasil wawancara dan skor evaluasi kandidat.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Interview', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['feedback', 'score', 'recommendation'],
+                properties: [
+                    new OA\Property(property: 'feedback', type: 'string', example: 'Kandidat memahami arsitektur API dengan sangat baik'),
+                    new OA\Property(property: 'score', type: 'integer', example: 85),
+                    new OA\Property(property: 'recommendation', type: 'string', example: 'PROCEED')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Feedback interview berhasil disimpan')
+        ]
+    )]
     public function submitFeedback(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -384,6 +597,30 @@ class RecruitmentController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/recruitment/applications/{id}/offer',
+        summary: 'Buat Surat Penawaran (Offering Letter)',
+        description: 'Membuat surat penawaran kerja (offering letter) untuk kandidat terpilih.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lamaran', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['offered_salary', 'start_date', 'expiry_date'],
+                properties: [
+                    new OA\Property(property: 'offered_salary', type: 'number', example: 8500000),
+                    new OA\Property(property: 'start_date', type: 'string', format: 'date', example: '2026-10-01'),
+                    new OA\Property(property: 'expiry_date', type: 'string', format: 'date', example: '2026-10-05')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 201, description: 'Offering letter berhasil dibuat')
+        ]
+    )]
     public function createOffer(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
@@ -410,6 +647,19 @@ class RecruitmentController extends Controller
         ], 201);
     }
 
+    #[OA\Post(
+        path: '/recruitment/applications/{id}/convert-to-employee',
+        summary: 'Angkat Kandidat Menjadi Karyawan',
+        description: 'Mengonversi kandidat pelamar yang menerima penawaran kerja menjadi karyawan tetap/kontrak resmi.',
+        tags: ['Recruitment & ATS'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID Lamaran', required: true, schema: new OA\Schema(type: 'integer'))
+        ],
+        responses: [
+            new OA\Response(response: 200, description: 'Kandidat berhasil diangkat sebagai karyawan')
+        ]
+    )]
     public function convertToEmployee(Request $request, int $id): JsonResponse
     {
         $admin = $this->getAuthAdmin();
