@@ -5800,9 +5800,6 @@
             role: @json(Auth::user()->role ?? 'super_admin')
         }
     };
-    if (window.APP_CONFIG.apiToken) {
-        sessionStorage.setItem('api_token', window.APP_CONFIG.apiToken);
-    }
 </script>
 <script src="/js/dashboard.js"></script>
 

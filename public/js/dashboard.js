@@ -9,7 +9,7 @@ if (window.__secureGateInitialized) {
 window.__secureGateInitialized = true;
 
 const API_BASE = '/api/v1';
-let APP_TOKEN = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+let APP_TOKEN = window.APP_CONFIG?.apiToken || '';
 
 // State Cache
 let state = {
@@ -165,7 +165,6 @@ async function apiFetch(endpoint, options = {}) {
             if (!isRedirectingToLogin) {
                 isRedirectingToLogin = true;
                 APP_TOKEN = '';
-                sessionStorage.removeItem('api_token');
                 if (typeof stopRealtime === 'function') stopRealtime();
                 showToast('Sesi autentikasi telah berakhir. Mengalihkan ke halaman login...', 'error');
                 setTimeout(() => window.location.replace('/login'), 800);
@@ -3869,7 +3868,7 @@ async function submitVerifyDocument(e) {
 
 async function downloadSecureDocument(docId, fileName) {
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || '';
         const headers = {};
         if (appToken) headers['Authorization'] = `Bearer ${appToken}`;
 
@@ -6028,7 +6027,7 @@ async function viewFieldPhoto(evidenceId) {
     modal.classList.add('active');
 
     try {
-        const appToken = window.APP_CONFIG?.apiToken || sessionStorage.getItem('api_token') || '';
+        const appToken = window.APP_CONFIG?.apiToken || '';
         const headers = appToken ? { 'Authorization': `Bearer ${appToken}` } : {};
 
         const res = await fetch(`/api/v1/field-attendance/records/${evidenceId}/photo`, { headers });
