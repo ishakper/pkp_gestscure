@@ -2864,21 +2864,21 @@
                 <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial diperbarui', 'info');">
                     🔄 Refresh Data
                 </button>
-                <button class="btn-primary" disabled style="opacity: 0.65; cursor: not-allowed;" title="PLANNED — Write provisioning ke perangkat belum diaktifkan (Read-Only UI)">
-                    🔒 Ajukan Permintaan Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
+                <button class="btn-primary" onclick="switchAccessSubTab('matrix', document.querySelector('.subnav-btn-matrix'))">
+                    🎛️ Matriks Akses Massal
                 </button>
-                <button class="btn-secondary" disabled style="opacity: 0.65; cursor: not-allowed;" title="PLANNED — Profil write ke perangkat belum diaktifkan (Read-Only UI)">
-                    🔒 Buat Profil Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
+                <button class="btn-secondary" onclick="openBulkAccessConfirmModal()">
+                    ⚡ Terapkan Perubahan (Bulk)
                 </button>
             </div>
         </div>
 
-        <!-- Read-Only Operational Notice Callout -->
-        <div style="margin-bottom: 1.5rem; background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
-            <span style="font-size: 1.25rem;">🔒</span>
+        <!-- Operational Notice Callout -->
+        <div style="margin-bottom: 1.5rem; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
+            <span style="font-size: 1.25rem;">⚡</span>
             <div style="font-size: 0.85rem; line-height: 1.5; color: var(--text-main);">
-                <strong>Mode Operational UI Shell (READ-ONLY):</strong> Seluruh matriks hak akses Karyawan, status kredensial biometrik, dan riwayat sinkronisasi ditampilkan secara akurat dari data terintegrasi sistem.<br>
-                <span class="text-muted">Aksi penulisan ke perangkat fisik terminal (UserRight write, CardInfo write/delete, Hardware Sync execution, RemoteControl) sengaja dalam status non-fungsional / <code>DISABLED</code>.</span>
+                <strong>Sistem Pengelolaan Hak Akses & Matriks Akses Massal (LIVE):</strong> Anda dapat mengatur hak akses pintu fisik per karyawan atau melakukan pembaruan massal (bulk matrix).<br>
+                <span class="text-muted">Setiap perubahan hak akses akan otomatis di-queue ke antrean job <code>SyncDoorAccessJob</code> dan dicatat pada log audit (<code>ActivityLog</code>).</span>
             </div>
         </div>
 
@@ -2916,15 +2916,53 @@
 
         <!-- Sub-Navigation Pills -->
         <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; overflow-x: auto;">
-            <button class="subnav-btn active" onclick="switchAccessSubTab('requests', this)">🔑 Permintaan Hak Akses</button>
+            <button class="subnav-btn subnav-btn-matrix active" onclick="switchAccessSubTab('matrix', this)">🎛️ Matriks Hak Akses Massal (Bulk)</button>
+            <button class="subnav-btn" onclick="switchAccessSubTab('requests', this)">🔑 Permintaan Hak Akses</button>
             <button class="subnav-btn" onclick="switchAccessSubTab('profiles', this)">🛡️ Profil Akses Pintu</button>
             <button class="subnav-btn" onclick="switchAccessSubTab('credentials', this)">💳 Credential Center</button>
             <button class="subnav-btn" onclick="switchAccessSubTab('syncs', this)">⚡ Antrean Perangkat ISAPI</button>
             <button class="subnav-btn" onclick="switchAccessSubTab('emoney', this)">🏧 Registri E-Money (Admin)</button>
         </div>
 
+        <!-- SUB-TAB 0: MATRIKS HAK AKSES MASSAL (BULK MATRIX) -->
+        <div id="accessSubMatrix" class="ats-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar" style="display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                    <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <input type="text" id="accessMatrixSearch" placeholder="Cari NIK / Nama karyawan..." oninput="debounceAccessMatrixSearch()" style="width: 250px;">
+                        <select id="accessMatrixDeptFilter" onchange="renderAccessMatrixTable()" style="width: 170px;">
+                            <option value="">Semua Departemen</option>
+                        </select>
+                        <button type="button" class="btn-secondary" onclick="toggleMasterMatrixCheckboxes()" style="font-size: 0.8rem;">
+                            ☑️ Pilih / Batal Semua Cell
+                        </button>
+                    </div>
+                    <div class="toolbar-right" style="display: flex; gap: 0.75rem; align-items: center;">
+                        <span id="matrixPendingChangesBadge" class="badge badge-info" style="font-size: 0.85rem; padding: 0.45rem 0.85rem; display: none;">0 perubahan pending</span>
+                        <button type="button" class="btn-primary" id="btnSubmitMatrixChanges" onclick="openBulkAccessConfirmModal()" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+                            ⚡ Terapkan Perubahan Hak Akses
+                        </button>
+                    </div>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="access-matrix-table" id="accessMatrixTable" style="width: 100%; border-collapse: collapse;">
+                        <thead id="accessMatrixTableHead">
+                            <tr>
+                                <th>Karyawan / NIK</th>
+                                <th>Departemen</th>
+                                <th>Memuat Pintu...</th>
+                            </tr>
+                        </thead>
+                        <tbody id="accessMatrixTableBody">
+                            <tr><td colspan="5" class="loading-td"><div class="spinner"></div> Memuat Matriks Hak Akses...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- SUB-TAB 1: PERMINTAAN HAK AKSES -->
-        <div id="accessSubRequests" class="ats-sub-content">
+        <div id="accessSubRequests" class="ats-sub-content" style="display: none;">
             <div class="table-container">
                 <div class="table-toolbar">
                     <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
@@ -4127,10 +4165,11 @@
         </div>
 
         <form id="doorAssignForm" onsubmit="submitDoorAssignment(event)">
-            <!-- Read-Only Mode Notice -->
-            <div style="margin-bottom: 1rem; background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 0.5rem; padding: 0.75rem; font-size: 0.8rem; color: #fbbf24; display: flex; align-items: center; gap: 0.5rem;">
-                <span>🔒</span>
-                <div><strong>Mode UI Shell (READ-ONLY):</strong> Matriks otorisasi pintu ditampilkan dari database. Penulisan ke perangkat fisik (UserRight write / ISAPI provisioning) belum diaktifkan.</div>
+            <input type="hidden" id="assignModalEmpId">
+            <!-- Active Provisioning Notice -->
+            <div style="margin-bottom: 1rem; background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.5rem; padding: 0.75rem; font-size: 0.8rem; color: #10b981; display: flex; align-items: center; gap: 0.5rem;">
+                <span>⚡</span>
+                <div><strong>Sinkronisasi Aktif:</strong> Perubahan hak akses pintu fisik akan diproses dan di-queue ke job <code>SyncDoorAccessJob</code>.</div>
             </div>
 
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
@@ -4142,17 +4181,63 @@
             </div>
 
             <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 1.5rem;">
-                <button type="button" class="btn-secondary" disabled style="opacity: 0.6; cursor: not-allowed; color: var(--danger); border-color: rgba(239, 68, 68, 0.4);" title="Cabut akses ke perangkat belum diaktifkan (Read-Only UI)">
-                    🔒 Cabut Semua Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
+                <button type="button" class="btn-secondary" onclick="revokeAllAccessForEmployeeModal()" style="color: var(--danger); border-color: rgba(239, 68, 68, 0.4);" title="Cabut semua hak akses pintu karyawan ini">
+                    🗑️ Cabut Semua Akses
                 </button>
                 <div style="display: flex; gap: 0.75rem;">
                     <button type="button" class="btn-secondary" onclick="closeModal('doorAssignModal')">Tutup</button>
-                    <button type="submit" class="btn-primary" id="btnSaveDoorAssignment" disabled style="opacity: 0.6; cursor: not-allowed;" title="Write UserRight ke perangkat belum diaktifkan (Read-Only UI)">
-                        🔒 Simpan Hak Akses <span class="badge badge-warning" style="font-size: 0.65rem;">PLANNED</span>
+                    <button type="submit" class="btn-primary" id="btnSaveDoorAssignment">
+                        💾 Simpan Hak Akses
                     </button>
                 </div>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL 1B: BULK ACCESS MATRIX CONFIRMATION MODAL -->
+<div class="modal-overlay" id="bulkAccessConfirmModal">
+    <div class="modal-card" style="max-width: 680px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">⚡ Konfirmasi Pembaruan Hak Akses Massal</h3>
+                <div style="font-size: 0.85rem; color: var(--text-muted);">Tinjau ringkasan perubahan matriks sebelum dikirim ke antrean perangkat ISAPI</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('bulkAccessConfirmModal')">✖</button>
+        </div>
+
+        <div style="margin-bottom: 1.25rem; display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 0.6rem; padding: 1rem; text-align: center;">
+                <div style="font-size: 1.5rem; font-weight: 800; color: #10b981;" id="confirmGrantCount">0</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Hak Akses Pintu Baru (Grant)</div>
+            </div>
+            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.6rem; padding: 1rem; text-align: center;">
+                <div style="font-size: 1.5rem; font-weight: 800; color: #ef4444;" id="confirmRevokeCount">0</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">Pencabutan Hak Akses (Revoke)</div>
+            </div>
+        </div>
+
+        <div style="max-height: 250px; overflow-y: auto; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 1.25rem;">
+            <table style="width: 100%; font-size: 0.825rem; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+                        <th style="padding: 0.4rem;">Karyawan</th>
+                        <th style="padding: 0.4rem;">Pintu Physical</th>
+                        <th style="padding: 0.4rem;">Aksi Matriks</th>
+                    </tr>
+                </thead>
+                <tbody id="bulkAccessConfirmTableBody">
+                    <tr><td colspan="3" style="text-align: center; color: var(--text-muted); padding: 1rem;">Tidak ada perubahan pending.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+            <button type="button" class="btn-secondary" onclick="closeModal('bulkAccessConfirmModal')">Batal</button>
+            <button type="button" class="btn-primary" id="btnConfirmExecuteBulkAccess" onclick="executeBulkAccessMatrixSubmit()" style="background: linear-gradient(135deg, #10b981, #059669); border: none;">
+                ✓ Konfirmasi & Eksekusi Matrix
+            </button>
+        </div>
     </div>
 </div>
 

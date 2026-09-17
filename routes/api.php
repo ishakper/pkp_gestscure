@@ -55,6 +55,7 @@ Route::prefix('v1')->group(function () {
             Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
             Route::post('/assign-doors', [DoorSyncController::class, 'assignDoors']);
             Route::post('/revoke-doors', [DoorSyncController::class, 'revokeDoors']);
+            Route::post('/bulk-access', [DoorSyncController::class, 'bulkAccess']);
             Route::post('/employees/{id}/door-access', [EmployeeController::class, 'assignDoorAccess']);
             Route::delete('/employees/{id}/door-access/{door_id}', [EmployeeController::class, 'revokeDoorAccess']);
             Route::post('/employees/{id}/sync-biometric', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncEmployeeBiometric']);

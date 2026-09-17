@@ -3808,6 +3808,7 @@ function debounceDocSearch() {
 
 function loadAccessData() {
     loadAccessMetrics();
+    loadAccessMatrixData();
     loadAccessRequests();
     loadAccessProfiles();
     loadCredentials();
@@ -3821,6 +3822,7 @@ function switchAccessSubTab(subTab, btn) {
     if (btn) btn.classList.add('active');
 
     const subs = {
+        'matrix': 'accessSubMatrix',
         'requests': 'accessSubRequests',
         'profiles': 'accessSubProfiles',
         'credentials': 'accessSubCredentials',
@@ -3835,6 +3837,500 @@ function switchAccessSubTab(subTab, btn) {
 
     const activeEl = document.getElementById(subs[subTab]);
     if (activeEl) activeEl.style.display = 'block';
+
+    if (subTab === 'matrix') {
+        loadAccessMatrixData();
+    }
+}
+
+// State for Bulk Access Matrix
+let accessMatrixState = {
+    employees: [],
+    doors: [],
+    initialState: {}, // key `${empId}_${doorId}` => boolean
+    stagedState: {},   // key `${empId}_${doorId}` => boolean
+    masterChecked: false
+};
+
+async function loadAccessMatrixData() {
+    const tbody = document.getElementById('accessMatrixTableBody');
+    const thead = document.getElementById('accessMatrixTableHead');
+    if (!tbody || !thead) return;
+
+    try {
+        const [empRes, doorRes] = await Promise.all([
+            apiFetch('/user-management/users'),
+            apiFetch('/admin/doors')
+        ]);
+
+        let employees = [];
+        if (empRes && empRes.data) {
+            employees = Array.isArray(empRes.data) ? empRes.data : (empRes.data.data || []);
+        } else if (empRes && Array.isArray(empRes)) {
+            employees = empRes;
+        }
+
+        let doors = [];
+        if (doorRes && doorRes.data) {
+            doors = Array.isArray(doorRes.data) ? doorRes.data : (doorRes.data.data || []);
+        } else if (doorRes && Array.isArray(doorRes)) {
+            doors = doorRes;
+        }
+
+        accessMatrixState.employees = employees;
+        accessMatrixState.doors = doors;
+
+        // Populate department filter options
+        const deptSelect = document.getElementById('accessMatrixDeptFilter');
+        if (deptSelect) {
+            const depts = [...new Set(employees.map(e => e.department).filter(Boolean))];
+            const currentVal = deptSelect.value;
+            deptSelect.innerHTML = `<option value="">Semua Departemen</option>` +
+                depts.map(d => `<option value="${escapeHtml(d)}" ${currentVal === d ? 'selected' : ''}>${escapeHtml(d)}</option>`).join('');
+        }
+
+        // Build initial access map
+        accessMatrixState.initialState = {};
+        accessMatrixState.stagedState = {};
+
+        employees.forEach(emp => {
+            const assignedDoorIds = new Set();
+            if (emp.door_assignments && Array.isArray(emp.door_assignments)) {
+                emp.door_assignments.forEach(da => {
+                    const doorObj = da.door || da;
+                    if (doorObj.door_id) assignedDoorIds.add(doorObj.door_id);
+                    if (doorObj.id) assignedDoorIds.add(String(doorObj.id));
+                });
+            }
+            if (emp.assigned_doors && Array.isArray(emp.assigned_doors)) {
+                emp.assigned_doors.forEach(d => assignedDoorIds.add(String(d)));
+            }
+
+            doors.forEach(door => {
+                const key = `${emp.employee_id || emp.id}_${door.door_id || door.id}`;
+                const hasAccess = assignedDoorIds.has(door.door_id) || assignedDoorIds.has(String(door.id));
+                accessMatrixState.initialState[key] = hasAccess;
+                accessMatrixState.stagedState[key] = hasAccess;
+            });
+        });
+
+        renderAccessMatrixTable();
+    } catch (e) {
+        console.error('Gagal memuat Matriks Hak Akses:', e);
+        if (tbody) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat Matriks Hak Akses: ${escapeHtml(e.message)}</td></tr>`;
+        }
+    }
+}
+
+function renderAccessMatrixTable() {
+    const thead = document.getElementById('accessMatrixTableHead');
+    const tbody = document.getElementById('accessMatrixTableBody');
+    if (!thead || !tbody) return;
+
+    const search = (document.getElementById('accessMatrixSearch')?.value || '').toLowerCase();
+    const deptFilter = document.getElementById('accessMatrixDeptFilter')?.value || '';
+
+    const filteredEmployees = accessMatrixState.employees.filter(emp => {
+        const matchesSearch = !search ||
+            (emp.name && emp.name.toLowerCase().includes(search)) ||
+            (emp.employee_id && emp.employee_id.toLowerCase().includes(search)) ||
+            (emp.nik && emp.nik.toLowerCase().includes(search));
+        const matchesDept = !deptFilter || emp.department === deptFilter;
+        return matchesSearch && matchesDept;
+    });
+
+    const doors = accessMatrixState.doors;
+
+    // Render table header with column checkboxes
+    thead.innerHTML = `
+        <tr style="border-bottom: 1px solid var(--border-color); text-align: left;">
+            <th style="padding: 0.75rem 1rem; min-width: 220px; font-weight: 700; color: #fff;">
+                Karyawan / NIK
+            </th>
+            <th style="padding: 0.75rem 1rem; min-width: 140px; font-weight: 700; color: var(--text-muted);">
+                Departemen
+            </th>
+            ${doors.map(door => {
+                const doorCode = door.door_id || door.id;
+                const doorName = door.door_name || door.name || doorCode;
+                const colAllChecked = filteredEmployees.length > 0 && filteredEmployees.every(emp => {
+                    const key = `${emp.employee_id || emp.id}_${doorCode}`;
+                    return !!accessMatrixState.stagedState[key];
+                });
+
+                return `
+                    <th style="padding: 0.75rem 1rem; text-align: center; min-width: 150px; background: rgba(255,255,255,0.03);">
+                        <div style="font-size: 0.85rem; font-weight: 700; color: #38bdf8;">${escapeHtml(doorCode)}</div>
+                        <div style="font-size: 0.725rem; color: var(--text-muted); font-weight: 400; margin-bottom: 0.35rem;">${escapeHtml(doorName)}</div>
+                        <label style="font-size: 0.7rem; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.25rem;">
+                            <input type="checkbox" ${colAllChecked ? 'checked' : ''} onchange="toggleColumnMatrixCheckboxes('${escapeHtml(doorCode)}', this.checked)">
+                            Select Col
+                        </label>
+                    </th>
+                `;
+            }).join('')}
+            <th style="padding: 0.75rem 1rem; text-align: right; font-weight: 700;">Aksi Single</th>
+        </tr>
+    `;
+
+    if (!filteredEmployees.length) {
+        tbody.innerHTML = `<tr><td colspan="${doors.length + 3}" style="text-align: center; color: var(--text-muted); padding: 2rem;">Tidak ada karyawan yang sesuai filter.</td></tr>`;
+        updateMatrixPendingBadge();
+        return;
+    }
+
+    // Render tbody rows
+    tbody.innerHTML = filteredEmployees.map(emp => {
+        const empId = emp.employee_id || emp.id;
+        const rowAllChecked = doors.length > 0 && doors.every(door => {
+            const doorCode = door.door_id || door.id;
+            const key = `${empId}_${doorCode}`;
+            return !!accessMatrixState.stagedState[key];
+        });
+
+        return `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); transition: background 0.15s ease;" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='transparent'">
+                <td style="padding: 0.75rem 1rem;">
+                    <div style="font-weight: 700; color: #fff;">${escapeHtml(emp.name)}</div>
+                    <div style="font-size: 0.775rem; color: #38bdf8; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>${escapeHtml(emp.employee_id || emp.id)}</span>
+                        <label style="font-size: 0.68rem; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; gap: 0.2rem;">
+                            <input type="checkbox" ${rowAllChecked ? 'checked' : ''} onchange="toggleRowMatrixCheckboxes('${escapeHtml(empId)}', this.checked)">
+                            Row
+                        </label>
+                    </div>
+                </td>
+                <td style="padding: 0.75rem 1rem; font-size: 0.85rem; color: var(--text-muted);">
+                    ${escapeHtml(emp.department || '-')}
+                </td>
+                ${doors.map(door => {
+                    const doorCode = door.door_id || door.id;
+                    const key = `${empId}_${doorCode}`;
+                    const isChecked = !!accessMatrixState.stagedState[key];
+                    const wasInitial = !!accessMatrixState.initialState[key];
+                    const isChanged = isChecked !== wasInitial;
+
+                    let statusBadge = '';
+                    if (isChanged) {
+                        statusBadge = isChecked
+                            ? '<span style="font-size:0.65rem; color:#10b981; font-weight:700;">+GRANT</span>'
+                            : '<span style="font-size:0.65rem; color:#ef4444; font-weight:700;">-REVOKE</span>';
+                    } else if (isChecked) {
+                        statusBadge = '<span style="font-size:0.65rem; color:rgba(16,185,129,0.7);">Active</span>';
+                    } else {
+                        statusBadge = '<span style="font-size:0.65rem; color:var(--text-muted);">None</span>';
+                    }
+
+                    const bgHighlight = isChanged
+                        ? (isChecked ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)')
+                        : 'transparent';
+
+                    return `
+                        <td style="padding: 0.65rem 0.5rem; text-align: center; background: ${bgHighlight}; transition: background 0.2s ease;">
+                            <label style="cursor: pointer; display: inline-flex; flex-direction: column; align-items: center; gap: 0.2rem;">
+                                <input type="checkbox" style="width: 1.15rem; height: 1.15rem; cursor: pointer; accent-color: #10b981;" ${isChecked ? 'checked' : ''} onchange="onMatrixCellToggle('${escapeHtml(empId)}', '${escapeHtml(doorCode)}', this.checked)">
+                                ${statusBadge}
+                            </label>
+                        </td>
+                    `;
+                }).join('')}
+                <td style="padding: 0.75rem 1rem; text-align: right; white-space: nowrap;">
+                    <button type="button" class="btn-secondary" onclick="openDoorAssignModal('${escapeHtml(emp.id)}')" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;">
+                        ⚙️ Edit Hak Akses
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    updateMatrixPendingBadge();
+}
+
+function onMatrixCellToggle(empId, doorCode, isChecked) {
+    const key = `${empId}_${doorCode}`;
+    accessMatrixState.stagedState[key] = isChecked;
+    renderAccessMatrixTable();
+}
+
+function toggleRowMatrixCheckboxes(empId, isChecked) {
+    accessMatrixState.doors.forEach(door => {
+        const doorCode = door.door_id || door.id;
+        const key = `${empId}_${doorCode}`;
+        accessMatrixState.stagedState[key] = isChecked;
+    });
+    renderAccessMatrixTable();
+}
+
+function toggleColumnMatrixCheckboxes(doorCode, isChecked) {
+    accessMatrixState.employees.forEach(emp => {
+        const empId = emp.employee_id || emp.id;
+        const key = `${empId}_${doorCode}`;
+        accessMatrixState.stagedState[key] = isChecked;
+    });
+    renderAccessMatrixTable();
+}
+
+function toggleMasterMatrixCheckboxes() {
+    accessMatrixState.masterChecked = !accessMatrixState.masterChecked;
+    const targetState = accessMatrixState.masterChecked;
+
+    accessMatrixState.employees.forEach(emp => {
+        const empId = emp.employee_id || emp.id;
+        accessMatrixState.doors.forEach(door => {
+            const doorCode = door.door_id || door.id;
+            const key = `${empId}_${doorCode}`;
+            accessMatrixState.stagedState[key] = targetState;
+        });
+    });
+
+    renderAccessMatrixTable();
+    showToast(targetState ? 'Semua sel matriks dicentang (Grant All)' : 'Semua sel matriks dikosongkan (Revoke All)', 'info');
+}
+
+function debounceAccessMatrixSearch() {
+    clearTimeout(state.searchDebounceTimer);
+    state.searchDebounceTimer = setTimeout(renderAccessMatrixTable, 300);
+}
+
+function getMatrixDiff() {
+    const diff = [];
+    Object.keys(accessMatrixState.stagedState).forEach(key => {
+        const staged = !!accessMatrixState.stagedState[key];
+        const initial = !!accessMatrixState.initialState[key];
+        if (staged !== initial) {
+            const [empId, doorCode] = key.split('_');
+            const emp = accessMatrixState.employees.find(e => (e.employee_id || e.id) === empId || String(e.id) === empId);
+            const door = accessMatrixState.doors.find(d => (d.door_id || d.id) === doorCode || String(d.id) === doorCode);
+
+            diff.push({
+                employee_id: empId,
+                employee_name: emp ? emp.name : empId,
+                door_id: doorCode,
+                door_name: door ? (door.door_name || door.name || doorCode) : doorCode,
+                action: staged ? 'grant' : 'revoke'
+            });
+        }
+    });
+    return diff;
+}
+
+function updateMatrixPendingBadge() {
+    const diff = getMatrixDiff();
+    const badge = document.getElementById('matrixPendingChangesBadge');
+    if (badge) {
+        if (diff.length > 0) {
+            badge.style.display = 'inline-block';
+            badge.innerText = `${diff.length} perubahan pending`;
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+}
+
+function openBulkAccessConfirmModal() {
+    const diff = getMatrixDiff();
+    if (diff.length === 0) {
+        showToast('Tidak ada perubahan matriks hak akses yang belum disimpan.', 'warning');
+        return;
+    }
+
+    const grantCount = diff.filter(d => d.action === 'grant').length;
+    const revokeCount = diff.filter(d => d.action === 'revoke').length;
+
+    const elGrant = document.getElementById('confirmGrantCount');
+    const elRevoke = document.getElementById('confirmRevokeCount');
+    const tbody = document.getElementById('bulkAccessConfirmTableBody');
+
+    if (elGrant) elGrant.innerText = grantCount;
+    if (elRevoke) elRevoke.innerText = revokeCount;
+
+    if (tbody) {
+        tbody.innerHTML = diff.map(item => `
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <td style="padding: 0.5rem; font-weight: 600; color: #fff;">${escapeHtml(item.employee_name)} <span style="font-size:0.75rem; color:#38bdf8;">(${escapeHtml(item.employee_id)})</span></td>
+                <td style="padding: 0.5rem; color: var(--text-main);">${escapeHtml(item.door_name)} <span style="font-size:0.75rem; color:var(--text-muted);">(${escapeHtml(item.door_id)})</span></td>
+                <td style="padding: 0.5rem; white-space: nowrap;">
+                    ${item.action === 'grant'
+                        ? '<span class="badge" style="background: rgba(16,185,129,0.2); color: #10b981;">+ GRANT (Akses Baru)</span>'
+                        : '<span class="badge" style="background: rgba(239,68,68,0.2); color: #ef4444;">- REVOKE (Cabut)</span>'}
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    openModal('bulkAccessConfirmModal');
+}
+
+async function executeBulkAccessMatrixSubmit() {
+    const diff = getMatrixDiff();
+    if (diff.length === 0) {
+        closeModal('bulkAccessConfirmModal');
+        return;
+    }
+
+    const btn = document.getElementById('btnConfirmExecuteBulkAccess');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div> Memproses Matriks...';
+    }
+
+    try {
+        const payload = {
+            changes: diff.map(d => ({
+                employee_id: d.employee_id,
+                door_id: d.door_id,
+                action: d.action
+            }))
+        };
+
+        const res = await apiFetch('/user-management/bulk-access', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res && (res.status === 'success' || res.success)) {
+            showToast(res.message || `Berhasil memproses ${diff.length} perubahan hak akses.`, 'success');
+            closeModal('bulkAccessConfirmModal');
+            await loadAccessMatrixData();
+            loadAccessMetrics();
+        } else {
+            showToast(res.message || 'Gagal memproses pembaruan matriks massal.', 'error');
+        }
+    } catch (e) {
+        console.error('Error executing bulk access matrix submit:', e);
+        showToast(`Gagal: ${e.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '✓ Konfirmasi & Eksekusi Matrix';
+        }
+    }
+}
+
+// Single Employee Door Assignment Modal Functions
+async function openDoorAssignModal(empId) {
+    try {
+        const empRes = await apiFetch(`/user-management/users/${empId}`);
+        const employee = empRes && (empRes.data || empRes);
+        if (!employee) throw new Error('Karyawan tidak ditemukan');
+
+        const doorRes = await apiFetch('/admin/doors');
+        let doors = [];
+        if (doorRes && doorRes.data) {
+            doors = Array.isArray(doorRes.data) ? doorRes.data : (doorRes.data.data || []);
+        } else if (doorRes && Array.isArray(doorRes)) {
+            doors = doorRes;
+        }
+
+        const modalEmpId = document.getElementById('assignModalEmpId');
+        const modalEmpName = document.getElementById('assignModalEmpName');
+        const modalEmpDept = document.getElementById('assignModalEmpDept');
+        const container = document.getElementById('doorCheckboxesContainer');
+
+        if (modalEmpId) modalEmpId.value = employee.id || employee.employee_id;
+        if (modalEmpName) modalEmpName.innerText = `${employee.name} (${employee.employee_id || employee.id})`;
+        if (modalEmpDept) modalEmpDept.innerText = `${employee.department || 'General'} • ${employee.role || 'Staff'}`;
+
+        const assignedDoorIds = new Set();
+        if (employee.door_assignments && Array.isArray(employee.door_assignments)) {
+            employee.door_assignments.forEach(da => {
+                const doorObj = da.door || da;
+                if (doorObj.door_id) assignedDoorIds.add(doorObj.door_id);
+                if (doorObj.id) assignedDoorIds.add(String(doorObj.id));
+            });
+        }
+
+        if (container) {
+            container.innerHTML = doors.map(door => {
+                const doorCode = door.door_id || door.id;
+                const doorName = door.door_name || door.name || doorCode;
+                const isChecked = assignedDoorIds.has(doorCode) || assignedDoorIds.has(String(door.id));
+
+                return `
+                    <label style="display: flex; align-items: center; gap: 0.65rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 0.6rem; padding: 0.75rem 1rem; cursor: pointer;">
+                        <input type="checkbox" name="assigned_doors[]" value="${escapeHtml(doorCode)}" ${isChecked ? 'checked' : ''} style="width: 1.1rem; height: 1.1rem; accent-color: #10b981;">
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.9rem; color: #fff;">${escapeHtml(doorCode)}</div>
+                            <div style="font-size: 0.775rem; color: var(--text-muted);">${escapeHtml(doorName)}</div>
+                        </div>
+                    </label>
+                `;
+            }).join('');
+        }
+
+        openModal('doorAssignModal');
+    } catch (e) {
+        showToast(`Gagal memuat data akses karyawan: ${e.message}`, 'error');
+    }
+}
+
+async function submitDoorAssignment(event) {
+    event.preventDefault();
+    const empId = document.getElementById('assignModalEmpId')?.value;
+    if (!empId) return;
+
+    const checkedInputs = document.querySelectorAll('#doorCheckboxesContainer input[name="assigned_doors[]"]:checked');
+    const doorIds = Array.from(checkedInputs).map(cb => cb.value);
+
+    const btn = document.getElementById('btnSaveDoorAssignment');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div> Menyimpan...';
+    }
+
+    try {
+        const res = await apiFetch('/user-management/assign-doors', {
+            method: 'POST',
+            body: JSON.stringify({
+                employee_id: empId,
+                door_ids: doorIds
+            })
+        });
+
+        if (res && (res.status === 'success' || res.success)) {
+            showToast(res.message || 'Hak akses pintu berhasil diperbarui.', 'success');
+            closeModal('doorAssignModal');
+            await loadAccessMatrixData();
+            loadAccessMetrics();
+        } else {
+            showToast(res.message || 'Gagal menyimpan hak akses pintu.', 'error');
+        }
+    } catch (e) {
+        showToast(`Gagal: ${e.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '💾 Simpan Hak Akses';
+        }
+    }
+}
+
+async function revokeAllAccessForEmployeeModal() {
+    const empId = document.getElementById('assignModalEmpId')?.value;
+    if (!empId) return;
+
+    if (!confirm('Apakah Anda yakin ingin mencabut seluruh hak akses pintu karyawan ini?')) return;
+
+    try {
+        const res = await apiFetch('/user-management/revoke-doors', {
+            method: 'POST',
+            body: JSON.stringify({
+                employee_id: empId
+            })
+        });
+
+        if (res && (res.status === 'success' || res.success)) {
+            showToast(res.message || 'Seluruh hak akses pintu berhasil dicabut.', 'success');
+            closeModal('doorAssignModal');
+            await loadAccessMatrixData();
+            loadAccessMetrics();
+        } else {
+            showToast(res.message || 'Gagal mencabut hak akses pintu.', 'error');
+        }
+    } catch (e) {
+        showToast(`Gagal: ${e.message}`, 'error');
+    }
 }
 
 async function loadAccessMetrics() {

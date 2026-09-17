@@ -295,6 +295,191 @@ class DoorSyncController extends Controller
         ]);
     }
 
+    #[OA\Post(
+        path: '/user-management/bulk-access',
+        summary: 'Pembaruan Akses Massal (Matriks Akses)',
+        description: 'Memproses penambahan dan pencabutan hak akses pintu secara massal untuk multiple karyawan.',
+        tags: ['Access Rights'],
+        security: [['sanctum' => []]],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['changes'],
+                properties: [
+                    new OA\Property(
+                        property: 'changes',
+                        type: 'array',
+                        items: new OA\Items(
+                            properties: [
+                                new OA\Property(property: 'employee_id', type: 'string', example: 'USR-1001'),
+                                new OA\Property(property: 'door_id', type: 'string', example: 'DOOR-001'),
+                                new OA\Property(property: 'action', type: 'string', enum: ['grant', 'revoke'], example: 'grant')
+                            ]
+                        )
+                    )
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Eksekusi perubahan hak akses massal selesai',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Berhasil memproses 5 perubahan hak akses (5 sukses, 0 gagal).',
+                        'processed_count' => 5,
+                        'success_count' => 5,
+                        'failed_count' => 0,
+                        'results' => []
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: 'Parameter tidak valid')
+        ]
+    )]
+    public function bulkAccess(Request $request)
+    {
+        $this->authorizeDeviceManagement($request);
+
+        $changes = $request->input('changes') ?? $request->input('grants') ?? [];
+        if (!is_array($changes) || empty($changes)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Parameter changes atau grants wajib diisi dan berupa array non-kosong',
+            ], 422);
+        }
+
+        $results = [];
+        $successCount = 0;
+        $failedCount = 0;
+
+        foreach ($changes as $index => $item) {
+            $empIdentifier = $item['employee_id'] ?? $item['user_id'] ?? $item['id'] ?? null;
+            $doorIdentifier = $item['door_id'] ?? null;
+            $action = strtolower($item['action'] ?? 'grant');
+
+            if (!$empIdentifier || !$doorIdentifier) {
+                $failedCount++;
+                $results[] = [
+                    'index' => $index,
+                    'status' => 'failed',
+                    'message' => 'employee_id dan door_id wajib diisi',
+                ];
+                continue;
+            }
+
+            try {
+                $employee = \App\Models\Employee::where('id', $empIdentifier)
+                    ->orWhere('employee_id', $empIdentifier)
+                    ->orWhere('employee_id', 'USR-' . $empIdentifier)
+                    ->firstOrFail();
+
+                $door = Door::where('door_id', $doorIdentifier)
+                    ->orWhere('id', $doorIdentifier)
+                    ->firstOrFail();
+
+                $this->authorize('physicalControl', $door);
+
+                if ($action === 'grant' || $action === 'assign') {
+                    $assignment = DoorAssignment::updateOrCreate(
+                        ['employee_id' => $employee->id, 'door_id' => $door->id],
+                        ['sync_status' => 'pending', 'sync_attempts' => 0]
+                    );
+
+                    SyncDoorAccessJob::dispatch($assignment->id);
+
+                    ActivityLog::create([
+                        'admin_id' => $request->user()->id ?? null,
+                        'action' => 'assign_door_access',
+                        'subject_type' => 'DoorAssignment',
+                        'subject_id' => $assignment->id,
+                        'description' => "Bulk grant access to {$door->name} ({$door->door_id}) for employee {$employee->name}",
+                        'timestamp' => now(),
+                    ]);
+
+                    $successCount++;
+                    $results[] = [
+                        'index' => $index,
+                        'status' => 'success',
+                        'action' => 'grant',
+                        'employee_id' => $employee->employee_id,
+                        'door_id' => $door->door_id,
+                        'message' => "Hak akses {$door->door_id} diberikan ke {$employee->name}",
+                    ];
+                } elseif ($action === 'revoke') {
+                    $assignment = DoorAssignment::where('employee_id', $employee->id)
+                        ->where('door_id', $door->id)
+                        ->first();
+
+                    if ($assignment) {
+                        $assignment->delete();
+
+                        ActivityLog::create([
+                            'admin_id' => $request->user()->id ?? null,
+                            'action' => 'revoke_door_access',
+                            'subject_type' => 'Employee',
+                            'subject_id' => $employee->id,
+                            'description' => "Bulk revoke access to {$door->name} ({$door->door_id}) for employee {$employee->name}",
+                            'timestamp' => now(),
+                        ]);
+
+                        $successCount++;
+                        $results[] = [
+                            'index' => $index,
+                            'status' => 'success',
+                            'action' => 'revoke',
+                            'employee_id' => $employee->employee_id,
+                            'door_id' => $door->door_id,
+                            'message' => "Hak akses {$door->door_id} dicabut dari {$employee->name}",
+                        ];
+                    } else {
+                        $successCount++;
+                        $results[] = [
+                            'index' => $index,
+                            'status' => 'success',
+                            'action' => 'revoke',
+                            'employee_id' => $employee->employee_id,
+                            'door_id' => $door->door_id,
+                            'message' => "Hak akses {$door->door_id} sudah tidak ada pada {$employee->name}",
+                        ];
+                    }
+                } else {
+                    $failedCount++;
+                    $results[] = [
+                        'index' => $index,
+                        'status' => 'failed',
+                        'message' => "Aksi tidak dikenal: {$action}",
+                    ];
+                }
+            } catch (\Throwable $e) {
+                $failedCount++;
+                $results[] = [
+                    'index' => $index,
+                    'status' => 'failed',
+                    'message' => $e->getMessage(),
+                ];
+            }
+        }
+
+        ActivityLog::create([
+            'admin_id' => $request->user()->id ?? null,
+            'action' => 'bulk_access_matrix_update',
+            'description' => "Bulk access matrix update: {$successCount} succeeded, {$failedCount} failed out of " . count($changes) . " total items",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Berhasil memproses " . count($changes) . " perubahan hak akses ({$successCount} sukses, {$failedCount} gagal).",
+            'processed_count' => count($changes),
+            'success_count' => $successCount,
+            'failed_count' => $failedCount,
+            'results' => $results,
+        ]);
+    }
+
     private function authorizeDeviceManagement(Request $request): void
     {
         abort_unless($request->user() && $this->portalAccess->can($request->user(), 'device.manage'), 403);
