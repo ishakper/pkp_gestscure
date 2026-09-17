@@ -167,16 +167,12 @@ deploy_production:
     - security_hygiene
   script:
     - echo "=== PKP SecureGate Production Deployment Gate ==="
-    - |
-      if [ -z "${PKP_PROD_SSH_KEY:-}" ] || [ -z "${PKP_PROD_HOST:-}" ]; then
-        echo "[BLOCKED] Automated CI deployment is guarded and requires explicit credentials."
-        echo "Target host 10.10.8.124 requires PKP_PROD_HOST and PKP_PROD_SSH_KEY set in GitLab CI/CD variables."
-        echo "Legacy infrastructure (192.168.90.81) and runner-local Docker recreation are permanently disabled."
-        echo "To deploy, trigger deployment from authorized maintenance workstation using deploy/sync_to_server.sh."
-        exit 1
-      fi
-    - echo "Dispatching deployment for immutable image pkp-securegate:${IMAGE_TAG} to ${PKP_PROD_HOST}..."
-    - ./deploy/sync_to_server.sh "${IMAGE_TAG}"
+    - echo "CI_REMOTE_DEPLOY_CONFIGURED=NO"
+    - echo "[BLOCKED] Automated CI remote deployment is guarded and intentionally disabled."
+    - echo "Target: 10.10.8.124 (infra) / Web Container: pkp_securegate_app."
+    - echo "Reason: Automated CI SSH key isolation and host key validation are not configured."
+    - echo "Supported deployment path: Execute deploy/sync_to_server.sh from an authorized maintenance workstation."
+    - exit 1
 
 # ------------------------------------------------------------------------------
 # Stage 6: Post-Deployment Verification (Manual)
@@ -193,6 +189,12 @@ verify_healthcheck:
     - deploy_production
   script:
     - echo "Verifying production endpoint health..."
-    - TARGET_URL="${APP_URL:-http://10.10.8.124:8080}"
-    - curl -s -f -o /dev/null -w "%{http_code}\n" "${TARGET_URL}/login"
-    - echo "SecureGate production endpoint health check verified successfully."
+    - |
+      TARGET_URL="${APP_URL:-http://10.10.8.124:8000}"
+      echo "Target endpoint: ${TARGET_URL}/login"
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "${TARGET_URL}/login" || echo "000")
+      if [ "$HTTP_CODE" != "200" ]; then
+        echo "[ERROR] Health check failed against ${TARGET_URL}/login (HTTP ${HTTP_CODE})"
+        exit 1
+      fi
+      echo "SecureGate production endpoint health check verified successfully (HTTP ${HTTP_CODE})."
