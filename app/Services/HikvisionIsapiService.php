@@ -7,6 +7,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -42,16 +43,32 @@ class HikvisionIsapiService
      */
     public function getDeviceCredentials(?Door $door = null): array
     {
-        if ($door && !empty($door->door_id)) {
-            $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
-            $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
+        if ($door) {
+            if (!empty($door->isapi_username) && !empty($door->isapi_password)) {
+                $username = $door->isapi_username;
+                try {
+                    $password = Crypt::decryptString($door->isapi_password);
+                } catch (\Throwable $e) {
+                    $password = $door->isapi_password;
+                }
+                return ['username' => $username, 'password' => $password];
+            }
 
-            $username = $doorConfig['username'] ?: config('services.hikvision.username');
-            $password = $doorConfig['password'] ?: config('services.hikvision.password');
-        } else {
-            $username = config('services.hikvision.username');
-            $password = config('services.hikvision.password');
+            if (!empty($door->door_id)) {
+                $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
+                $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
+
+                $username = $doorConfig['username'] ?? null;
+                $password = $doorConfig['password'] ?? null;
+
+                if ($username && $password) {
+                    return ['username' => $username, 'password' => $password];
+                }
+            }
         }
+
+        $username = config('services.hikvision.username');
+        $password = config('services.hikvision.password');
 
         if (!is_string($username) || trim($username) === '' || !is_string($password) || $password === '') {
             throw new \RuntimeException('Hikvision credentials are not configured for this device.');
@@ -243,6 +260,117 @@ class HikvisionIsapiService
     }
 
     /**
+     * Test connection to a new device IP with ISAPI credentials via /System/deviceInfo endpoint (Read-Only).
+     */
+    public function testDeviceConnection(string $ip, ?string $username = null, ?string $password = null): array
+    {
+        $username = $username ?: config('services.hikvision.username');
+        $password = $password ?: config('services.hikvision.password');
+
+        if ($this->isMockMode()) {
+            if (!empty($ip) && str_ends_with($ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "Simulated Device Offline ({$ip})",
+                ];
+            }
+
+            try {
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->deviceStatus();
+                $data = $jsonResponse->getData(true) ?? [];
+
+                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'DS-K1T804AMF' . date('Ymd'));
+                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.2.3');
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => 200,
+                    'data' => $data,
+                    'error' => null,
+                ];
+            } catch (\Throwable $e) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        $port = (int) config('services.hikvision.port', 80);
+        $portSuffix = ($port && $port !== 80) ? ":{$port}" : '';
+        $url = "http://{$ip}{$portSuffix}/ISAPI/System/deviceInfo";
+
+        try {
+            $connectTimeout = (int) config('services.hikvision.connect_timeout', 5);
+            $requestTimeout = (int) config('services.hikvision.request_timeout', 10);
+
+            $response = Http::connectTimeout($connectTimeout)
+                ->timeout($requestTimeout)
+                ->acceptJson()
+                ->withDigestAuth($username, $password)
+                ->get($url);
+
+            if ($response->successful()) {
+                $body = trim($response->body());
+                $data = [];
+
+                if (str_contains($body, '<?xml') || str_contains($body, '<DeviceInfo') || str_starts_with($body, '<')) {
+                    try {
+                        $xml = simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA);
+                        if ($xml !== false) {
+                            $data = json_decode(json_encode($xml), true) ?? [];
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning("ISAPI test XML parse warning ({$url}): " . $e->getMessage());
+                    }
+                }
+
+                if (empty($data)) {
+                    $data = $response->json() ?? [];
+                }
+
+                $model = $data['model'] ?? ($data['deviceModel'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'));
+                $serialNumber = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? null);
+                $firmware = $data['firmwareVersion'] ?? ($data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? null));
+
+                $data['model'] = $model;
+                $data['serialNumber'] = $serialNumber;
+                $data['firmware'] = $firmware;
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => $response->status(),
+                    'data' => $data,
+                    'error' => null,
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'data' => null,
+                'error' => "HTTP {$response->status()}: Gagal terhubung ke terminal {$ip}",
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI testDeviceConnection failed ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'data' => null,
+                'error' => "Koneksi ke {$ip} gagal: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Trigger remote control command on physical terminal (e.g. 'open' to unlock door).
      * Uses ISAPI PUT /AccessControl/RemoteControl/door/1 with Digest Auth and XML payload.
      */
@@ -417,178 +545,52 @@ class HikvisionIsapiService
         }
 
         $url = $this->buildUrl('/AccessControl/UserInfo/Search?format=json', $door);
-        $limit = max(1, min($limit, 1000));
-        $searchId = str_replace('-', '', (string) Str::uuid());
-        $position = 0;
-        $totalMatches = 0;
-        $users = [];
+        $payload = ['UserInfoSearchCond' => [
+            'searchID' => (string) Str::uuid(),
+            'searchResultPosition' => 0,
+            'maxResults' => max(1, min($limit, 1000)),
+        ]];
 
         try {
-            $client = $this->buildHttpClient($door);
-            $compatibilityProbed = false;
+            $response = $this->buildHttpClient($door)->post($url, $payload);
+            $json = $response->json() ?? [];
+            if (!$response->successful()) {
+                $error = $json['ResponseStatus'] ?? $json;
+                $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
+                    || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
 
-            while (count($users) < $limit) {
-                $payload = ['UserInfoSearchCond' => [
-                    'searchID' => $searchId,
-                    'searchResultPosition' => $position,
-                    'maxResults' => 10,
-                ]];
-                $response = $client->post($url, $payload);
-                $json = $response->json() ?? [];
-
-                if (!$response->successful()) {
-                    $error = $json['ResponseStatus'] ?? $json;
-                    $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
-                        || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
-                    $requiresCompatibilityProbe = !$compatibilityProbed
-                        && !$unsupported
-                        && $response->status() === 400
-                        && str_contains($response->body(), '0x60000001');
-
-                    if ($requiresCompatibilityProbe) {
-                        $compatibilityProbed = true;
-                        $response = $client->post($this->buildUrl('/AccessControl/UserInfo/Search', $door), $payload);
-                        $json = $response->json() ?? [];
-                        $error = $json['ResponseStatus'] ?? $json;
-                        $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
-                            || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
-                    }
-
-                    if (!$response->successful()) {
-                        return [
-                            'status' => false,
-                            'unsupported' => $unsupported,
-                            'total_device_matches' => 0,
-                            'inspected_users' => 0,
-                            'users' => [],
-                            'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
-                        ];
-                    }
-                }
-
-                $container = $json['UserInfoSearch'] ?? $json;
-                $rows = $container['UserInfo'] ?? [];
-                if (isset($rows['employeeNo'])) {
-                    $rows = [$rows];
-                }
-                $rows = array_values(array_filter($rows, 'is_array'));
-                $numOfMatches = (int) ($container['numOfMatches'] ?? count($rows));
-                $totalMatches = (int) ($container['totalMatches'] ?? $totalMatches ?: count($rows));
-                $remaining = $limit - count($users);
-
-                foreach (array_slice($rows, 0, $remaining) as $user) {
-                    $users[] = [
-                        'employee_no' => (string) ($user['employeeNo'] ?? ''),
-                        'name' => (string) ($user['name'] ?? ''),
-                        'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
-                        'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
-                    ];
-                }
-
-                $position += $numOfMatches;
-                $responseStatus = strtoupper((string) ($container['responseStatusStrg'] ?? ''));
-                if ($numOfMatches <= 0 || $position >= $totalMatches || in_array($responseStatus, ['OK', 'NO MATCH'], true)) {
-                    break;
-                }
+                return [
+                    'status' => false,
+                    'unsupported' => $unsupported,
+                    'total_device_matches' => 0,
+                    'inspected_users' => 0,
+                    'users' => [],
+                    'error' => $unsupported ? 'User directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'User inventory failed.'),
+                ];
             }
+
+            $container = $json['UserInfoSearch'] ?? $json;
+            $rows = $container['UserInfo'] ?? [];
+            if (isset($rows['employeeNo'])) {
+                $rows = [$rows];
+            }
+            $users = array_map(static fn (array $user): array => [
+                'employee_no' => (string) ($user['employeeNo'] ?? ''),
+                'name' => (string) ($user['name'] ?? ''),
+                'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
+                'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
+            ], array_filter($rows, 'is_array'));
 
             return [
                 'status' => true,
-                'unsupported' => false,
-                'total_device_matches' => $totalMatches,
+                'total_device_matches' => (int) ($container['totalMatches'] ?? count($users)),
                 'inspected_users' => count($users),
                 'users' => $users,
                 'error' => null,
             ];
         } catch (\Throwable $e) {
             Log::error("ISAPI fetchUsers failed ({$url}): " . $e->getMessage());
-            return ['status' => false, 'unsupported' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'ISAPI user inventory request failed.'];
-        }
-    }
-
-    /**
-     * Read device card inventory metadata without exposing plaintext credential values or card numbers.
-     * Returns only privacy-safe aggregates and presence mappings per employeeNo.
-     */
-    public function fetchCards(Door $door, int $limit = 100): array
-    {
-        if ($this->isMockMode()) {
-            return ['status' => false, 'total_device_matches' => 0, 'inspected_cards' => 0, 'cards' => [], 'error' => 'Device card inventory requires non-mock mode.'];
-        }
-
-        $url = $this->buildUrl('/AccessControl/CardInfo/Search?format=json', $door);
-        $limit = max(1, min($limit, 1000));
-        $searchId = str_replace('-', '', (string) Str::uuid());
-        $position = 0;
-        $totalMatches = 0;
-        $cards = [];
-
-        try {
-            $client = $this->buildHttpClient($door);
-
-            while (count($cards) < $limit) {
-                $payload = ['CardInfoSearchCond' => [
-                    'searchID' => $searchId,
-                    'searchResultPosition' => $position,
-                    'maxResults' => 10,
-                ]];
-                $response = $client->post($url, $payload);
-                $json = $response->json() ?? [];
-
-                if (!$response->successful()) {
-                    $error = $json['ResponseStatus'] ?? $json;
-                    $unsupported = strcasecmp((string) ($error['subStatusCode'] ?? ''), 'notSupport') === 0
-                        || strcasecmp((string) ($error['errorCode'] ?? ''), '0x40000001') === 0;
-
-                    return [
-                        'status' => false,
-                        'unsupported' => $unsupported,
-                        'total_device_matches' => 0,
-                        'inspected_cards' => 0,
-                        'cards' => [],
-                        'error' => $unsupported ? 'Card directory unsupported.' : "HTTP {$response->status()}: " . ($error['errorMsg'] ?? $error['statusString'] ?? 'Card inventory failed.'),
-                    ];
-                }
-
-                $container = $json['CardInfoSearch'] ?? $json;
-                $rows = $container['CardInfo'] ?? [];
-                if (isset($rows['cardNo']) || isset($rows['employeeNo'])) {
-                    $rows = [$rows];
-                }
-                $rows = array_values(array_filter($rows, 'is_array'));
-                $numOfMatches = (int) ($container['numOfMatches'] ?? count($rows));
-                $totalMatches = (int) ($container['totalMatches'] ?? $totalMatches ?: count($rows));
-                $remaining = $limit - count($cards);
-
-                foreach (array_slice($rows, 0, $remaining) as $card) {
-                    $employeeNo = trim((string) ($card['employeeNo'] ?? ''));
-                    $cardType = (string) ($card['cardType'] ?? 'normalCard');
-                    // Immediately drop cardNo; only store boolean presence and safe type descriptor
-                    $cards[] = [
-                        'employee_no' => $employeeNo,
-                        'card_registered' => true,
-                        'card_type' => $cardType,
-                    ];
-                }
-
-                $position += $numOfMatches;
-                $responseStatus = strtoupper((string) ($container['responseStatusStrg'] ?? ''));
-                if ($numOfMatches <= 0 || $position >= $totalMatches || in_array($responseStatus, ['OK', 'NO MATCH'], true)) {
-                    break;
-                }
-            }
-
-            return [
-                'status' => true,
-                'unsupported' => false,
-                'total_device_matches' => $totalMatches,
-                'inspected_cards' => count($cards),
-                'cards' => $cards,
-                'error' => null,
-            ];
-        } catch (\Throwable $e) {
-            Log::error("ISAPI fetchCards failed ({$url}): " . $e->getMessage());
-            return ['status' => false, 'unsupported' => false, 'total_device_matches' => 0, 'inspected_cards' => 0, 'cards' => [], 'error' => 'ISAPI card inventory request failed.'];
+            return ['status' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'ISAPI user inventory request failed.'];
         }
     }
 
@@ -627,7 +629,7 @@ class HikvisionIsapiService
                         'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
                         'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
                         'name' => $item['name'] ?? null,
-                        'verify_method' => HikvisionPayloadParser::normalizeVerificationMethod($item['verifyMethod'] ?? $item['currentVerifyMode'] ?? null),
+                        'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
                         'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
                         'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
                         'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
@@ -639,6 +641,7 @@ class HikvisionIsapiService
                     'statusCode' => 1,
                     'total' => count($formattedEvents),
                     'events' => $formattedEvents,
+                    'data' => $data,
                     'error' => null,
                 ];
             } catch (\Throwable $e) {
@@ -723,7 +726,7 @@ class HikvisionIsapiService
             'card_no' => $item['cardNo'] ?? ($item['card_no'] ?? null),
             'employee_no' => $item['employeeNoString'] ?? ($item['employeeNo'] ?? ($item['employee_no'] ?? null)),
             'name' => $item['name'] ?? null,
-            'verify_method' => HikvisionPayloadParser::normalizeVerificationMethod($item['verifyMethod'] ?? $item['currentVerifyMode'] ?? null),
+            'verify_method' => $item['verifyMethod'] ?? (isset($item['currentVerifyMode']) ? ucfirst($item['currentVerifyMode']) : 'Card'),
             'door_no' => $item['doorNo'] ?? ($item['door_no'] ?? null),
             'door_name' => $item['doorName'] ?? ($item['door_name'] ?? null),
             'access_status' => $item['accessStatus'] ?? ($item['access_status'] ?? 'Granted'),
@@ -735,6 +738,7 @@ class HikvisionIsapiService
             'total' => count($events),
             'total_device_matches' => (int) ($container['totalMatches'] ?? count($events)),
             'events' => $events,
+            'data' => $json,
             'error' => null,
         ];
     }
