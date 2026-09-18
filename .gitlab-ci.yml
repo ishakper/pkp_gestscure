@@ -50,26 +50,17 @@ fix_runner_workspace:
     - echo "=== DOCKER IMAGES ==="
     - docker images
     - echo "=== RULE 3: SELECTIVE DISK RECOVERY ==="
+    - echo "Pruning stopped CI containers..."
+    - docker container prune -f
+    - echo "Pruning docker builder cache..."
+    - docker builder prune -f
+    - echo "Pruning dangling images..."
+    - docker image prune -f
+    - echo "Removing obsolete pkp-securegate-verify tags..."
+    - docker images | grep '^pkp-securegate-verify' | awk '{print $1 ":" $2}' | xargs -r docker rmi -f 2>/dev/null || true
+    - echo "=== POST-RECOVERY DISK METRICS ==="
+    - df -h /
     - |
-      echo "Listing protected containers and images:"
-      docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"
-      
-      echo "Pruning stopped CI containers..."
-      docker container prune -f
-      
-      echo "Pruning docker builder cache..."
-      docker builder prune -f
-      
-      echo "Pruning dangling images..."
-      docker image prune -f
-      
-      echo "Removing obsolete pkp-securegate-verify tags..."
-      docker images --filter "reference=pkp-securegate-verify:*" --format "{{.Repository}}:{{.Tag}}" | while read -r img; do
-        echo "Removing obsolete verification image: $img"
-        docker rmi -f "$img" 2>/dev/null || true
-      done
-    - |
-      df -h /
       FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
       echo "Runner host root available space: ${FREE_MB} MB"
       if [ "$FREE_MB" -lt 2048 ]; then
