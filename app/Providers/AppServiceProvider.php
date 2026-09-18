@@ -11,7 +11,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(\App\Services\DeviceHealthService::class, function ($app) {
+            return new \App\Services\DeviceHealthService(
+                $app->make(\App\Services\HikvisionIsapiService::class)
+            );
+        });
     }
 
     /**
