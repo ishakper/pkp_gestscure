@@ -326,4 +326,76 @@ class SecuregateMappingMetricsTest extends TestCase
         $this->assertStringNotContainsString($sensitiveName, $body);
         $this->assertStringNotContainsString('SENSITIVE-PERSON', $body);
     }
+
+    /**
+     * 9. Test tamper alarm with ambient user in payload still classifies strictly as system_alarm
+     */
+    public function test_tamper_alarm_with_operator_id_classified_as_system_alarm(): void
+    {
+        $payload = [
+            'door_id' => 'DOOR-B',
+            'user' => 'OPERATOR-99',
+            'event_type' => 'TAMPER_ALARM',
+            'major_event' => 5,
+            'minor_event' => 37,
+            'event_time' => now()->toIso8601String(),
+        ];
+
+        $res = $this->ingestionService->ingest($payload, $this->door, 'HIKVISION_ALERTSTREAM', ['mode' => 'HISTORICAL_REPLAY']);
+        $this->assertEquals('success', $res['status']);
+
+        $snapshot = $this->metricsService->getMetricsSnapshot();
+        $metrics = collect($snapshot['metrics']);
+
+        $accessEvent = $metrics->firstWhere(fn($m) => $m['name'] === 'securegate_access_events_total' && ($m['labels']['event_class'] ?? '') === 'system_alarm');
+        $this->assertNotNull($accessEvent);
+        $this->assertEquals(1, $accessEvent['value']);
+
+        // Must NOT increment unknown identity counters
+        $unknownCounter = $metrics->firstWhere(fn($m) => $m['name'] === 'securegate_unknown_identity_events_total');
+        $this->assertEquals(0, $unknownCounter['value'] ?? 0);
+    }
+
+    /**
+     * 10. Test access log mass assignment retains major_event, minor_event, correlation_id
+     */
+    public function test_access_log_persists_major_minor_event_and_correlation_id(): void
+    {
+        $payload = [
+            'door_id' => 'DOOR-B',
+            'event_type' => 'DOOR_FORCED_OPEN',
+            'major_event' => 5,
+            'minor_event' => 21,
+            'event_time' => now()->toIso8601String(),
+        ];
+
+        $res = $this->ingestionService->ingest($payload, $this->door, 'HIKVISION_ALERTSTREAM', ['mode' => 'HISTORICAL_REPLAY']);
+        $this->assertEquals('success', $res['status']);
+
+        $log = \App\Models\AccessLog::where('log_id', $res['data']['log_id'])->first();
+        $this->assertNotNull($log);
+        $this->assertEquals(5, $log->major_event);
+        $this->assertEquals(21, $log->minor_event);
+    }
+
+    /**
+     * 11. Test verify_method fallback to Card when card_no present and verification_method is UNKNOWN
+     */
+    public function test_verify_method_fallback_to_card_when_card_present(): void
+    {
+        $payload = [
+            'door_id' => 'DOOR-B',
+            'card_no' => 'RAW-CARD-999',
+            'verification_method' => 'UNKNOWN',
+            'event_type' => 'STANDARD_TAP',
+            'event_time' => now()->toIso8601String(),
+        ];
+
+        $res = $this->ingestionService->ingest($payload, $this->door, 'HIKVISION_ALERTSTREAM', ['mode' => 'HISTORICAL_REPLAY']);
+        $this->assertEquals('success', $res['status']);
+
+        $log = \App\Models\AccessLog::where('log_id', $res['data']['log_id'])->first();
+        $this->assertNotNull($log);
+        $this->assertEquals('Card', $log->verify_method);
+    }
 }

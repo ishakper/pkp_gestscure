@@ -1,12 +1,12 @@
 services:
   alertstream-door-b:
     extends:
-      file: ../docker-compose.yml
+      file: docker-compose.yml
       service: app
 
     container_name: pkp_securegate_alertstream_door_b
 
-    image: pkp-securegate:033fb33c917567f2c9abdde27a1e8396b4122668
+    image: ${PKP_IMAGE:-pkp-securegate:50d808b585cf97107d54bc2b7e62c03fe01d76e0}
 
     entrypoint:
       - php

@@ -26,6 +26,9 @@ class AccessLog extends Model
         'scanned_at',
         'timestamp',
         'device_serial',
+        'major_event',
+        'minor_event',
+        'correlation_id',
     ];
 
     protected $casts = [
