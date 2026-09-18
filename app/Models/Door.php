@@ -40,6 +40,7 @@ class Door extends Model
     protected $casts = [
         'is_manual_override' => 'boolean',
         'last_checked_at' => 'datetime',
+        'isapi_password' => 'encrypted',
     ];
 
     public function getNameAttribute()
