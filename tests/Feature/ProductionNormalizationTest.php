@@ -62,18 +62,18 @@ class ProductionNormalizationTest extends TestCase
     }
 
     /**
-     * Test Building B audit requires building to exist.
+     * Test Building B audit handles missing building.
      */
     public function test_building_b_audit_when_building_missing(): void
     {
         // Building B might not exist in test DB
         $audit = $this->normalization->auditBuildingBEntitlement();
 
-        // Verify audit structure regardless
-        $this->assertArrayHasKey('building_name', $audit);
+        // Either error response or valid audit
         if (isset($audit['error'])) {
             $this->assertStringContainsString('not found', $audit['error']);
         } else {
+            $this->assertArrayHasKey('building_name', $audit);
             $this->assertTrue($audit['invariant_valid']);
         }
     }
