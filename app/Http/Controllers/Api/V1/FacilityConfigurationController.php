@@ -11,7 +11,6 @@ use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Validation\Rule;
 use OpenApi\Attributes as OA;
 
@@ -319,9 +318,7 @@ class FacilityConfigurationController extends Controller
         $serialNumber = $testResult['data']['serialNumber'] ?? null;
         $firmwareVersion = $testResult['data']['firmware'] ?? null;
 
-        // 2. Encrypt ISAPI Password using Crypt::encryptString
-        $encryptedPassword = Crypt::encryptString($data['isapi_password']);
-
+        // 2. Door model handles single encryption boundary via 'isapi_password' => 'encrypted' cast
         // 3. Save Door record to database
         $door = Door::create([
             'door_id' => strtoupper($data['door_id']),
@@ -339,7 +336,7 @@ class FacilityConfigurationController extends Controller
             'serial_number' => $serialNumber,
             'firmware_version' => $firmwareVersion,
             'isapi_username' => $data['isapi_username'],
-            'isapi_password' => $encryptedPassword,
+            'isapi_password' => $data['isapi_password'],
             'status' => $connStatus,
             'connection_status' => $connStatus,
             'health_status' => $healthStatus,
