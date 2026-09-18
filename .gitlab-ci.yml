@@ -45,13 +45,6 @@ fix_runner_workspace:
       FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
       echo "Runner host root available space: ${FREE_MB} MB"
       if [ "$FREE_MB" -lt 2048 ]; then
-        echo "Root disk space below 2048 MB (${FREE_MB} MB). Attempting cleanup of dangling Docker resources..."
-        docker container prune -f 2>/dev/null || true
-        docker image prune -f 2>/dev/null || true
-        FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
-        echo "Runner host root available space after cleanup: ${FREE_MB} MB"
-      fi
-      if [ "$FREE_MB" -lt 2048 ]; then
         echo "ERROR: Runner root disk space below safe minimum of 2048 MB (Current: ${FREE_MB} MB). Halting before build."
         exit 1
       fi
