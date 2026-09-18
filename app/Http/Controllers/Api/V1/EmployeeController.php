@@ -66,12 +66,8 @@ class EmployeeController extends Controller
         if ($request->filled('search')) { $search = $request->input('search'); $query->where(fn ($q) => $q->where('name','like',"%{$search}%")->orWhere('nik','like',"%{$search}%")->orWhere('employee_id','like',"%{$search}%")); }
         foreach (['building_id','division_id','position_id','employment_status'] as $filter) { if ($request->filled($filter)) $query->where($filter, $request->input($filter)); }
         if ($request->filled('door_id')) { $doorId=$request->input('door_id'); $query->whereHas('doors', fn($q) => $q->where('doors.door_id',$doorId)->orWhere('doors.id',$doorId)); }
-        if ($admin && $admin->isBuildingAdmin()) {
-            $buildingId = $admin->employee?->building_id;
-            abort_unless($buildingId || $admin->assigned_building, 403);
-            $query->where(fn($q) => $q
-                ->when($buildingId, fn($scoped) => $scoped->where('building_id',$buildingId))
-                ->when($admin->assigned_building, fn($scoped) => $scoped->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building))));
+        if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
+            $query->where(fn($q) => $q->whereHas('building', fn($b) => $b->where('name',$admin->assigned_building))->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building)));
         }
         $employees=$query->paginate(min(max((int)$request->get('per_page',10),1),100));
         return response()->json(['status'=>'success','pagination'=>['current_page'=>$employees->currentPage(),'per_page'=>$employees->perPage(),'total_records'=>$employees->total(),'total_pages'=>$employees->lastPage()],'data'=>EmployeeResource::collection($employees)]);
@@ -130,8 +126,7 @@ class EmployeeController extends Controller
         $values['employment_status']=$values['employment_status'] ?? 'ACTIVE';
         $employee=Employee::create($values);
         $hasFp=(bool)$request->input('fingerprint_enrolled',false); $cardEnrolled=!empty($employee->card_no)||(bool)$request->input('card_enrolled',false);
-        // Device retains biometric templates; application stores enrollment state only.
-        BiometricStatus::create(['employee_id'=>$employee->id,'has_fingerprint'=>$hasFp,'fingerprint_enrolled'=>$hasFp,'card_enrolled'=>$cardEnrolled]);
+        BiometricStatus::create(['employee_id'=>$employee->id,'has_fingerprint'=>$hasFp,'fingerprint_enrolled'=>$hasFp,'card_enrolled'=>$cardEnrolled,'biometric_template'=>null]);
         $this->assignInitialDoors($employee, $request->input('door_ids', []));
         $this->audit($request, 'create_employee', $employee, 'Created employee master record');
         return response()->json(['status'=>'success','message'=>'Karyawan berhasil ditambahkan','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position']))],201);
@@ -427,8 +422,217 @@ class EmployeeController extends Controller
             )
         ]
     )]
-    public function revokeDoorAccess(Request $request,$id,$door_id) { $employee=$this->findEmployeeByIdentifier($id); $door=Door::where('door_id',$door_id)->orWhere('id',$door_id)->firstOrFail(); $this->authorize('assignDoor',[$employee,$door]); DoorAssignment::where('employee_id',$employee->id)->where('door_id',$door->id)->delete(); $this->audit($request,'revoke_door_access',$employee,"Revoked door {$door->door_id}"); return response()->json(['status'=>'success','message'=>"Hak akses {$door->door_name} berhasil dicabut."]); }
+    #[OA\Post(
+        path: '/user-management/employees/{id}/enroll-card',
+        summary: 'Enroll Kartu Akses RFID Baru',
+        description: 'Mendaftarkan kartu RFID baru untuk karyawan, memverifikasi keunikan kartu, menerbitkan CredentialRecord, dan mentrigger sinkronisasi perangkat.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['card_number'],
+                properties: [
+                    new OA\Property(property: 'card_number', type: 'string', example: 'CARD-100234'),
+                    new OA\Property(property: 'notes', type: 'string', example: 'Kartu fisik diterbitkan oleh HR')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Kartu berhasil didaftarkan dan di-queue untuk sinkronisasi perangkat',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Kartu CARD-100234 berhasil didaftarkan untuk Budi Santoso.',
+                        'data' => [
+                            'employee_id' => 'USR-1001',
+                            'card_number' => 'CARD-100234',
+                            'credential_number' => 'CRD-2026-0001',
+                            'status' => 'ACTIVE'
+                        ]
+                    ]
+                )
+            ),
+            new OA\Response(response: 422, description: 'Nomor kartu tidak valid atau sudah terdaftar')
+        ]
+    )]
+    public function enrollCard(Request $request, $id)
+    {
+        $employee = $this->findEmployeeByIdentifier($id);
+        $this->authorize('update', $employee);
 
-    private function assignInitialDoors(Employee $employee,array $doorIds): void { foreach (Door::whereIn('door_id',$doorIds)->orWhereIn('id',$doorIds)->get() as $door) { $assignment=DoorAssignment::firstOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>0]); SyncDoorAccessJob::dispatch($assignment->id); } }
+        $request->validate([
+            'card_number' => 'required|string|min:4|max:64',
+            'notes' => 'nullable|string|max:255',
+        ]);
+
+        $cardNumber = trim($request->input('card_number'));
+
+        // Check uniqueness across active credentials and employee card_no
+        $existingCredential = \App\Models\CredentialRecord::where('card_number', $cardNumber)
+            ->whereIn('status', ['ACTIVE', 'PENDING'])
+            ->first();
+
+        $existingEmployee = Employee::where('card_no', $cardNumber)
+            ->where('id', '!=', $employee->id)
+            ->first();
+
+        if ($existingCredential || $existingEmployee) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Nomor kartu ini sudah terdaftar dan aktif untuk pengguna lain.',
+                'errors' => [
+                    'card_number' => ['Nomor kartu ini sudah terdaftar dan aktif untuk pengguna lain.']
+                ]
+            ], 422);
+        }
+
+        // Update employee card_no
+        $employee->card_no = $cardNumber;
+        $employee->save();
+
+        // Issue credential record using AccessProvisioningService
+        $service = app(\App\Services\AccessProvisioningService::class);
+        $credential = $service->issueCredential([
+            'employee_id' => $employee->id,
+            'credential_type' => 'CARD',
+            'card_number' => $cardNumber,
+            'status' => 'ACTIVE',
+            'notes' => $request->input('notes') ?? 'Web Card Enrollment',
+        ], $request->user());
+
+        // Dispatch sync job for all assigned doors
+        $assignments = DoorAssignment::where('employee_id', $employee->id)->get();
+        foreach ($assignments as $assignment) {
+            $assignment->update(['sync_status' => 'pending']);
+            SyncDoorAccessJob::dispatch($assignment->id);
+        }
+
+        $this->audit($request, 'card_enrolled', $employee, "Enrolled new RFID card {$cardNumber} for {$employee->name}");
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Kartu {$cardNumber} berhasil didaftarkan untuk {$employee->name}.",
+            'data' => [
+                'employee_id' => $employee->employee_id,
+                'card_number' => $cardNumber,
+                'credential_number' => $credential->credential_number,
+                'status' => $credential->status,
+            ]
+        ]);
+    }
+
+    #[OA\Post(
+        path: '/user-management/employees/{id}/block-lost-card',
+        summary: 'Blokir Kartu Hilang & Revoke Akses Pintu',
+        description: 'Memblokir kartu yang hilang, mencabut seluruh hak akses pintu karyawan terkait, dan mencatat audit log lengkap.',
+        tags: ['Employee'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'id', in: 'path', description: 'ID internal atau Employee ID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['reason'],
+                properties: [
+                    new OA\Property(property: 'reason', type: 'string', example: 'Kartu hilang di area parkir'),
+                    new OA\Property(property: 'card_number', type: 'string', example: 'CARD-100234')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(
+                response: 200,
+                description: 'Kartu berhasil diblokir dan seluruh akses pintu dicabut',
+                content: new OA\JsonContent(
+                    example: [
+                        'status' => 'success',
+                        'message' => 'Kartu berhasil diblokir dan 3 akses pintu untuk Budi Santoso berhasil dicabut.',
+                        'revoked_doors_count' => 3
+                    ]
+                )
+            )
+        ]
+    )]
+    public function blockLostCard(Request $request, $id)
+    {
+        $employee = $this->findEmployeeByIdentifier($id);
+        $this->authorize('update', $employee);
+
+        $request->validate([
+            'reason' => 'required|string|max:255',
+            'card_number' => 'nullable|string',
+        ]);
+
+        $reason = $request->input('reason');
+        $cardNumber = $request->input('card_number') ?? $employee->card_no;
+
+        // 1. Mark CredentialRecord status as BLOCKED
+        $query = \App\Models\CredentialRecord::where('employee_id', $employee->id);
+        if ($cardNumber) {
+            $query->where(function ($q) use ($cardNumber) {
+                $q->where('card_number', $cardNumber)->orWhere('masked_identifier', 'LIKE', '%' . substr($cardNumber, -4));
+            });
+        }
+        $credentials = $query->get();
+
+        if ($credentials->isEmpty()) {
+            $credentials = \App\Models\CredentialRecord::where('employee_id', $employee->id)->where('status', 'ACTIVE')->get();
+        }
+
+        foreach ($credentials as $crd) {
+            $crd->status = 'BLOCKED';
+            $crd->revoked_at = now();
+            $crd->revocation_reason = 'BLOCKED_LOST: ' . $reason;
+            $crd->save();
+
+            // Enqueue device revocation sync
+            $service = app(\App\Services\AccessProvisioningService::class);
+            $doors = Door::all();
+            foreach ($doors as $door) {
+                $service->enqueueDeviceSync($crd, $door, 'REVOKE');
+            }
+        }
+
+        // 2. Clear employee card_no if matching
+        if ($employee->card_no && ($cardNumber === null || $employee->card_no === $cardNumber)) {
+            $employee->card_no = null;
+            $employee->save();
+        }
+
+        // 3. Revoke ALL door access for this employee
+        $assignments = DoorAssignment::where('employee_id', $employee->id)->get();
+        $revokedCount = DoorAssignment::whereKey($assignments->modelKeys())->delete();
+
+        // 4. Record comprehensive ActivityLog
+        ActivityLog::create([
+            'admin_id' => $request->user()?->id,
+            'action' => 'card_blocked_lost',
+            'subject_type' => 'Employee',
+            'subject_id' => $employee->id,
+            'description' => "Kartu " . ($cardNumber ? "{$cardNumber} " : "") . "milik {$employee->name} ({$employee->employee_id}) diblokir karena hilang/dicuri. Alasan: {$reason}. {$revokedCount} hak akses pintu dicabut.",
+            'timestamp' => now(),
+        ]);
+
+        return response()->json([
+            'status' => 'success',
+            'message' => "Kartu " . ($cardNumber ? "({$cardNumber}) " : "") . "berhasil diblokir dan {$revokedCount} hak akses pintu untuk {$employee->name} dicabut.",
+            'revoked_doors_count' => $revokedCount,
+            'data' => [
+                'employee_id' => $employee->employee_id,
+                'status' => 'BLOCKED',
+                'revoked_doors_count' => $revokedCount,
+            ]
+        ]);
+    }
+
+    private function assignInitialDoors(Employee $employee,array $doorIds): void { foreach (Door::whereIn('door_id',$doorIds)->orWhereIn('id',$doorIds)->get() as $door) { $assignment=DoorAssignment::firstOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>'0']); SyncDoorAccessJob::dispatch($assignment->id); } }
     private function audit(Request $request,string $action,Employee $employee,string $description): void { ActivityLog::create(['admin_id'=>$request->user()?->id,'action'=>$action,'subject_type'=>'Employee','subject_id'=>$employee->id,'description'=>$description.' ['.$employee->employee_id.']','timestamp'=>now()]); }
 }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\V1\AccountController;
 use App\Http\Controllers\Api\V1\ActivityLogController;
 use App\Http\Controllers\Api\V1\AdminAccessLogController;
 use App\Http\Controllers\Api\V1\AdminDoorController;
@@ -34,10 +35,17 @@ Route::prefix('v1')->group(function () {
             Route::get('/me', [AuthController::class, 'me']);
             Route::post('/logout', [AuthController::class, 'logout']);
             Route::post('/device-token', [AuthController::class, 'issueDeviceToken']);
+            Route::post('/change-password', [AuthController::class, 'changePassword']);
         });
+
+        // System Accounts Endpoints
+        Route::get('/accounts', [AccountController::class, 'index']);
+        Route::patch('/accounts/{id}/password', [AccountController::class, 'resetPassword']);
 
         // UserManagement Pillar
         Route::prefix('user-management')->group(function () {
+            Route::get('/accounts', [AccountController::class, 'index']);
+            Route::patch('/accounts/{id}/password', [AccountController::class, 'resetPassword']);
             Route::get('/users', [EmployeeController::class, 'index']);
             Route::get('/employees', [EmployeeController::class, 'index']); // Spec alias
             Route::get('/doors-lookup', [AdminDoorController::class, 'lookup']);
@@ -56,16 +64,21 @@ Route::prefix('v1')->group(function () {
             Route::delete('/employees/{id}', [EmployeeController::class, 'destroy']);
             Route::post('/assign-doors', [DoorSyncController::class, 'assignDoors']);
             Route::post('/revoke-doors', [DoorSyncController::class, 'revokeDoors']);
+            Route::post('/bulk-access', [DoorSyncController::class, 'bulkAccess']);
             Route::post('/employees/{id}/door-access', [EmployeeController::class, 'assignDoorAccess']);
             Route::delete('/employees/{id}/door-access/{door_id}', [EmployeeController::class, 'revokeDoorAccess']);
             Route::post('/employees/{id}/sync-biometric', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'syncEmployeeBiometric']);
             Route::get('/employees/{id}/door-sync-status', [\App\Http\Controllers\Api\V1\BiometricProvisioningController::class, 'getEmployeeSyncStatus']);
+            Route::post('/employees/{id}/enroll-card', [EmployeeController::class, 'enrollCard']);
+            Route::post('/employees/{id}/block-lost-card', [EmployeeController::class, 'blockLostCard']);
         });
 
         // Admin Pillar
         Route::prefix('admin')->group(function () {
             Route::get('/doors', [AdminDoorController::class, 'index']);
             Route::post('/doors', [FacilityConfigurationController::class, 'storeDoor']);
+            Route::post('/doors/test-connection', [FacilityConfigurationController::class, 'testDoorConnection']);
+            Route::post('/doors/onboard', [FacilityConfigurationController::class, 'onboardDoor']);
             Route::put('/doors/{door_id}', [FacilityConfigurationController::class, 'updateDoor']);
             Route::get('/buildings', [FacilityConfigurationController::class, 'buildings']);
             Route::post('/buildings', [FacilityConfigurationController::class, 'storeBuilding']);
