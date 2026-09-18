@@ -29,6 +29,11 @@ class Admin extends Authenticatable
         'role',
         'assigned_building',
         'employee_id',
+        'must_change_password',
+    ];
+
+    protected $casts = [
+        'must_change_password' => 'boolean',
     ];
 
     protected $hidden = [

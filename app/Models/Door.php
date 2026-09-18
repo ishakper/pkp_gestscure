@@ -15,17 +15,26 @@ class Door extends Model
         'door_name',
         'location',
         'building_id',
+        'floor_id',
         'zone_id',
         'ip_address',
         'device_ip',
         'gateway',
         'model',
         'device_model',
+        'serial_number',
+        'firmware_version',
+        'isapi_username',
+        'isapi_password',
         'status',
         'connection_status',
         'health_status',
         'is_manual_override',
         'last_checked_at',
+    ];
+
+    protected $hidden = [
+        'isapi_password',
     ];
 
     protected $casts = [

@@ -49,6 +49,13 @@ fix_runner_workspace:
     - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
     - chmod -R u+rwX . 2>/dev/null || true
     - echo "Workspace permissions successfully restored."
+    - |
+      FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+      echo "Runner host root available space: ${FREE_MB} MB"
+      if [ "$FREE_MB" -lt 2048 ]; then
+        echo "ERROR: Runner root disk space below safe minimum of 2048 MB (Current: ${FREE_MB} MB). Halting before build."
+        exit 1
+      fi
 
 # ------------------------------------------------------------------------------
 # Stage 1: Validation
@@ -129,6 +136,9 @@ test_suite:
     - echo "Executing full automated feature & regression test suite in verification image..."
     - |
       docker run --rm --network none -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
+  after_script:
+    - echo "Cleaning up ephemeral verification image for current commit..."
+    - docker image rm -f pkp-securegate-verify:${IMAGE_TAG} 2>/dev/null || true
   artifacts:
     when: on_failure
     expire_in: 3 days
