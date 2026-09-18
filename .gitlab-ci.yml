@@ -43,13 +43,13 @@ fix_runner_workspace:
     - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
     - chmod -R u+rwX . 2>/dev/null || true
     - echo "Workspace permissions successfully restored."
-    - echo "=== RULE 2: DISK CONSUMERS INSPECTION ==="
+    - echo "=== RULE 2 - DISK CONSUMERS INSPECTION ==="
     - docker system df -v
     - echo "=== DOCKER PS -A ==="
     - docker ps -a
     - echo "=== DOCKER IMAGES ==="
     - docker images
-    - echo "=== RULE 3: SELECTIVE DISK RECOVERY ==="
+    - echo "=== RULE 3 - SELECTIVE DISK RECOVERY ==="
     - echo "Pruning stopped CI containers..."
     - docker container prune -f
     - echo "Pruning docker builder cache..."
@@ -57,7 +57,7 @@ fix_runner_workspace:
     - echo "Pruning dangling images..."
     - docker image prune -f
     - echo "Removing obsolete pkp-securegate-verify tags..."
-    - docker images | grep '^pkp-securegate-verify' | awk '{print $1 ":" $2}' | xargs -r docker rmi -f 2>/dev/null || true
+    - 'docker images | grep "^pkp-securegate-verify" | awk "{print \$1 \":\" \$2}" | xargs -r docker rmi -f 2>/dev/null || true'
     - echo "=== POST-RECOVERY DISK METRICS ==="
     - df -h /
     - |
