@@ -43,12 +43,43 @@ fix_runner_workspace:
     - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
     - chmod -R u+rwX . 2>/dev/null || true
     - echo "Workspace permissions successfully restored."
+    - echo "=== RULE 2: DISK CONSUMERS INSPECTION ==="
+    - docker system df -v
+    - echo "=== DOCKER PS -A ==="
+    - docker ps -a
+    - echo "=== DOCKER IMAGES ==="
+    - docker images
+    - echo "=== RULE 3: SELECTIVE DISK RECOVERY ==="
     - |
+      echo "Listing protected containers and images:"
+      docker ps --format "table {{.ID}}\t{{.Names}}\t{{.Image}}\t{{.Status}}"
+      
+      echo "Pruning stopped CI containers..."
+      docker container prune -f
+      
+      echo "Pruning docker builder cache..."
+      docker builder prune -f
+      
+      echo "Pruning dangling images..."
+      docker image prune -f
+      
+      echo "Removing obsolete pkp-securegate-verify tags..."
+      docker images --filter "reference=pkp-securegate-verify:*" --format "{{.Repository}}:{{.Tag}}" | while read -r img; do
+        echo "Removing obsolete verification image: $img"
+        docker rmi -f "$img" 2>/dev/null || true
+      done
+    - |
+      df -h /
       FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
       echo "Runner host root available space: ${FREE_MB} MB"
       if [ "$FREE_MB" -lt 2048 ]; then
         echo "ERROR: Runner root disk space below safe minimum of 2048 MB (Current: ${FREE_MB} MB). Halting before build."
         exit 1
+      fi
+      if [ "$FREE_MB" -ge 3072 ]; then
+        echo "SUCCESS: Recovery target achieved (>= 3072 MB free: ${FREE_MB} MB)."
+      else
+        echo "NOTICE: Minimum threshold satisfied (${FREE_MB} MB >= 2048 MB), below preferred target 3072 MB."
       fi
 
 # ------------------------------------------------------------------------------
@@ -114,6 +145,12 @@ build_verification_image:
     - docker run --rm --network none --entrypoint composer pkp-securegate-verify:${IMAGE_TAG} --version
     - docker run --rm --network none pkp-securegate-verify:${IMAGE_TAG} artisan --version
     - docker run --rm --network none --entrypoint sh pkp-securegate-verify:${IMAGE_TAG} -c 'test -x vendor/bin/phpunit'
+  after_script:
+    - |
+      if [ "$CI_JOB_STATUS" != "success" ]; then
+        echo "Verification build failed or cancelled - removing ephemeral image..."
+        docker image rm -f pkp-securegate-verify:${IMAGE_TAG} 2>/dev/null || true
+      fi
 
 # ------------------------------------------------------------------------------
 # Stage 3: Automated Quality Test Suite (Clean Container)
