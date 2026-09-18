@@ -7883,3 +7883,300 @@ window.triggerResetAccountPassword = triggerResetAccountPassword;
 window.copyTempPassword = copyTempPassword;
 window.submitForcePasswordChange = submitForcePasswordChange;
 
+// ==========================================
+// Device Onboarding Wizard Logic
+// ==========================================
+let wizCurrentStep = 1;
+let wizBuildingsData = [];
+let wizTestedData = null;
+
+async function openDeviceOnboardingWizard() {
+    wizCurrentStep = 1;
+    wizTestedData = null;
+    
+    const form = document.getElementById('deviceOnboardingForm');
+    if (form) form.reset();
+
+    const gwInput = document.getElementById('wizGatewayInput');
+    if (gwInput) gwInput.value = '192.168.90.1';
+    
+    const userInput = document.getElementById('wizIsapiUserInput');
+    if (userInput) userInput.value = 'admin';
+
+    try {
+        const bldRes = await apiFetch('/admin/buildings');
+        wizBuildingsData = (bldRes.status === 'success' && Array.isArray(bldRes.data)) ? bldRes.data : [];
+        
+        const bldSelect = document.getElementById('wizBuildingSelect');
+        if (bldSelect) {
+            bldSelect.innerHTML = '<option value="">Pilih Gedung...</option>' + 
+                wizBuildingsData.map(b => `<option value="${b.id}">${escapeHtml(b.name)} (${escapeHtml(b.code)})</option>`).join('');
+        }
+        
+        onWizBuildingChange();
+    } catch (err) {
+        showToast(`Gagal memuat daftar gedung: ${err.message}`, 'error');
+    }
+
+    renderWizStep();
+    openModal('deviceOnboardingWizardModal');
+}
+
+function onWizBuildingChange() {
+    const bldId = parseInt(document.getElementById('wizBuildingSelect')?.value, 10);
+    const zoneSelect = document.getElementById('wizZoneSelect');
+    if (!zoneSelect) return;
+
+    if (!bldId) {
+        zoneSelect.innerHTML = '<option value="">Pilih Gedung terlebih dahulu...</option>';
+        return;
+    }
+
+    const bld = wizBuildingsData.find(b => b.id === bldId);
+    const zones = (bld && Array.isArray(bld.zones)) ? bld.zones : [];
+
+    if (zones.length === 0) {
+        zoneSelect.innerHTML = '<option value="">(Belum ada zona khusus - Menggunakan Zona Akses Standar)</option>';
+    } else {
+        zoneSelect.innerHTML = '<option value="">Pilih Zona Akses...</option>' +
+            zones.map(z => `<option value="${z.id}">${escapeHtml(z.name)} (${escapeHtml(z.code)})</option>`).join('');
+    }
+}
+
+function renderWizStep() {
+    for (let i = 1; i <= 4; i++) {
+        const panel = document.getElementById(`wizStep${i}`);
+        const ind = document.getElementById(`wizStepInd${i}`);
+        if (panel) panel.style.display = (i === wizCurrentStep) ? 'block' : 'none';
+        
+        if (ind) {
+            const numSpan = ind.querySelector('span');
+            if (i === wizCurrentStep) {
+                ind.style.color = 'var(--primary)';
+                if (numSpan) { numSpan.style.background = 'var(--primary)'; numSpan.style.color = '#fff'; }
+            } else if (i < wizCurrentStep) {
+                ind.style.color = '#10b981';
+                if (numSpan) { numSpan.style.background = '#10b981'; numSpan.style.color = '#fff'; }
+            } else {
+                ind.style.color = 'var(--text-muted)';
+                if (numSpan) { numSpan.style.background = 'rgba(255,255,255,0.1)'; numSpan.style.color = 'var(--text-muted)'; }
+            }
+        }
+    }
+
+    const backBtn = document.getElementById('wizBackBtn');
+    const nextBtn = document.getElementById('wizNextBtn');
+
+    if (backBtn) backBtn.style.display = (wizCurrentStep > 1) ? 'inline-block' : 'none';
+
+    if (nextBtn) {
+        if (wizCurrentStep === 3) {
+            nextBtn.innerText = 'Lanjut ke Konfirmasi ➡️';
+            nextBtn.disabled = !wizTestedData;
+        } else if (wizCurrentStep === 4) {
+            nextBtn.innerText = '✨ Simpan & Aktifkan Perangkat';
+            nextBtn.disabled = false;
+        } else {
+            nextBtn.innerText = 'Lanjut ➡️';
+            nextBtn.disabled = false;
+        }
+    }
+}
+
+function wizGoBack() {
+    if (wizCurrentStep > 1) {
+        wizCurrentStep--;
+        renderWizStep();
+    }
+}
+
+async function wizGoNext() {
+    if (wizCurrentStep === 1) {
+        const bldId = document.getElementById('wizBuildingSelect')?.value;
+        if (!bldId) {
+            showToast('Pilih gedung induk terlebih dahulu.', 'error');
+            return;
+        }
+        wizCurrentStep = 2;
+        renderWizStep();
+    } else if (wizCurrentStep === 2) {
+        const doorId = document.getElementById('wizDoorIdInput')?.value.trim();
+        const doorName = document.getElementById('wizDoorNameInput')?.value.trim();
+        const deviceIp = document.getElementById('wizDeviceIpInput')?.value.trim();
+        const isapiUser = document.getElementById('wizIsapiUserInput')?.value.trim();
+        const isapiPass = document.getElementById('wizIsapiPassInput')?.value;
+
+        if (!doorId || !doorName || !deviceIp || !isapiUser || !isapiPass) {
+            showToast('Lengkapi seluruh field bertanda bintang (*).', 'error');
+            return;
+        }
+        wizCurrentStep = 3;
+        renderWizStep();
+        runWizTestConnection();
+    } else if (wizCurrentStep === 3) {
+        if (!wizTestedData) {
+            showToast('Verifikasi koneksi ISAPI terlebih dahulu.', 'error');
+            return;
+        }
+        wizCurrentStep = 4;
+        renderWizSummary();
+        renderWizStep();
+    } else if (wizCurrentStep === 4) {
+        submitOnboardDevice();
+    }
+}
+
+async function runWizTestConnection() {
+    const container = document.getElementById('wizTestContainer');
+    const deviceIp = document.getElementById('wizDeviceIpInput')?.value.trim();
+    const isapiUser = document.getElementById('wizIsapiUserInput')?.value.trim();
+    const isapiPass = document.getElementById('wizIsapiPassInput')?.value;
+
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="spinner" style="margin: 0 auto 0.75rem auto;"></div>
+        <div style="font-size: 0.9rem; color: var(--text-main); font-weight: 600;">Menguji Koneksi ISAPI Read-Only...</div>
+        <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.25rem;">GET http://${escapeHtml(deviceIp)}/ISAPI/System/deviceInfo</div>
+    `;
+
+    try {
+        const res = await apiFetch('/admin/doors/test-connection', {
+            method: 'POST',
+            body: JSON.stringify({
+                device_ip: deviceIp,
+                isapi_username: isapiUser,
+                isapi_password: isapiPass
+            })
+        });
+
+        if (res.status === 'success' && res.data) {
+            wizTestedData = res.data;
+            container.innerHTML = `
+                <div style="color: #10b981; font-size: 2.5rem; margin-bottom: 0.5rem;">✅</div>
+                <div style="font-size: 1rem; font-weight: 700; color: #10b981; margin-bottom: 0.75rem;">Koneksi Terminal ISAPI Terverifikasi ONLINE</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem; text-align: left; background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 0.5rem; padding: 0.85rem; font-size: 0.8rem;">
+                    <div><span style="color: var(--text-muted);">Model:</span><br><strong style="color: #fff;">${escapeHtml(wizTestedData.model || 'DS-K1T804AMF')}</strong></div>
+                    <div><span style="color: var(--text-muted);">Serial Number:</span><br><strong style="color: #fff;">${escapeHtml(wizTestedData.serialNumber || '-')}</strong></div>
+                    <div><span style="color: var(--text-muted);">Firmware:</span><br><strong style="color: #fff;">${escapeHtml(wizTestedData.firmware || '-')}</strong></div>
+                </div>
+                <button type="button" class="btn-secondary" style="margin-top: 1rem;" onclick="runWizTestConnection()">🔄 Tes Ulang</button>
+            `;
+            showToast('Tes koneksi terminal berhasil!', 'success');
+        } else {
+            wizTestedData = null;
+            container.innerHTML = `
+                <div style="color: var(--danger); font-size: 2.5rem; margin-bottom: 0.5rem;">❌</div>
+                <div style="font-size: 1rem; font-weight: 700; color: var(--danger); margin-bottom: 0.5rem;">Koneksi ISAPI Gagal</div>
+                <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.5rem; padding: 0.75rem;">
+                    ${escapeHtml(res.message || 'Terminal tidak merespon pada port 80 ISAPI.')}
+                </div>
+                <button type="button" class="btn-primary" onclick="runWizTestConnection()">🔄 Coba Lagi</button>
+            `;
+            showToast('Tes koneksi terminal gagal.', 'error');
+        }
+    } catch (err) {
+        wizTestedData = null;
+        container.innerHTML = `
+            <div style="color: var(--danger); font-size: 2.5rem; margin-bottom: 0.5rem;">❌</div>
+            <div style="font-size: 1rem; font-weight: 700; color: var(--danger); margin-bottom: 0.5rem;">Error Koneksi ISAPI</div>
+            <div style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 0.5rem; padding: 0.75rem;">
+                ${escapeHtml(err.message)}
+            </div>
+            <button type="button" class="btn-primary" onclick="runWizTestConnection()">🔄 Coba Lagi</button>
+        `;
+    }
+
+    renderWizStep();
+}
+
+function renderWizSummary() {
+    const container = document.getElementById('wizSummaryContainer');
+    if (!container) return;
+
+    const bldId = parseInt(document.getElementById('wizBuildingSelect')?.value, 10);
+    const bld = wizBuildingsData.find(b => b.id === bldId);
+    const doorId = document.getElementById('wizDoorIdInput')?.value.trim();
+    const doorName = document.getElementById('wizDoorNameInput')?.value.trim();
+    const deviceIp = document.getElementById('wizDeviceIpInput')?.value.trim();
+    const gateway = document.getElementById('wizGatewayInput')?.value.trim();
+    const isapiUser = document.getElementById('wizIsapiUserInput')?.value.trim();
+    const floorNo = document.getElementById('wizFloorSelect')?.value || '1';
+
+    container.innerHTML = `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+            <div><span style="color: var(--text-muted);">Master Gedung:</span> <strong>${escapeHtml(bld?.name || '-')}</strong></div>
+            <div><span style="color: var(--text-muted);">Lantai (Floor):</span> <strong>Lantai ${escapeHtml(floorNo)}</strong></div>
+            <div><span style="color: var(--text-muted);">Kode Perangkat:</span> <code>${escapeHtml(doorId)}</code></div>
+            <div><span style="color: var(--text-muted);">Nama Terminal:</span> <strong>${escapeHtml(doorName)}</strong></div>
+            <div><span style="color: var(--text-muted);">Alamat IP:</span> <code>${escapeHtml(deviceIp)}</code></div>
+            <div><span style="color: var(--text-muted);">Gateway:</span> <code>${escapeHtml(gateway)}</code></div>
+            <div><span style="color: var(--text-muted);">Username ISAPI:</span> <code>${escapeHtml(isapiUser)}</code></div>
+            <div><span style="color: var(--text-muted);">Proteksi Password:</span> <span class="badge badge-success">Encrypted (AES-256)</span></div>
+            <div><span style="color: var(--text-muted);">Model Verified:</span> <strong>${escapeHtml(wizTestedData?.model || 'DS-K1T804AMF')}</strong></div>
+            <div><span style="color: var(--text-muted);">Serial Number:</span> <code>${escapeHtml(wizTestedData?.serialNumber || '-')}</code></div>
+            <div><span style="color: var(--text-muted);">Versi Firmware:</span> <code>${escapeHtml(wizTestedData?.firmware || '-')}</code></div>
+            <div><span style="color: var(--text-muted);">Status Awal:</span> <span class="badge badge-granted">ONLINE</span></div>
+        </div>
+    `;
+}
+
+async function submitOnboardDevice() {
+    const nextBtn = document.getElementById('wizNextBtn');
+    if (nextBtn) {
+        nextBtn.disabled = true;
+        nextBtn.innerText = 'Menyimpan...';
+    }
+
+    const bldId = parseInt(document.getElementById('wizBuildingSelect')?.value, 10);
+    const zoneIdVal = document.getElementById('wizZoneSelect')?.value;
+    const floorIdVal = document.getElementById('wizFloorSelect')?.value;
+    const doorId = document.getElementById('wizDoorIdInput')?.value.trim();
+    const name = document.getElementById('wizDoorNameInput')?.value.trim();
+    const deviceIp = document.getElementById('wizDeviceIpInput')?.value.trim();
+    const gateway = document.getElementById('wizGatewayInput')?.value.trim();
+    const isapiUsername = document.getElementById('wizIsapiUserInput')?.value.trim();
+    const isapiPassword = document.getElementById('wizIsapiPassInput')?.value;
+
+    try {
+        const res = await apiFetch('/admin/doors/onboard', {
+            method: 'POST',
+            body: JSON.stringify({
+                door_id: doorId,
+                name: name,
+                building_id: bldId,
+                floor_id: floorIdVal ? parseInt(floorIdVal, 10) : null,
+                zone_id: zoneIdVal ? parseInt(zoneIdVal, 10) : null,
+                device_ip: deviceIp,
+                gateway: gateway,
+                device_model: wizTestedData?.model || 'DS-K1T804AMF',
+                isapi_username: isapiUsername,
+                isapi_password: isapiPassword,
+            })
+        });
+
+        if (res.status === 'success') {
+            showToast(`Terminal ${doorId} berhasil di-onboard! Status: ${res.data?.connection_status || 'online'}`, 'success');
+            closeModal('deviceOnboardingWizardModal');
+            loadBuildingHierarchy();
+        } else {
+            showToast(`Gagal onboard device: ${res.message}`, 'error');
+        }
+    } catch (err) {
+        showToast(`Gagal onboard device: ${err.message}`, 'error');
+    } finally {
+        if (nextBtn) {
+            nextBtn.disabled = false;
+            nextBtn.innerText = '✨ Simpan & Aktifkan Perangkat';
+        }
+    }
+}
+
+window.openDeviceOnboardingWizard = openDeviceOnboardingWizard;
+window.onWizBuildingChange = onWizBuildingChange;
+window.wizGoBack = wizGoBack;
+window.wizGoNext = wizGoNext;
+window.runWizTestConnection = runWizTestConnection;
+window.submitOnboardDevice = submitOnboardDevice;
+
+

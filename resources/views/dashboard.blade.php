@@ -2036,6 +2036,9 @@
                 <p class="section-desc">Tata kelola Master Gedung, Lantai, Zona Akses, dan Pemetaan Perangkat Kontrol Pintu (Hikvision DS-K1T804AMF).</p>
             </div>
             <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                <button class="btn-primary" style="background: linear-gradient(135deg, #10b981, #059669); border: none;" onclick="openDeviceOnboardingWizard()">
+                    ✨ + Onboard Perangkat (Wizard)
+                </button>
                 <button class="btn-primary" onclick="openAddBuildingModal()">
                     + Tambah Gedung
                 </button>
@@ -6174,6 +6177,152 @@
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button type="button" class="btn-secondary" onclick="closeModal('addZoneModal')">Batal</button>
                 <button type="submit" class="btn-primary">Simpan Zona</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- MODAL: DEVICE ONBOARDING WIZARD -->
+<div class="modal-overlay" id="deviceOnboardingWizardModal">
+    <div class="modal-card" style="max-width: 680px; width: 90%;">
+        <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding-bottom: 1rem; margin-bottom: 1.25rem;">
+            <div>
+                <h3 class="modal-title" style="display: flex; align-items: center; gap: 0.5rem; font-size: 1.25rem;">
+                    ✨ Wizard Onboarding Perangkat Pintu Physical
+                </h3>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0.25rem 0 0 0;">
+                    Alur pendaftaran otomatis terminal pintu baru dengan verifikasi status ISAPI GET /System/deviceInfo
+                </p>
+            </div>
+            <button class="modal-close-btn" onclick="closeModal('deviceOnboardingWizardModal')">✖</button>
+        </div>
+
+        <!-- Wizard Stepper Indicator -->
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; background: rgba(15, 23, 42, 0.5); padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid var(--border-color);">
+            <div id="wizStepInd1" class="wiz-step-ind active" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 600; color: var(--primary);">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 0.75rem;">1</span>
+                <span>Lokasi</span>
+            </div>
+            <span style="color: var(--border-color);">➔</span>
+            <div id="wizStepInd2" class="wiz-step-ind" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.1); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.75rem;">2</span>
+                <span>Detail Terminal</span>
+            </div>
+            <span style="color: var(--border-color);">➔</span>
+            <div id="wizStepInd3" class="wiz-step-ind" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.1); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.75rem;">3</span>
+                <span>Tes ISAPI</span>
+            </div>
+            <span style="color: var(--border-color);">➔</span>
+            <div id="wizStepInd4" class="wiz-step-ind" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">
+                <span style="width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.1); color: var(--text-muted); display: flex; align-items: center; justify-content: center; font-size: 0.75rem;">4</span>
+                <span>Konfirmasi</span>
+            </div>
+        </div>
+
+        <form id="deviceOnboardingForm" onsubmit="event.preventDefault();">
+            <!-- STEP 1: LOKASI HIERARKI (BUILDING -> FLOOR -> ZONE) -->
+            <div id="wizStep1" class="wiz-step-panel">
+                <div style="margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                    📍 Step 1: Tentukan Lokasi Penempatan Perangkat
+                </div>
+                <div class="form-row" style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">1. Pilih Gedung Induk *</label>
+                    <select id="wizBuildingSelect" class="form-control" required onchange="onWizBuildingChange()">
+                        <option value="">Pilih Gedung...</option>
+                    </select>
+                </div>
+                <div class="form-row" style="margin-bottom: 1rem;">
+                    <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">2. Pilih Lantai (Floor)</label>
+                    <select id="wizFloorSelect" class="form-control">
+                        <option value="1">Lantai 1 (Main Floor)</option>
+                        <option value="2">Lantai 2</option>
+                        <option value="3">Lantai 3</option>
+                        <option value="4">Lantai Basement / Server Room</option>
+                    </select>
+                </div>
+                <div class="form-row" style="margin-bottom: 1.5rem;">
+                    <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">3. Pilih Zona Akses *</label>
+                    <select id="wizZoneSelect" class="form-control" required>
+                        <option value="">Pilih Gedung terlebih dahulu...</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- STEP 2: DETAIL PERANGKAT & ISAPI CREDS -->
+            <div id="wizStep2" class="wiz-step-panel" style="display: none;">
+                <div style="margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                    💻 Step 2: Identitas Perangkat & Kredensial ISAPI
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Kode Perangkat / Door ID *</label>
+                        <input type="text" id="wizDoorIdInput" class="form-control" placeholder="DOOR-003" required>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nama Terminal Pintu *</label>
+                        <input type="text" id="wizDoorNameInput" class="form-control" placeholder="Pintu Ruang Server Lt 2" required>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Alamat IP Terminal (Jaringan Lokal) *</label>
+                        <input type="text" id="wizDeviceIpInput" class="form-control" placeholder="192.168.90.16" required>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Gateway IP</label>
+                        <input type="text" id="wizGatewayInput" class="form-control" placeholder="192.168.90.1" value="192.168.90.1">
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Username ISAPI Device *</label>
+                        <input type="text" id="wizIsapiUserInput" class="form-control" placeholder="admin" value="admin" required>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Password ISAPI Device *</label>
+                        <input type="password" id="wizIsapiPassInput" class="form-control" placeholder="••••••••" required>
+                        <span style="font-size: 0.7rem; color: var(--text-muted); display: block; margin-top: 0.25rem;">🔒 Password disimpan secara terenkripsi di database.</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- STEP 3: TES KONEKSI ISAPI READ-ONLY -->
+            <div id="wizStep3" class="wiz-step-panel" style="display: none;">
+                <div style="margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                    📡 Step 3: Verifikasi Koneksi ISAPI Read-Only
+                </div>
+                <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Sistem akan memanggil endpoint read-only <code>GET /ISAPI/System/deviceInfo</code> untuk memverifikasi bahwa terminal fisik terhubung dan membaca metadata perangkat.
+                </p>
+                <div id="wizTestContainer" style="padding: 1.5rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 0.75rem; text-align: center; margin-bottom: 1.5rem;">
+                    <button type="button" class="btn-primary" onclick="runWizTestConnection()">
+                        ⚡ Uji Koneksi Sekarang
+                    </button>
+                </div>
+            </div>
+
+            <!-- STEP 4: KONFIRMASI FINAL -->
+            <div id="wizStep4" class="wiz-step-panel" style="display: none;">
+                <div style="margin-bottom: 1rem; font-size: 0.9rem; font-weight: 600; color: var(--text-main);">
+                    ✅ Step 4: Konfirmasi Final & Simpan Perangkat
+                </div>
+                <div id="wizSummaryContainer" style="background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1.5rem; font-size: 0.85rem; line-height: 1.6;">
+                    <!-- Populated dynamically via JS -->
+                </div>
+            </div>
+
+            <!-- WIZARD BUTTONS -->
+            <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border-color); padding-top: 1rem;">
+                <button type="button" id="wizBackBtn" class="btn-secondary" onclick="wizGoBack()" style="display: none;">
+                    ⬅️ Kembali
+                </button>
+                <div style="margin-left: auto; display: flex; gap: 0.75rem;">
+                    <button type="button" class="btn-secondary" onclick="closeModal('deviceOnboardingWizardModal')">Batal</button>
+                    <button type="button" id="wizNextBtn" class="btn-primary" onclick="wizGoNext()">
+                        Lanjut ➡️
+                    </button>
+                </div>
             </div>
         </form>
     </div>

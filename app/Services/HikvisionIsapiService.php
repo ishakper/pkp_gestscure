@@ -7,6 +7,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -42,16 +43,32 @@ class HikvisionIsapiService
      */
     public function getDeviceCredentials(?Door $door = null): array
     {
-        if ($door && !empty($door->door_id)) {
-            $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
-            $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
+        if ($door) {
+            if (!empty($door->isapi_username) && !empty($door->isapi_password)) {
+                $username = $door->isapi_username;
+                try {
+                    $password = Crypt::decryptString($door->isapi_password);
+                } catch (\Throwable $e) {
+                    $password = $door->isapi_password;
+                }
+                return ['username' => $username, 'password' => $password];
+            }
 
-            $username = $doorConfig['username'] ?: config('services.hikvision.username');
-            $password = $doorConfig['password'] ?: config('services.hikvision.password');
-        } else {
-            $username = config('services.hikvision.username');
-            $password = config('services.hikvision.password');
+            if (!empty($door->door_id)) {
+                $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
+                $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
+
+                $username = $doorConfig['username'] ?? null;
+                $password = $doorConfig['password'] ?? null;
+
+                if ($username && $password) {
+                    return ['username' => $username, 'password' => $password];
+                }
+            }
         }
+
+        $username = config('services.hikvision.username');
+        $password = config('services.hikvision.password');
 
         if (!is_string($username) || trim($username) === '' || !is_string($password) || $password === '') {
             throw new \RuntimeException('Hikvision credentials are not configured for this device.');
@@ -238,6 +255,117 @@ class HikvisionIsapiService
                 'statusCode' => 500,
                 'data' => null,
                 'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * Test connection to a new device IP with ISAPI credentials via /System/deviceInfo endpoint (Read-Only).
+     */
+    public function testDeviceConnection(string $ip, ?string $username = null, ?string $password = null): array
+    {
+        $username = $username ?: config('services.hikvision.username');
+        $password = $password ?: config('services.hikvision.password');
+
+        if ($this->isMockMode()) {
+            if (!empty($ip) && str_ends_with($ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "Simulated Device Offline ({$ip})",
+                ];
+            }
+
+            try {
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->deviceStatus();
+                $data = $jsonResponse->getData(true) ?? [];
+
+                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'DS-K1T804AMF' . date('Ymd'));
+                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.2.3');
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => 200,
+                    'data' => $data,
+                    'error' => null,
+                ];
+            } catch (\Throwable $e) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'data' => null,
+                    'error' => "ISAPI Mock Error: " . $e->getMessage(),
+                ];
+            }
+        }
+
+        $port = (int) config('services.hikvision.port', 80);
+        $portSuffix = ($port && $port !== 80) ? ":{$port}" : '';
+        $url = "http://{$ip}{$portSuffix}/ISAPI/System/deviceInfo";
+
+        try {
+            $connectTimeout = (int) config('services.hikvision.connect_timeout', 5);
+            $requestTimeout = (int) config('services.hikvision.request_timeout', 10);
+
+            $response = Http::connectTimeout($connectTimeout)
+                ->timeout($requestTimeout)
+                ->acceptJson()
+                ->withDigestAuth($username, $password)
+                ->get($url);
+
+            if ($response->successful()) {
+                $body = trim($response->body());
+                $data = [];
+
+                if (str_contains($body, '<?xml') || str_contains($body, '<DeviceInfo') || str_starts_with($body, '<')) {
+                    try {
+                        $xml = simplexml_load_string($body, 'SimpleXMLElement', LIBXML_NOCDATA);
+                        if ($xml !== false) {
+                            $data = json_decode(json_encode($xml), true) ?? [];
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning("ISAPI test XML parse warning ({$url}): " . $e->getMessage());
+                    }
+                }
+
+                if (empty($data)) {
+                    $data = $response->json() ?? [];
+                }
+
+                $model = $data['model'] ?? ($data['deviceModel'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'));
+                $serialNumber = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? null);
+                $firmware = $data['firmwareVersion'] ?? ($data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? null));
+
+                $data['model'] = $model;
+                $data['serialNumber'] = $serialNumber;
+                $data['firmware'] = $firmware;
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => $response->status(),
+                    'data' => $data,
+                    'error' => null,
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'data' => null,
+                'error' => "HTTP {$response->status()}: Gagal terhubung ke terminal {$ip}",
+            ];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI testDeviceConnection failed ({$url}): " . $e->getMessage());
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'data' => null,
+                'error' => "Koneksi ke {$ip} gagal: " . $e->getMessage(),
             ];
         }
     }
