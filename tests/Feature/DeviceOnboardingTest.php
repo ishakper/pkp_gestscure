@@ -90,9 +90,12 @@ class DeviceOnboardingTest extends TestCase
         $this->assertEquals('admin', $door->isapi_username);
         $this->assertEquals('online', $door->connection_status);
 
-        // Assert password is encrypted in database
-        $this->assertNotEquals('SuperSecretPass123!', $door->isapi_password);
-        $this->assertEquals('SuperSecretPass123!', Crypt::decryptString($door->isapi_password));
+        // Assert password is encrypted in raw database, but transparently decrypted via model cast
+        $rawCiphertext = \Illuminate\Support\Facades\DB::table('doors')->where('door_id', 'DOOR-005')->value('isapi_password');
+        $this->assertNotEmpty($rawCiphertext);
+        $this->assertNotEquals('SuperSecretPass123!', $rawCiphertext);
+        $this->assertEquals('SuperSecretPass123!', Crypt::decryptString($rawCiphertext));
+        $this->assertEquals('SuperSecretPass123!', $door->isapi_password);
 
         // Assert audit trail record created
         $this->assertDatabaseHas('activity_logs', [

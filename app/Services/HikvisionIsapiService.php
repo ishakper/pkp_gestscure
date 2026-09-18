@@ -46,10 +46,13 @@ class HikvisionIsapiService
         if ($door) {
             if (!empty($door->isapi_username) && !empty($door->isapi_password)) {
                 $password = $door->isapi_password;
-                try {
-                    $password = Crypt::decryptString($password);
-                } catch (\Throwable) {
-                    // Raw string fallback
+                // If model attribute was accessed uncast or has an encrypted payload, attempt fallback decrypt
+                if (is_string($password) && str_starts_with($password, 'eyJ')) {
+                    try {
+                        $password = Crypt::decryptString($password);
+                    } catch (\Throwable) {
+                        // Raw string fallback
+                    }
                 }
                 return ['username' => $door->isapi_username, 'password' => $password];
             }

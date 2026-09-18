@@ -11,7 +11,8 @@ class PortalAccess
     public const EMPLOYEE_PORTAL = 'EMPLOYEE_PORTAL';
 
     private const ADMIN_ROLES = ['super_admin', 'infra_admin', 'developer', 'devops', 'security_engineer'];
-    private const MANAGEMENT_ROLES = ['building_admin', 'hrd', 'management', 'supervisor', 'project_manager', 'security', 'auditor'];
+    // Roles must exist in Admin::ROLES. 'project_manager', 'security', 'auditor' removed — not in canonical role list.
+    private const MANAGEMENT_ROLES = ['building_admin', 'hrd', 'management', 'supervisor'];
 
     public function portalFor(Admin $admin): string
     {
@@ -84,7 +85,7 @@ class PortalAccess
 
         if ($portal === self::MANAGEMENT_PORTAL) {
             $perms = ['employee.view','employee.manage','organization.view','device.view','security.view'];
-            if (in_array($role, ['hrd', 'management', 'supervisor', 'security', 'building_admin'], true)) {
+            if (in_array($role, ['hrd', 'management', 'supervisor', 'building_admin'], true)) {
                 $perms[] = 'access.view';
                 $perms[] = 'asset.view';
             }
@@ -106,11 +107,11 @@ class PortalAccess
                 $perms[] = 'emoney.view';
                 $perms[] = 'asset.report';
             }
-            if (in_array($role, ['hrd', 'security', 'building_admin'], true)) {
+            if (in_array($role, ['hrd', 'building_admin'], true)) {
                 $perms[] = 'access.approve';
                 $perms[] = 'device.sync.view';
             }
-            if (in_array($role, ['hrd', 'security', 'building_admin'], true)) {
+            if (in_array($role, ['hrd', 'building_admin'], true)) {
                 $perms[] = 'credential.view';
             }
             if ($role === 'building_admin') {

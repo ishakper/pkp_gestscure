@@ -15,6 +15,7 @@ class CredentialRecord extends Model
         'internship_id',
         'credential_type',
         'card_number',
+        'card_number_hash',
         'masked_identifier',
         'external_reference',
         'biometric_status',
@@ -34,9 +35,10 @@ class CredentialRecord extends Model
         'revoked_at' => 'datetime',
     ];
 
-    // Hide unmasked card_number from JSON serialization by default for security
+    // Hide unmasked card_number and card_number_hash from JSON serialization by default for security
     protected $hidden = [
         'card_number',
+        'card_number_hash',
     ];
 
     public function employee() { return $this->belongsTo(Employee::class); }
