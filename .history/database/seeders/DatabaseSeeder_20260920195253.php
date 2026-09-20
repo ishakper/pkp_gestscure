@@ -114,18 +114,12 @@ class DatabaseSeeder extends Seeder
             'assigned_building' => 'Gedung A (Kantor Utama)',
         ]);
 
-        // 2. Seed 4 Physical Doors (now with building_id & zone_id FK)
-        $zoneA1 = Zone::where('code', 'ZONE-A1')->first();
-        $zoneB1 = Zone::where('code', 'ZONE-B1')->first();
-        $zoneC1 = Zone::where('code', 'ZONE-C1')->first();
-        $zoneD1 = Zone::where('code', 'ZONE-D1')->first();
-
-        $doorA = Door::firstOrCreate(['door_id' => 'DOOR-A'], [
+        // 2. Seed 4 Physical Doors
+        $doorA = Door::create([
+            'door_id' => 'DOOR-A',
             'name' => 'Door A - Akses Pegawai & Tamu',
             'door_name' => 'Door A - Akses Pegawai & Tamu',
             'location' => 'Gedung A (Kantor Utama)',
-            'building_id' => $buildingA->id,
-            'zone_id' => $zoneA1?->id,
             'ip_address' => config('services.doors.DOOR-A.ip', '192.168.90.11'),
             'device_ip' => config('services.doors.DOOR-A.ip', '192.168.90.11'),
             'gateway' => config('services.doors.DOOR-A.gateway', '192.168.90.1'),
@@ -137,12 +131,11 @@ class DatabaseSeeder extends Seeder
             'last_checked_at' => now(),
         ]);
 
-        $doorB = Door::firstOrCreate(['door_id' => 'DOOR-B'], [
+        $doorB = Door::create([
+            'door_id' => 'DOOR-B',
             'name' => 'Door B - Restricted Server Room',
             'door_name' => 'Door B - Restricted Server Room',
             'location' => 'Gedung B (IT & Infra)',
-            'building_id' => $buildingB->id,
-            'zone_id' => $zoneB1?->id,
             'ip_address' => config('services.doors.DOOR-B.ip', '192.168.90.15'),
             'device_ip' => config('services.doors.DOOR-B.ip', '192.168.90.15'),
             'gateway' => config('services.doors.DOOR-B.gateway', '192.168.90.1'),
@@ -154,12 +147,11 @@ class DatabaseSeeder extends Seeder
             'last_checked_at' => now(),
         ]);
 
-        $doorC = Door::firstOrCreate(['door_id' => 'DOOR-C'], [
+        $doorC = Door::create([
+            'door_id' => 'DOOR-C',
             'name' => 'Door C - Akses Operasional Lapangan',
             'door_name' => 'Door C - Akses Operasional Lapangan',
             'location' => 'Gedung C (Operasional)',
-            'building_id' => $buildingC->id,
-            'zone_id' => $zoneC1?->id,
             'ip_address' => config('services.doors.DOOR-C.ip', '192.168.90.13'),
             'device_ip' => config('services.doors.DOOR-C.ip', '192.168.90.13'),
             'gateway' => config('services.doors.DOOR-C.gateway', '192.168.90.1'),
@@ -171,12 +163,11 @@ class DatabaseSeeder extends Seeder
             'last_checked_at' => now(),
         ]);
 
-        $doorD = Door::firstOrCreate(['door_id' => 'DOOR-D'], [
+        $doorD = Door::create([
+            'door_id' => 'DOOR-D',
             'name' => 'Door D - Akses Pabrik & Produksi',
             'door_name' => 'Door D - Akses Pabrik & Produksi',
             'location' => 'Gedung D (Produksi)',
-            'building_id' => $buildingD->id,
-            'zone_id' => $zoneD1?->id,
             'ip_address' => config('services.doors.DOOR-D.ip', '192.168.90.14'),
             'device_ip' => config('services.doors.DOOR-D.ip', '192.168.90.14'),
             'gateway' => config('services.doors.DOOR-D.gateway', '192.168.90.1'),
@@ -192,29 +183,29 @@ class DatabaseSeeder extends Seeder
 
         // 3. Seed Employees
         $employeeData = [
-            ['employee_id' => 'USR-1001', 'nik' => 'NIK-882101', 'name' => 'Budi Santoso', 'building' => $buildingB, 'department' => 'IT Support', 'role_jabatan' => 'Lead Infrastructure', 'card_no' => 'CARD-882101', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB]],
-            ['employee_id' => 'USR-1002', 'nik' => 'NIK-882102', 'name' => 'Siti Rahma', 'building' => $buildingA, 'department' => 'HR & Admin', 'role_jabatan' => 'HR Manager', 'card_no' => 'CARD-882102', 'fp' => true, 'card' => true, 'assigned' => [$doorA]],
-            ['employee_id' => 'USR-1003', 'nik' => 'NIK-882103', 'name' => 'Agus Setiawan', 'building' => $buildingC, 'department' => 'Operasional', 'role_jabatan' => 'Supervisor Operasional', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorA, $doorC]],
-            ['employee_id' => 'USR-1004', 'nik' => 'NIK-882104', 'name' => 'Dewi Lestari', 'building' => $buildingD, 'department' => 'Produksi', 'role_jabatan' => 'Quality Control Specialist', 'card_no' => 'CARD-882104', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorD]],
-            ['employee_id' => 'USR-1005', 'nik' => 'NIK-882105', 'name' => 'Eko Prasetyo', 'building' => $buildingB, 'department' => 'IT Support', 'role_jabatan' => 'DevOps Engineer', 'card_no' => 'CARD-882105', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB]],
-            ['employee_id' => 'USR-1006', 'nik' => 'NIK-882106', 'name' => 'Rina Permata', 'building' => $buildingC, 'department' => 'Operasional', 'role_jabatan' => 'Staff Logistik', 'card_no' => 'CARD-882106', 'fp' => false, 'card' => true, 'assigned' => [$doorC]],
-            ['employee_id' => 'USR-1007', 'nik' => 'NIK-882107', 'name' => 'Hendra Wijaya', 'building' => $buildingD, 'department' => 'Produksi', 'role_jabatan' => 'Head of Production', 'card_no' => 'CARD-882107', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorD]],
-            ['employee_id' => 'USR-1008', 'nik' => 'NIK-882108', 'name' => 'Maya Kusuma', 'building' => $buildingA, 'department' => 'HR & Admin', 'role_jabatan' => 'Staff General Affairs', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorA]],
-            ['employee_id' => 'USR-1009', 'nik' => 'NIK-882109', 'name' => 'Rudi Hermawan', 'building' => $buildingB, 'department' => 'IT Support', 'role_jabatan' => 'System Security Analyst', 'card_no' => 'CARD-882109', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB, $doorC]],
-            ['employee_id' => 'USR-1010', 'nik' => 'NIK-882110', 'name' => 'Ahmad Fauzi', 'building' => $buildingD, 'department' => 'Produksi', 'role_jabatan' => 'Technician Maintenance', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorD]],
-            ['employee_id' => 'USR-1011', 'nik' => 'NIK-882111', 'name' => 'Nina Marlina', 'building' => $buildingC, 'department' => 'Operasional', 'role_jabatan' => 'Dispatch Supervisor', 'card_no' => 'CARD-882111', 'fp' => true, 'card' => true, 'assigned' => [$doorC]],
-            ['employee_id' => 'USR-1012', 'nik' => 'NIK-882112', 'name' => 'Bambang Hartono', 'building' => $buildingA, 'department' => 'Executive', 'role_jabatan' => 'General Manager', 'card_no' => 'CARD-882112', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB, $doorC, $doorD]],
+            ['employee_id' => 'USR-1001', 'nik' => 'NIK-882101', 'name' => 'Budi Santoso', 'department' => 'IT Support', 'role_jabatan' => 'Lead Infrastructure', 'card_no' => 'CARD-882101', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB]],
+            ['employee_id' => 'USR-1002', 'nik' => 'NIK-882102', 'name' => 'Siti Rahma', 'department' => 'HR & Admin', 'role_jabatan' => 'HR Manager', 'card_no' => 'CARD-882102', 'fp' => true, 'card' => true, 'assigned' => [$doorA]],
+            ['employee_id' => 'USR-1003', 'nik' => 'NIK-882103', 'name' => 'Agus Setiawan', 'department' => 'Operasional', 'role_jabatan' => 'Supervisor Operasional', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorA, $doorC]],
+            ['employee_id' => 'USR-1004', 'nik' => 'NIK-882104', 'name' => 'Dewi Lestari', 'department' => 'Produksi', 'role_jabatan' => 'Quality Control Specialist', 'card_no' => 'CARD-882104', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorD]],
+            ['employee_id' => 'USR-1005', 'nik' => 'NIK-882105', 'name' => 'Eko Prasetyo', 'department' => 'IT Support', 'role_jabatan' => 'DevOps Engineer', 'card_no' => 'CARD-882105', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB]],
+            ['employee_id' => 'USR-1006', 'nik' => 'NIK-882106', 'name' => 'Rina Permata', 'department' => 'Operasional', 'role_jabatan' => 'Staff Logistik', 'card_no' => 'CARD-882106', 'fp' => false, 'card' => true, 'assigned' => [$doorC]],
+            ['employee_id' => 'USR-1007', 'nik' => 'NIK-882107', 'name' => 'Hendra Wijaya', 'department' => 'Produksi', 'role_jabatan' => 'Head of Production', 'card_no' => 'CARD-882107', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorD]],
+            ['employee_id' => 'USR-1008', 'nik' => 'NIK-882108', 'name' => 'Maya Kusuma', 'department' => 'HR & Admin', 'role_jabatan' => 'Staff General Affairs', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorA]],
+            ['employee_id' => 'USR-1009', 'nik' => 'NIK-882109', 'name' => 'Rudi Hermawan', 'department' => 'IT Support', 'role_jabatan' => 'System Security Analyst', 'card_no' => 'CARD-882109', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB, $doorC]],
+            ['employee_id' => 'USR-1010', 'nik' => 'NIK-882110', 'name' => 'Ahmad Fauzi', 'department' => 'Produksi', 'role_jabatan' => 'Technician Maintenance', 'card_no' => null, 'fp' => true, 'card' => false, 'assigned' => [$doorD]],
+            ['employee_id' => 'USR-1011', 'nik' => 'NIK-882111', 'name' => 'Nina Marlina', 'department' => 'Operasional', 'role_jabatan' => 'Dispatch Supervisor', 'card_no' => 'CARD-882111', 'fp' => true, 'card' => true, 'assigned' => [$doorC]],
+            ['employee_id' => 'USR-1012', 'nik' => 'NIK-882112', 'name' => 'Bambang Hartono', 'department' => 'Executive', 'role_jabatan' => 'General Manager', 'card_no' => 'CARD-882112', 'fp' => true, 'card' => true, 'assigned' => [$doorA, $doorB, $doorC, $doorD]],
         ];
 
         $createdEmployees = [];
 
         foreach ($employeeData as $index => $emp) {
-            $employee = Employee::firstOrCreate(['nik' => $emp['nik']], [
+            $employee = Employee::create([
                 'employee_id' => $emp['employee_id'],
+                'nik' => $emp['nik'],
                 'name' => $emp['name'],
                 'card_no' => $emp['card_no'],
                 'department' => $emp['department'],
-                'building_id' => $emp['building']->id,
                 'role' => $emp['role_jabatan'],
                 'role_jabatan' => $emp['role_jabatan'],
             ]);

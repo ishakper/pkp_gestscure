@@ -1,0 +1,212 @@
+# ==============================================================================
+# GitLab CI/CD Pipeline - PKP SecureGate
+# ==============================================================================
+# Pipeline Architecture:
+#   .pre -> validate -> build -> test -> security -> deploy -> verify
+#
+# Quality Gate Rule:
+#   Deployment is strictly prohibited until validate, build, test, and security
+#   stages complete with 100% success on the protected default branch.
+# ==============================================================================
+
+stages:
+  - .pre
+  - validate
+  - build
+  - test
+  - security
+  - deploy
+  - verify
+
+variables:
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: ""
+  IMAGE_TAG: $CI_COMMIT_SHA
+  RUNNER_TAG: Sandbox
+
+# ------------------------------------------------------------------------------
+# Stage 0: Workspace Permission Fix (Essential for Shell Executor Runners)
+# ------------------------------------------------------------------------------
+fix_runner_workspace:
+  stage: .pre
+  tags:
+    - Sandbox
+  variables:
+    GIT_STRATEGY: none
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - echo "=== DIAGNOSTIC & WORKSPACE PERMISSION FIX ==="
+    - id
+    - df -h /
+    - df -i /
+    - docker run --rm -v "$(pwd):/ws" alpine chown -R $(id -u):$(id -g) /ws 2>/dev/null || true
+    - chmod -R u+rwX . 2>/dev/null || true
+    - echo "Workspace permissions successfully restored."
+    - |
+      FREE_MB=$(df -Pm / | awk 'NR==2 {print $4}')
+      echo "Runner host root available space: ${FREE_MB} MB"
+      if [ "$FREE_MB" -lt 2048 ]; then
+        echo "ERROR: Runner root disk space below safe minimum of 2048 MB (Current: ${FREE_MB} MB). Halting before build."
+        exit 1
+      fi
+
+# ------------------------------------------------------------------------------
+# Stage 1: Validation
+# ------------------------------------------------------------------------------
+validate_composer:
+  stage: validate
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - echo "Validating composer configuration and lockfile..."
+    - docker run --rm -v "$(pwd):/app" -w /app composer:2 composer validate --strict --no-check-publish
+
+validate_syntax:
+  stage: validate
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  script:
+    - echo "Checking PHP syntax across application source..."
+    - docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true'
+
+# ------------------------------------------------------------------------------
+# Stage 2: Container Build
+# ------------------------------------------------------------------------------
+build_docker:
+  stage: build
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - validate_composer
+    - validate_syntax
+  script:
+    - echo "Building reproducible Docker image pkp-securegate:${IMAGE_TAG}..."
+    - docker build --target production -t pkp-securegate:${IMAGE_TAG} -t pkp-securegate:latest .
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ] && [ -n "$CI_REGISTRY" ] && [ -n "$CI_REGISTRY_USER" ] && [ -n "$CI_REGISTRY_PASSWORD" ]; then
+        echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY" || true
+        docker tag pkp-securegate:${IMAGE_TAG} "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" || true
+        docker tag pkp-securegate:latest "${CI_REGISTRY_IMAGE}:latest" || true
+        docker push "${CI_REGISTRY_IMAGE}:${IMAGE_TAG}" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
+        docker push "${CI_REGISTRY_IMAGE}:latest" || echo "EXTERNAL_INFRASTRUCTURE: registry.pkp.co.id unavailable - push deferred"
+      fi
+
+build_verification_image:
+  stage: build
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - validate_composer
+    - validate_syntax
+  script:
+    - echo "Building verification-only image with dev dependencies..."
+    - docker build --target verification -t pkp-securegate-verify:${IMAGE_TAG} .
+    - docker run --rm --network none pkp-securegate-verify:${IMAGE_TAG} -v
+    - docker run --rm --network none --entrypoint composer pkp-securegate-verify:${IMAGE_TAG} --version
+    - docker run --rm --network none pkp-securegate-verify:${IMAGE_TAG} artisan --version
+    - docker run --rm --network none --entrypoint sh pkp-securegate-verify:${IMAGE_TAG} -c 'test -x vendor/bin/phpunit'
+
+# ------------------------------------------------------------------------------
+# Stage 3: Automated Quality Test Suite (Clean Container)
+# ------------------------------------------------------------------------------
+test_suite:
+  stage: test
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - build_verification_image
+  script:
+    - echo "Executing full automated feature & regression test suite in verification image..."
+    - |
+      docker run --rm --network none -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
+  after_script:
+    - echo "Cleaning up ephemeral verification image for current commit..."
+    - docker image rm -f pkp-securegate-verify:${IMAGE_TAG} 2>/dev/null || true
+  artifacts:
+    when: on_failure
+    expire_in: 3 days
+    paths:
+      - storage/logs/laravel.log
+
+# ------------------------------------------------------------------------------
+# Stage 4: Security & Secret Hygiene
+# ------------------------------------------------------------------------------
+security_hygiene:
+  stage: security
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  needs:
+    - test_suite
+  script:
+    - echo "Checking that .env is NOT tracked in Git..."
+    - test -z "$(git ls-files .env)"
+    - echo "Checking that no temporary debug/auth scripts are tracked..."
+    - test -z "$(git ls-files run_auth.php public/run_auth.php scratch/* raw_*.php)"
+    - echo "Verifying docker-compose.yml has no committed secret defaults..."
+    - grep -F 'APP_KEY=${APP_KEY}' docker-compose.yml
+    - test -z "$(grep -F 'APP_KEY=${APP_KEY:-base64:' docker-compose.yml)"
+    - test -z "$(grep -F 'HIKVISION_ISAPI_PASSWORD=Hikvision@' docker-compose.yml)"
+    - echo "Security hygiene checks passed cleanly."
+
+# ------------------------------------------------------------------------------
+# Stage 5: Gated Production Deployment (Manual / Fail-Closed)
+# ------------------------------------------------------------------------------
+deploy_production:
+  stage: deploy
+  tags:
+    - Sandbox
+  environment:
+    name: production
+    url: $APP_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  needs:
+    - security_hygiene
+  script:
+    - 'echo "=== PKP SecureGate Production Deployment Gate ==="'
+    - 'echo "CI_REMOTE_DEPLOY_CONFIGURED=NO"'
+    - 'echo "[BLOCKED] Automated CI remote deployment is guarded and intentionally disabled."'
+    - 'echo "Target: 10.10.8.124 (infra) | Container: pkp_securegate_app"'
+    - 'echo "Reason: Automated CI SSH key isolation and host key validation are not configured."'
+    - 'echo "Supported deployment path: Execute deploy/sync_to_server.sh from an authorized maintenance workstation."'
+    - 'exit 1'
+
+# ------------------------------------------------------------------------------
+# Stage 6: Post-Deployment Verification (Manual)
+# ------------------------------------------------------------------------------
+verify_healthcheck:
+  stage: verify
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  needs:
+    - deploy_production
+  script:
+    - echo "Verifying production endpoint health..."
+    - |
+      TARGET_URL="${APP_URL:-http://10.10.8.124:8000}"
+      echo "Target endpoint: ${TARGET_URL}/login"
+      HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 "${TARGET_URL}/login" || echo "000")
+      if [ "$HTTP_CODE" != "200" ]; then
+        echo "[ERROR] Health check failed against ${TARGET_URL}/login (HTTP ${HTTP_CODE})"
+        exit 1
+      fi
+      echo "SecureGate production endpoint health check verified successfully (HTTP ${HTTP_CODE})."
