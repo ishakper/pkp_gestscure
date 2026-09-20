@@ -122,7 +122,10 @@ class ProductionNormalizationService
     {
         $buildingB = Building::where('code', 'BUILDING_B')->first();
         if (!$buildingB) {
-            return ['error' => 'BUILDING_B not found'];
+            return [
+                'building_name' => null,
+                'error' => 'BUILDING_B not found',
+            ];
         }
 
         $service = new BuildingAccessService();
