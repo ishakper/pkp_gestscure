@@ -98,17 +98,15 @@ class DatabaseSeeder extends Seeder
         Zone::firstOrCreate(['building_id' => $buildingD->id, 'code' => 'ZONE-D1'], ['name' => 'Production Floor', 'is_active' => true]);
 
         // 1. Seed Admins
-        $superAdmin = Admin::create([
+        $superAdmin = Admin::firstOrCreate(['email' => 'admin@accesscontrol.local'], [
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
             'password' => Hash::make('password'),
             'role' => 'super_admin',
             'assigned_building' => null,
         ]);
 
-        $buildingAdmin = Admin::create([
+        $buildingAdmin = Admin::firstOrCreate(['email' => 'admin.gedunga@accesscontrol.local'], [
             'name' => 'Admin Gedung A',
-            'email' => 'admin.gedunga@accesscontrol.local',
             'password' => Hash::make('password'),
             'role' => 'building_admin',
             'assigned_building' => 'Gedung A (Kantor Utama)',
