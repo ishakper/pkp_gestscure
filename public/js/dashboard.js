@@ -541,7 +541,7 @@ async function loadEmployees(page = state.employeePage) {
     }
 
     try {
-        let url = `/user-management/users?per_page=20&page=${state.employeePage}`;
+        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
         if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
