@@ -19,9 +19,32 @@ use Illuminate\Support\Str;
 
 class DatabaseSeeder extends Seeder
 {
+    /**
+     * Only seed demo data in development/testing environments.
+     * Production uses ProductionEmployeesSeeder separately.
+     */
+    private bool $isDemoMode = false;
+
     public function run(): void
     {
-        // 0. Seed Building Hierarchy (NEW)
+        // Demo mode: seed Buildings A-D and 12 demo employees
+        // Production: skip this, use ProductionEmployeesSeeder instead
+        $this->isDemoMode = app()->environment(['local', 'testing']);
+
+        if ($this->isDemoMode) {
+            $this->seedDemoData();
+        } else {
+            // Production: seed minimal infrastructure (admin, system accounts)
+            $this->seedProductionFoundation();
+        }
+    }
+
+    /**
+     * Development/Testing: full demo environment with 4 buildings & 12 employees
+     */
+    private function seedDemoData(): void
+    {
+        // 0. Seed Building Hierarchy (DEMO ONLY)
         $buildingA = Building::firstOrCreate(['code' => 'BLD-A'], [
             'name' => 'Gedung A (Kantor Utama)',
             'description' => 'Main Office Building',
@@ -298,6 +321,32 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // 6. Seed Recruitment Stages
+        $this->call(RecruitmentStageSeeder::class);
+    }
+
+    /**
+     * Production: only seed system admins and infrastructure (no demo employees).
+     * Production employees loaded via ProductionEmployeesSeeder separately.
+     */
+    private function seedProductionFoundation(): void
+    {
+        // 1. Seed System Admin (required for system operation)
+        $superAdmin = Admin::firstOrCreate(['email' => 'admin@accesscontrol.local'], [
+            'name' => 'System Administrator',
+            'password' => Hash::make(config('app.admin_password', 'SecurePassword123!')),
+            'role' => 'super_admin',
+            'assigned_building' => null,
+        ]);
+
+        // 2. Seed Activity Log entry (system initialization)
+        ActivityLog::create([
+            'admin_id' => $superAdmin->id,
+            'action' => 'system_initialized',
+            'description' => 'Access Control System initialized in production mode.',
+            'timestamp' => now(),
+        ]);
+
+        // 3. Seed minimal Recruitment Stages
         $this->call(RecruitmentStageSeeder::class);
     }
 }
