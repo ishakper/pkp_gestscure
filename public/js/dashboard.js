@@ -5562,6 +5562,38 @@ function debounceAssetSearch() {
 // SPRINT 8: WORK CALENDAR & ATTENDANCE CORE
 // ==========================================
 
+const ATTENDANCE_TIMEZONE = 'Asia/Jakarta';
+
+// The API serialises Attendance dates/times as ISO-8601 in UTC (e.g. 2026-09-20T17:00:00.000000Z, which is
+// 21 Sep 00:00 WIB). Reading the string directly shows UTC (7 hours behind WIB), so convert explicitly.
+// Values without a timezone marker ("2026-09-21 09:55:00" / "2026-09-21") are already local and are used as-is.
+function hasTimezoneMarker(value) {
+    return /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(value));
+}
+
+function formatAttendanceTime(value) {
+    if (!value) return '-';
+    const text = String(value);
+    if (!hasTimezoneMarker(text)) return /\d{2}:\d{2}/.test(text) ? text.substring(11, 16) : '-';
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return '-';
+    return new Intl.DateTimeFormat('en-GB', { timeZone: ATTENDANCE_TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+}
+
+function formatAttendanceDate(value) {
+    if (!value) return '-';
+    const text = String(value);
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    if (!hasTimezoneMarker(text)) {
+        const [year, month, day] = text.substring(0, 10).split('-').map(Number);
+        if (!year || !month || !day) return text;
+        return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+    }
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+    return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
+}
+
 async function loadAttendanceData() {
     loadAttendanceMetrics();
     loadAttendanceReport();
@@ -5603,11 +5635,11 @@ async function loadAttendanceData() {
 
             return `
                 <tr>
-                    <td>${escapeHtml(r.attendance_date)}</td>
+                    <td>${escapeHtml(formatAttendanceDate(r.attendance_date))}</td>
                     <td><strong>${escapeHtml(empName)}</strong></td>
                     <td>${escapeHtml(calName)}</td>
-                    <td>${r.clock_in_at ? r.clock_in_at.substring(11, 16) : '-'}</td>
-                    <td>${r.clock_out_at ? r.clock_out_at.substring(11, 16) : '-'}</td>
+                    <td>${escapeHtml(formatAttendanceTime(r.clock_in_at))}</td>
+                    <td>${escapeHtml(formatAttendanceTime(r.clock_out_at))}</td>
                     <td>${escapeHtml(doorName)}</td>
                     <td>${escapeHtml(credential)}</td>
                     <td><span class="status-badge ${sourceLog ? 'status-active' : 'status-info'}">${escapeHtml(processingState)}</span></td>
