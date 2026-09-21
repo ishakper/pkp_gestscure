@@ -5537,39 +5537,176 @@ async function loadAttendanceMetrics() {
     }
 }
 
+let attendanceReportSeq = 0;
+let attendanceBuildingLookupWarned = false;
+const attendanceReportState = { data: null, buildingLabel: '' };
+
+// Local (browser) year-month; toISOString() is UTC and returns the previous month in early-morning WIB on the 1st.
+function currentMonthValue() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function attendanceReportBuildingLabel() {
+    const select = document.getElementById('attendanceReportBuilding');
+    return select && select.value ? (select.options[select.selectedIndex]?.text || '') : '';
+}
+
+// Fills the "Semua Gedung" dropdown once. Returns false when the lookup failed so the caller can keep retrying later.
+async function ensureAttendanceReportBuildings() {
+    const building = document.getElementById('attendanceReportBuilding');
+    if (!building || building.options.length > 1) return true;
+    try {
+        const lookup = await apiFetch('/user-management/organization/lookup');
+        const previous = building.value;
+        (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
+        if (previous) building.value = previous;
+        return true;
+    } catch (error) {
+        if (!error.suppressed && !attendanceBuildingLookupWarned) {
+            attendanceBuildingLookupWarned = true;
+            showToast(`Daftar gedung gagal dimuat: ${error.message}. Laporan tetap tampil untuk semua gedung.`, 'warning');
+        }
+        return false;
+    }
+}
+
+function renderAttendanceReportMetrics(totals) {
+    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
+}
+
 async function loadAttendanceReport() {
     const tbody = document.getElementById('attendanceReportBody');
     if (!tbody) return;
     const month = document.getElementById('attendanceReportMonth');
-    if (!month.value) month.value = new Date().toISOString().slice(0, 7);
+    if (!month.value) month.value = currentMonthValue();
     const building = document.getElementById('attendanceReportBuilding');
-    if (building.options.length === 1) {
-        try {
-            const lookup = await apiFetch('/user-management/organization/lookup');
-            (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, item.id)));
-        } catch (_) {}
-    }
+    const seq = ++attendanceReportSeq;
+    tbody.innerHTML = '<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat laporan bulanan...</td></tr>';
+
+    await ensureAttendanceReportBuildings();
+    if (seq !== attendanceReportSeq) return; // a newer month/building selection superseded this request
+
     const query = new URLSearchParams({ month: month.value });
     if (building.value) query.set('building_id', building.value);
+    const buildingLabel = attendanceReportBuildingLabel();
     try {
         const res = await apiFetch(`/attendance/reports/monthly?${query}`);
-        const totals = res.data.totals;
-        document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
-        tbody.innerHTML = res.data.rows.length ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('') : '<tr><td colspan="7" class="empty-td">No attendance data for this period.</td></tr>';
+        if (seq !== attendanceReportSeq) return;
+        attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows };
+        attendanceReportState.buildingLabel = buildingLabel;
+        renderAttendanceReportMetrics(res.data.totals);
+        const emptyMessage = buildingLabel
+            ? `Tidak ada data kehadiran untuk ${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}.`
+            : 'Tidak ada data kehadiran untuk periode ini.';
+        tbody.innerHTML = res.data.rows.length
+            ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
+            : `<tr><td colspan="7" class="empty-td">${emptyMessage}</td></tr>`;
     } catch (error) {
-        tbody.innerHTML = `<tr><td colspan="7" class="error-td">${escapeHtml(error.message)}</td></tr>`;
+        if (seq !== attendanceReportSeq) return;
+        attendanceReportState.data = null;
+        document.getElementById('attendanceReportMetrics').innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat laporan: ${escapeHtml(error.message)}</td></tr>`;
     }
 }
 
-async function exportAttendanceReport() {
-    const query = new URLSearchParams({ month: document.getElementById('attendanceReportMonth').value });
-    const building = document.getElementById('attendanceReportBuilding').value;
-    if (building) query.set('building_id', building);
-    const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, { headers: { Accept: 'text/csv', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) } });
-    if (!response.ok) return showToast('Attendance export failed.', 'error');
-    const url = URL.createObjectURL(await response.blob());
+function downloadBlobAsFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.href = url; link.download = `attendance-report-${query.get('month')}.csv`; link.click(); URL.revokeObjectURL(url);
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link); // Firefox ignores clicks on detached anchors
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000); // revoking immediately can cancel the download
+}
+
+async function exportAttendanceReport(button) {
+    const month = document.getElementById('attendanceReportMonth')?.value || currentMonthValue();
+    const buildingSelect = document.getElementById('attendanceReportBuilding');
+    const query = new URLSearchParams({ month });
+    if (buildingSelect?.value) query.set('building_id', buildingSelect.value);
+    const buildingLabel = attendanceReportBuildingLabel();
+
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Menyiapkan CSV...'; }
+    try {
+        // Failures (403/422) come back as JSON; success is the CSV stream. Anything that is not CSV is never saved as the report.
+        const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, {
+            headers: { Accept: 'application/json, text/csv;q=0.9', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) },
+        });
+        if (response.status === 401) {
+            showToast('Sesi autentikasi telah berakhir. Silakan login ulang.', 'error');
+            return;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok || !contentType.includes('csv')) {
+            let message = response.status === 403
+                ? 'Anda tidak memiliki izin mengekspor laporan kehadiran.'
+                : `Server menjawab status ${response.status}.`;
+            if (contentType.includes('json')) {
+                const body = await response.json().catch(() => ({}));
+                if (body.message) message = body.message;
+            }
+            showToast(`Export CSV gagal: ${message}`, 'error');
+            return;
+        }
+        const suffix = buildingLabel ? `-${buildingLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : '';
+        downloadBlobAsFile(await response.blob(), `attendance-report-${month}${suffix}.csv`);
+        showToast('Export CSV berhasil diunduh.', 'success');
+    } catch (error) {
+        showToast(`Export CSV gagal: ${error.message}`, 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
+    }
+}
+
+// PDF without a backend or library: prints the report currently on screen; choose "Save as PDF" in the print dialog.
+function printAttendanceReport() {
+    const report = attendanceReportState.data;
+    if (!report) {
+        showToast('Muat laporan terlebih dahulu sebelum mencetak atau menyimpan PDF.', 'warning');
+        return;
+    }
+    const scope = attendanceReportState.buildingLabel || 'Semua Gedung';
+    const rows = report.rows.length
+        ? report.rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}<br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
+        : '<tr><td colspan="7" style="text-align:center;color:#666;">Tidak ada data kehadiran untuk periode ini.</td></tr>';
+    const t = report.totals;
+    const html = `<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>Laporan Kehadiran ${escapeHtml(report.month)} - ${escapeHtml(scope)}</title><style>
+        body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;font-size:12px}
+        h1{font-size:18px;margin:0 0 4px}
+        .meta{color:#555;margin-bottom:14px}
+        .summary{display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap}
+        .summary div{border:1px solid #ccc;border-radius:4px;padding:6px 12px}
+        .summary b{display:block;font-size:15px}
+        table{width:100%;border-collapse:collapse}
+        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+        th{background:#f1f5f9}
+        small{color:#666}
+        tr{page-break-inside:avoid}
+    </style></head><body>
+        <h1>Laporan Kehadiran Bulanan</h1>
+        <div class="meta">Periode: ${escapeHtml(report.month)} &middot; Gedung: ${escapeHtml(scope)} &middot; Dicetak: ${escapeHtml(new Date().toLocaleString('id-ID'))}</div>
+        <div class="summary">
+            <div>Karyawan<b>${t.employees}</b></div><div>Hadir<b>${t.present}</b></div><div>Terlambat<b>${t.late}</b></div><div>Absen<b>${t.absent}</b></div><div>Attendance Rate<b>${t.attendance_rate}%</b></div>
+        </div>
+        <table><thead><tr><th>Karyawan</th><th>Gedung</th><th>Hadir</th><th>Terlambat</th><th>Absen</th><th>Attendance Rate</th><th>Menit Terlambat</th></tr></thead><tbody>${rows}</tbody></table>
+    </body></html>`;
+
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        setTimeout(() => frame.remove(), 1500);
+    }, 250);
 }
 
 async function openFacilityModal(doorId = null) {

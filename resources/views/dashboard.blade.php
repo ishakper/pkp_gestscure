@@ -3210,7 +3210,8 @@
                 <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
                     <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
                     <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
-                    <button class="btn-secondary" onclick="exportAttendanceReport()">⬇ Export CSV</button>
+                    <button class="btn-secondary" onclick="exportAttendanceReport(this)">⬇ Export CSV</button>
+                    <button class="btn-secondary" onclick="printAttendanceReport()" title="Buka dialog cetak, lalu pilih 'Simpan sebagai PDF'">🖨 Cetak / PDF</button>
                 </div>
             </div>
             <div class="stats-grid" id="attendanceReportMetrics" style="margin-bottom:1rem;"></div>
