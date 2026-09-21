@@ -36,7 +36,7 @@ fix_runner_workspace:
   rules:
     - if: $CI_COMMIT_BRANCH
   script:
-    - echo "=== DIAGNOSTIC & WORKSPACE PERMISSION FIX ==="
+    - echo "=== RUNNER CAPACITY CHECK & WORKSPACE PERMISSION FIX ==="
     - id
     - df -h /
     - df -i /
