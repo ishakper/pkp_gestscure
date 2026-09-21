@@ -5104,6 +5104,8 @@
             </div>
         </form>
     </div>
+</div>
+
 <!-- SPRINT 6 MODALS: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY -->
 
 <!-- MODAL: AJUKAN PERMINTAAN HAK AKSES -->

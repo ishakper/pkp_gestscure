@@ -28,6 +28,7 @@ class FieldAttendanceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Carbon::setTestNow('2026-09-10 08:00:00');
         Storage::fake('local');
 
         // Setup default calendar (08:00 - 17:00, 30 min tolerance)
@@ -63,6 +64,12 @@ class FieldAttendanceTest extends TestCase
             'valid_until' => now()->addDays(30)->toDateString(),
             'is_active' => true,
         ]);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        parent::tearDown();
     }
 
     // =========================================================================

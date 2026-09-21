@@ -1009,6 +1009,8 @@ async function loadAccessLogs() {
     }
 }
 
+window.loadAccessLogs = loadAccessLogs;
+
 async function loadActivityLogs() {
     const tbody = document.getElementById('activityLogsTableBody');
     const isSuperAdmin = window.APP_CONFIG?.admin?.role === 'super_admin';
@@ -1413,6 +1415,11 @@ async function runEventSimulation(e) {
 // ==========================================
 // Modal Utilities
 // ==========================================
+function openModal(id) {
+    const el = document.getElementById(id);
+    if (el) el.classList.add('active');
+}
+
 function closeModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
@@ -4311,12 +4318,22 @@ async function populateAccessEmployees() {
         // Also populate Profiles dropdown in Access Request modal
         const profRes = await apiFetch('/access/profiles');
         if (profRes && profRes.success && profRes.data) {
-            const profOptions = profRes.data.map(p => `<option value="${p.id}">${escapeHtml(p.code)} - ${escapeHtml(p.name)}</option>`).join('');
+            const profOptions = profRes.data.map(p => `<option value="${p.id}" data-building="${escapeHtml(p.building_name || '')}">${escapeHtml(p.code)} - ${escapeHtml(p.name)}</option>`).join('');
             const profSelect = document.getElementById('accessReqProfileId');
             if (profSelect) profSelect.innerHTML = `<option value="">-- Pilih Profil Akses (Opsional) --</option>` + profOptions;
         }
     } catch (e) {
         console.error('Failed to populate employees for access modules', e);
+    }
+}
+
+function onAccessProfileSelected() {
+    const profileSelect = document.getElementById('accessReqProfileId');
+    const buildingInput = document.getElementById('accessReqBuilding');
+    const selectedBuilding = profileSelect?.selectedOptions?.[0]?.dataset?.building;
+
+    if (buildingInput && selectedBuilding) {
+        buildingInput.value = selectedBuilding;
     }
 }
 
@@ -7170,6 +7187,88 @@ async function loadSystemHealth() {
         if (error) { error.textContent = `Status sistem gagal dimuat: ${err.message}`; error.hidden = false; }
     }
 }
+
+// Async function declarations inside this initialization guard are block-scoped.
+// Inline dashboard controls therefore need an explicit, auditable public registry.
+Object.assign(window, {
+    downloadSecureDocument,
+    exportAttendanceReport,
+    loadAccessRequests,
+    loadActivityLogs,
+    loadAssetAssignments,
+    loadAssetIncidents,
+    loadAssetMaintenances,
+    loadAssetsInventory,
+    loadAtsApplications,
+    loadAtsVacancies,
+    loadAttendanceData,
+    loadAttendanceReport,
+    loadCredentials,
+    loadDeviceSyncs,
+    loadEmoneyCards,
+    loadEmployees,
+    loadFieldAttendanceData,
+    loadInternshipData,
+    loadInternships,
+    loadOnboardingCases,
+    loadOnboardingContracts,
+    loadOnboardingData,
+    loadOnboardingDocuments,
+    loadRecruitmentData,
+    onAccessProfileSelected,
+    onEmoneyStatusSelectChanged,
+    openApplyModal,
+    openConvertCandidateModal,
+    openEditAssetModal,
+    openFacilityModal,
+    retryDeviceSyncItem,
+    saveApplication,
+    saveCandidate,
+    saveContract,
+    saveEmployee,
+    saveInternActivity,
+    saveInternEvaluation,
+    saveInternReport,
+    saveInternship,
+    saveInterviewFeedback,
+    saveInterviewSchedule,
+    saveOffer,
+    saveOnboardingCase,
+    saveVacancy,
+    showAssetDetail,
+    submitAccessProfile,
+    submitAccessRequest,
+    submitApproveAccessRequest,
+    submitAssetForm,
+    submitAssignAsset,
+    submitBuildingConfig,
+    submitCompleteCaseDirect,
+    submitCompleteInternship,
+    submitCompleteMaintenance,
+    submitConvertCandidateToIntern,
+    submitConvertToEmployee,
+    submitCredential,
+    submitDisposeAsset,
+    submitDoorConfig,
+    submitEmoneyCard,
+    submitFieldAttendance,
+    submitFieldOverride,
+    submitIncident,
+    submitMaintenance,
+    submitRejectAccessRequest,
+    submitResolveIncident,
+    submitReturnAsset,
+    submitReviewInternActivity,
+    submitReviewInternReport,
+    submitRevokeCredential,
+    submitTaskUpdate,
+    submitTransitionStage,
+    submitUploadDocument,
+    submitVerifyDocument,
+    toggleDoorStatus,
+    viewFieldPhoto,
+    viewOnboardingCaseDetail,
+});
 
 window.loadSystemHealth = loadSystemHealth;
 } // end of window.__secureGateInitialized guard
