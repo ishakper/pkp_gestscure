@@ -3225,8 +3225,8 @@
                         <th>Tgl Kehadiran</th>
                         <th>Karyawan</th>
                         <th>Kalender</th>
-                        <th>Jam Masuk</th>
-                        <th>Jam Keluar</th>
+                        <th title="Waktu tap pertama, ditampilkan dalam WIB (Asia/Jakarta)">Jam Masuk (WIB)</th>
+                        <th title="Waktu tap terakhir, ditampilkan dalam WIB (Asia/Jakarta)">Jam Keluar (WIB)</th>
                         <th>Pintu</th>
                         <th>Kredensial</th>
                         <th>Status Proses</th>
