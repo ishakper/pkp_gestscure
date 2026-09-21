@@ -1608,7 +1608,7 @@
                         </select>
                     </div>
                     <div class="search-box">
-                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
                     <div class="search-box">
                         📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
@@ -1824,7 +1824,7 @@
                         </select>
                     </div>
                     <div class="search-box">
-                        👤 <input type="text" id="logUserSearchTab" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                        👤 <input type="text" id="logUserSearchTab" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
                     <div class="search-box">
                         📅 <input type="date" id="logStartDateTab" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">

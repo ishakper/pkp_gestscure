@@ -129,13 +129,16 @@ class AdminAccessLogController extends Controller
 
         // Filter by NIK or User
         if ($request->filled('user') || $request->filled('nik')) {
-            $nik = $request->get('nik', $request->get('user'));
-            $query->where(function ($q) use ($nik) {
-                $q->where('nik', 'like', "%{$nik}%")
-                  ->orWhereHas('employee', function ($sub) use ($nik) {
-                      $sub->where('nik', 'like', "%{$nik}%")
-                          ->orWhere('employee_id', 'like', "%{$nik}%")
-                          ->orWhere('name', 'like', "%{$nik}%");
+            // Escape LIKE wildcards and lower-case both sides so the search is literal and
+            // case-insensitive on SQLite (dev) as well as PostgreSQL (production).
+            $term = strtolower((string) $request->get('nik', $request->get('user')));
+            $pattern = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $term) . '%';
+            $query->where(function ($q) use ($pattern) {
+                $q->whereRaw("LOWER(access_logs.nik) LIKE ? ESCAPE '!'", [$pattern])
+                  ->orWhereHas('employee', function ($sub) use ($pattern) {
+                      $sub->whereRaw("LOWER(employees.nik) LIKE ? ESCAPE '!'", [$pattern])
+                          ->orWhereRaw("LOWER(employees.employee_id) LIKE ? ESCAPE '!'", [$pattern])
+                          ->orWhereRaw("LOWER(employees.name) LIKE ? ESCAPE '!'", [$pattern]);
                   });
             });
         }
