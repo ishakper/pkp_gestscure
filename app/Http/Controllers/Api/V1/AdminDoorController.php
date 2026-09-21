@@ -213,7 +213,7 @@ class AdminDoorController extends Controller
     )]
     public function overrideStatus(Request $request, $door_id)
     {
-        $door = Door::where('door_id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
 
         $this->authorize('overrideStatus', $door);
 
@@ -273,6 +273,10 @@ class AdminDoorController extends Controller
             $this->authorize('open', $door);
         }
 
+        $request->validate([
+            'reason' => 'nullable|string|max:255',
+        ]);
+
         if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
             return response()->json([
                 'status' => 'error',
@@ -292,13 +296,15 @@ class AdminDoorController extends Controller
         }
 
         $doorName = $door->door_name ?? $door->name;
+        $reason = $request->input('reason');
+        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard." . ($reason ? " Alasan: {$reason}" : '');
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
             'action' => 'remote_door_opened',
             'subject_type' => 'Door',
             'subject_id' => $door->id,
-            'description' => "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard.",
+            'description' => $desc,
             'timestamp' => now(),
         ]);
 

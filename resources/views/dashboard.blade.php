@@ -748,6 +748,13 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
+        .status-warning, .status-maintenance {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+        }
+
         .status-dot {
             width: 7px;
             height: 7px;
@@ -5707,15 +5714,26 @@
             <button type="button" class="modal-close-btn" onclick="cancelRemoteUnlock()" aria-label="Tutup">✖</button>
         </div>
         <div class="physical-warning">Perintah ini mengaktifkan relay pintu fisik. Pastikan identitas pintu dan kondisi area sudah diverifikasi sebelum melanjutkan.</div>
-        <dl class="door-specs">
-            <div class="spec-item"><dt class="spec-label">Terminal</dt><dd class="spec-val" id="remoteUnlockDoorCode">-</dd></div>
-            <div class="spec-item"><dt class="spec-label">Lokasi</dt><dd class="spec-val" id="remoteUnlockDoorLocation">-</dd></div>
-            <div class="spec-item"><dt class="spec-label">Status</dt><dd class="spec-val" id="remoteUnlockDoorStatus">-</dd></div>
-        </dl>
-        <div style="display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem;">
-            <button type="button" class="btn-secondary" onclick="cancelRemoteUnlock()">Batal</button>
-            <button type="button" class="btn-primary" id="confirmRemoteUnlockButton" onclick="confirmRemoteUnlock()">Konfirmasi & Buka Pintu</button>
-        </div>
+        <form id="remoteUnlockForm" onsubmit="event.preventDefault(); confirmRemoteUnlock();" style="margin-top:1rem;">
+            <div class="form-row" style="margin-bottom:1rem;">
+                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;">Pilih Terminal Pintu *</label>
+                <select id="remoteUnlockDoorSelect" class="form-control" required onchange="onRemoteUnlockDoorChange(this.value)" style="width:100%;padding:0.5rem;background:var(--card-bg);border:1px solid var(--border-color);color:#fff;border-radius:0.5rem;">
+                </select>
+            </div>
+            <dl class="door-specs" style="margin-bottom:1rem;">
+                <div class="spec-item"><dt class="spec-label">Terminal</dt><dd class="spec-val" id="remoteUnlockDoorCode">-</dd></div>
+                <div class="spec-item"><dt class="spec-label">Lokasi</dt><dd class="spec-val" id="remoteUnlockDoorLocation">-</dd></div>
+                <div class="spec-item"><dt class="spec-label">Status</dt><dd class="spec-val" id="remoteUnlockDoorStatus">-</dd></div>
+            </dl>
+            <div class="form-row" style="margin-bottom:1rem;">
+                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;">Alasan Pembukaan Remote *</label>
+                <textarea id="remoteUnlockReason" class="form-control" rows="3" required placeholder="Contoh: Kunjungan VIP Tamu, Pemeliharaan Darurat, Kartu Akses Tertinggal..." style="width:100%;padding:0.5rem;background:var(--card-bg);border:1px solid var(--border-color);color:#fff;border-radius:0.5rem;box-sizing:border-box;"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem;">
+                <button type="button" class="btn-secondary" onclick="cancelRemoteUnlock()">Batal</button>
+                <button type="submit" class="btn-primary" id="confirmRemoteUnlockButton">Konfirmasi & Buka Pintu</button>
+            </div>
+        </form>
     </div>
 </div>
 

@@ -95,6 +95,27 @@ function showToast(message, type = 'success', duration = 3500) {
 }
 
 // ==========================================
+// Modal Window Utility (Universal Modal Control)
+// ==========================================
+function openModal(modalId) {
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
+    modal.classList.add('active');
+    document.body.classList.add('modal-open');
+}
+
+function closeModal(modalId) {
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
+    modal.classList.remove('active');
+    if (!document.querySelector('.modal-overlay.active')) {
+        document.body.classList.remove('modal-open');
+    }
+}
+window.openModal = openModal;
+window.closeModal = closeModal;
+
+// ==========================================
 // Centralized API Client (Fetch with Auth & Storm Guard)
 // ==========================================
 let isRedirectingToLogin = false;
@@ -341,8 +362,8 @@ function renderDoorCards(doors) {
         const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
         const unlockDisabled = !isOnline;
         const isMaintenance = Boolean(door.is_manual_override);
-        const badgeClass = isPrimaryDeploymentDoor && isOnline ? 'status-online' : 'status-offline';
-        const statusLabel = isPrimaryDeploymentDoor ? (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE')) : 'PLANNED / NOT ACTIVE';
+        const badgeClass = isMaintenance ? 'status-warning' : (isPrimaryDeploymentDoor && isOnline ? 'status-online' : 'status-offline');
+        const statusLabel = isMaintenance ? 'MAINTENANCE' : (isPrimaryDeploymentDoor ? (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE')) : 'PLANNED / NOT ACTIVE');
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.door_name || door.name || 'Tanpa nama');
         const safeLocation = escapeHtml(door.building_name || door.location || '-');
@@ -389,14 +410,17 @@ async function toggleDoorStatus(doorId, enabled) {
     try {
         const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/status`, {
             method: 'PATCH',
-            body: JSON.stringify({ is_manual_override: Boolean(enabled) })
+            body: JSON.stringify({ is_manual_override: Boolean(enabled) }),
+            isBackground: false
         });
         if (res.status === 'success') {
-            showToast(`Maintenance override ${enabled ? 'diaktifkan' : 'dinonaktifkan'} untuk ${doorId}.`, 'success');
+            showToast(res.message || `Mode maintenance ${enabled ? 'diaktifkan' : 'dinonaktifkan'} untuk ${doorId}.`, 'success');
             await loadDoors();
+        } else {
+            showToast(res.message || 'Perubahan maintenance tidak dapat disimpan.', 'error');
         }
     } catch (err) {
-        showToast('Perubahan maintenance tidak dapat disimpan.', 'error');
+        showToast(err.message || 'Perubahan maintenance tidak dapat disimpan.', 'error');
     }
 }
 
@@ -416,45 +440,113 @@ function openDoorUsers(doorId) {
     loadEmployees();
 }
 
-function openRemoteUnlockModal(doorId) {
-    const door = state.doors.find(item => String(item.door_id) === String(doorId));
-    const isOnline = door && (door.connection_status === 'online' || door.status === 'online');
-    if (!door || !isOnline) {
-        showToast('Remote unlock diblokir: Terminal belum terhubung.', 'warning');
+function onRemoteUnlockDoorChange(doorId) {
+    const door = (state.doors || []).find(item => String(item.door_id) === String(doorId)) || state.doors?.[0];
+    state.pendingRemoteUnlockDoor = door || null;
+
+    const titleEl = document.getElementById('remoteUnlockDoorIdentity');
+    const codeEl = document.getElementById('remoteUnlockDoorCode');
+    const locEl = document.getElementById('remoteUnlockDoorLocation');
+    const statusEl = document.getElementById('remoteUnlockDoorStatus');
+    const btnEl = document.getElementById('confirmRemoteUnlockButton');
+
+    if (!door) {
+        if (titleEl) titleEl.textContent = 'Pilih terminal pintu.';
+        if (codeEl) codeEl.textContent = '-';
+        if (locEl) locEl.textContent = '-';
+        if (statusEl) statusEl.textContent = '-';
+        if (btnEl) btnEl.disabled = true;
         return;
     }
 
-    state.pendingRemoteUnlockDoor = door;
-    document.getElementById('remoteUnlockDoorIdentity').textContent = door.door_name || door.name || door.door_id;
-    document.getElementById('remoteUnlockDoorCode').textContent = door.door_id;
-    document.getElementById('remoteUnlockDoorLocation').textContent = door.building_name || door.location || '-';
-    document.getElementById('remoteUnlockDoorStatus').textContent = 'ONLINE — siap menerima perintah';
+    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
+    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
+    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+
+    if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
+    if (codeEl) codeEl.textContent = door.door_id;
+    if (locEl) locEl.textContent = door.building_name || door.location || '-';
+    if (statusEl) {
+        statusEl.textContent = isOnline ? 'ONLINE — siap menerima perintah' : 'OFFLINE / NOT ACTIVE — terminal belum terhubung';
+        statusEl.style.color = isOnline ? '#6ee7b7' : '#fca5a5';
+    }
+    if (btnEl) {
+        btnEl.disabled = !isOnline;
+        btnEl.title = isOnline ? 'Konfirmasi dan kirim sinyal buka relay pintu' : 'Terminal belum terhubung / offline';
+    }
+}
+
+function openRemoteUnlockModal(doorId) {
+    const doors = state.doors || [];
+    const select = document.getElementById('remoteUnlockDoorSelect');
+    if (select) {
+        select.innerHTML = doors.map(d => {
+            const isPrimary = d.door_id === 'DOOR-B';
+            const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
+            const online = isPrimary && health === 'online';
+            return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
+        }).join('');
+        if (doorId) select.value = doorId;
+    }
+
+    const currentDoorId = select ? select.value : doorId;
+    onRemoteUnlockDoorChange(currentDoorId);
+
+    const reasonEl = document.getElementById('remoteUnlockReason');
+    if (reasonEl) reasonEl.value = '';
+
     openModal('remoteUnlockModal');
 }
 
 function cancelRemoteUnlock() {
     state.pendingRemoteUnlockDoor = null;
+    const reasonEl = document.getElementById('remoteUnlockReason');
+    if (reasonEl) reasonEl.value = '';
     closeModal('remoteUnlockModal');
 }
 
 async function confirmRemoteUnlock() {
     const door = state.pendingRemoteUnlockDoor;
     const button = document.getElementById('confirmRemoteUnlockButton');
+    const reasonEl = document.getElementById('remoteUnlockReason');
+    const reason = reasonEl ? reasonEl.value.trim() : '';
+
     if (!door || !button) return;
+
+    if (!reason) {
+        showToast('Harap masukkan alasan pembukaan pintu sebelum melanjutkan.', 'warning');
+        if (reasonEl) reasonEl.focus();
+        return;
+    }
+
+    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
+    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
+    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+
+    if (!isOnline) {
+        showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
+        return;
+    }
 
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
     try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, { method: 'POST', isBackground: false });
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, {
+            method: 'POST',
+            isBackground: false,
+            body: JSON.stringify({ reason })
+        });
         if (res.status === 'success') {
-            showToast(`Perintah remote unlock ${door.door_id} berhasil dikirim.`, 'success');
+            showToast(res.message || `Perintah remote unlock ${door.door_id} berhasil dikirim.`, 'success');
             cancelRemoteUnlock();
             await Promise.all([loadDoors(), loadAccessLogs()]);
             scheduleMetricCardsUpdate(true);
             if (hasCapability('audit.view')) await loadActivityLogs();
+        } else {
+            showToast(res.message || 'Remote unlock gagal.', 'error');
         }
     } catch (err) {
-        showToast('Remote unlock gagal. Periksa izin dan koneksi terminal, lalu coba kembali.', 'error');
+        showToast(err.message || 'Remote unlock gagal. Periksa izin dan koneksi terminal, lalu coba kembali.', 'error');
     } finally {
         button.disabled = false;
         button.textContent = 'Konfirmasi & Buka Pintu';
@@ -5595,18 +5687,41 @@ async function exportAttendanceReport() {
 
 async function openFacilityModal(doorId = null) {
     openModal('facilityModal');
-    const response = await apiFetch('/admin/buildings');
-    const select = document.getElementById('facilityDoorBuilding');
-    select.innerHTML = '<option value="">Select building</option>' + response.data.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
-    const door = doorId ? state.doors.find(item => item.door_id === doorId) : null;
-    document.getElementById('facilityOriginalDoorId').value = door?.door_id || '';
-    document.getElementById('facilityDoorId').value = door?.door_id || '';
-    document.getElementById('facilityDoorName').value = door?.door_name || '';
-    select.value = door?.building_id || '';
-    document.getElementById('facilityDoorIp').value = door?.device_ip || '';
-    document.getElementById('facilityDoorGateway').value = door?.gateway || '';
-    document.getElementById('facilityDoorModel').value = door?.device_model || 'DS-K1T804AMF';
-    document.getElementById('facilityDoorSubmit').textContent = door ? 'Update Door' : 'Register Door';
+    try {
+        const response = await apiFetch('/admin/buildings');
+        const select = document.getElementById('facilityDoorBuilding');
+        if (select && response?.data) {
+            select.innerHTML = '<option value="">Select building</option>' + response.data.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
+        }
+        const door = doorId ? (state.doors || []).find(item => String(item.door_id).toUpperCase() === String(doorId).toUpperCase()) : null;
+        const origIdEl = document.getElementById('facilityOriginalDoorId');
+        const idEl = document.getElementById('facilityDoorId');
+        const nameEl = document.getElementById('facilityDoorName');
+        const ipEl = document.getElementById('facilityDoorIp');
+        const gwEl = document.getElementById('facilityDoorGateway');
+        const modelEl = document.getElementById('facilityDoorModel');
+        const submitBtn = document.getElementById('facilityDoorSubmit');
+
+        if (origIdEl) origIdEl.value = door?.door_id || '';
+        if (idEl) idEl.value = door?.door_id || '';
+        if (nameEl) nameEl.value = door?.door_name || door?.name || '';
+        if (ipEl) ipEl.value = door?.device_ip || door?.ip_address || '';
+        if (gwEl) gwEl.value = door?.gateway || '192.168.90.1';
+        if (modelEl) modelEl.value = door?.device_model || door?.model || 'DS-K1T804AMF';
+        if (submitBtn) submitBtn.textContent = door ? 'Update Door' : 'Register Door';
+
+        if (select && door) {
+            if (door.building_id) {
+                select.value = String(door.building_id);
+            } else if (door.building_name || door.location) {
+                const loc = door.building_name || door.location;
+                const matched = (response?.data || []).find(b => b.name === loc || loc.includes(b.name) || b.name.includes(loc));
+                if (matched) select.value = String(matched.id);
+            }
+        }
+    } catch (err) {
+        showToast(`Gagal memuat konfigurasi gedung: ${err.message}`, 'error');
+    }
 }
 
 async function submitBuildingConfig(event) {
@@ -5622,11 +5737,26 @@ async function submitBuildingConfig(event) {
 async function submitDoorConfig(event) {
     event.preventDefault();
     const original = document.getElementById('facilityOriginalDoorId').value;
-    const payload = { door_id: document.getElementById('facilityDoorId').value, name: document.getElementById('facilityDoorName').value, building_id: Number(document.getElementById('facilityDoorBuilding').value), device_ip: document.getElementById('facilityDoorIp').value, gateway: document.getElementById('facilityDoorGateway').value || null, device_model: document.getElementById('facilityDoorModel').value };
+    const payload = {
+        door_id: document.getElementById('facilityDoorId').value,
+        name: document.getElementById('facilityDoorName').value,
+        building_id: Number(document.getElementById('facilityDoorBuilding').value),
+        device_ip: document.getElementById('facilityDoorIp').value,
+        gateway: document.getElementById('facilityDoorGateway').value || null,
+        device_model: document.getElementById('facilityDoorModel').value
+    };
     try {
-        await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', { method: original ? 'PUT' : 'POST', body: JSON.stringify(payload) });
-        closeModal('facilityModal'); await loadDoors(); showToast(original ? 'Door configuration updated.' : 'Door registered offline pending verification.', 'success');
-    } catch (error) { showToast(error.message, 'error'); }
+        const res = await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', {
+            method: original ? 'PUT' : 'POST',
+            body: JSON.stringify(payload),
+            isBackground: false
+        });
+        closeModal('facilityModal');
+        await loadDoors();
+        showToast(original ? (res.message || 'Konfigurasi pintu berhasil diperbarui.') : 'Door registered offline pending verification.', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 // ==========================================
