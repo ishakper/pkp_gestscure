@@ -401,8 +401,10 @@ async function toggleDoorStatus(doorId, enabled) {
 }
 
 function openDoorLogs(doorId) {
-    const filter = document.getElementById('logDoorFilter');
-    if (filter) filter.value = doorId;
+    ['logDoorFilter', 'logDoorFilterTab'].forEach(id => {
+        const filter = document.getElementById(id);
+        if (filter) filter.value = doorId;
+    });
     switchTab('logsTab');
     loadAccessLogs();
 }
@@ -973,6 +975,16 @@ function syncLogFilters(sourceEl) {
     }
 }
 
+let logSearchTimer = null;
+let accessLogsRequestSeq = 0;
+
+// Live search: fire shortly after the user stops typing instead of waiting for blur/Enter.
+function onLogSearchInput(sourceEl) {
+    syncLogFilters(sourceEl);
+    clearTimeout(logSearchTimer);
+    logSearchTimer = setTimeout(loadAccessLogs, 400);
+}
+
 async function loadAccessLogs() {
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
@@ -982,6 +994,13 @@ async function loadAccessLogs() {
     const userSearch = (document.getElementById('logUserSearch')?.value || document.getElementById('logUserSearchTab')?.value || '').trim();
     const startDate = document.getElementById('logStartDate')?.value || document.getElementById('logStartDateTab')?.value || '';
     const endDate = document.getElementById('logEndDate')?.value || document.getElementById('logEndDateTab')?.value || '';
+
+    if (startDate && endDate && startDate > endDate) {
+        showToast('Tanggal awal tidak boleh setelah tanggal akhir.', 'warning');
+        return;
+    }
+
+    const requestSeq = ++accessLogsRequestSeq;
 
     if (tbody) {
             tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
@@ -997,12 +1016,14 @@ async function loadAccessLogs() {
         if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
 
         const res = await apiFetch(url);
+        if (requestSeq !== accessLogsRequestSeq) return; // a newer filter request superseded this one
         if (res.status === 'success') {
             state.accessLogs = res.data;
             renderAccessLogsTable(state.accessLogs);
             scheduleMetricCardsUpdate();
         }
     } catch (err) {
+        if (requestSeq !== accessLogsRequestSeq) return;
         const errorHtml = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${escapeHtml(err.message)}</td></tr>`;
         if (tbody) tbody.innerHTML = errorHtml;
         if (recentTbody) recentTbody.innerHTML = errorHtml;
