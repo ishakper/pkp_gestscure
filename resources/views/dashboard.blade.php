@@ -923,7 +923,8 @@
             padding-bottom: 0.85rem;
             flex-wrap: wrap;
         }
-        .ats-nav-pill {
+        .ats-nav-pill,
+        .ats-subnav .subnav-btn {
             background: transparent;
             border: 1px solid var(--border-color);
             color: var(--text-muted);
@@ -934,11 +935,13 @@
             cursor: pointer;
             transition: all 0.2s ease;
         }
-        .ats-nav-pill:hover {
+        .ats-nav-pill:hover,
+        .ats-subnav .subnav-btn:hover {
             background: rgba(255, 255, 255, 0.05);
             color: #ffffff;
         }
-        .ats-nav-pill.active {
+        .ats-nav-pill.active,
+        .ats-subnav .subnav-btn.active {
             background: rgba(56, 189, 248, 0.15);
             border-color: var(--primary);
             color: var(--primary);
@@ -2718,7 +2721,7 @@
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial disinkronkan', 'info');">
+                <button class="btn-secondary" onclick="refreshAccessData(this)">
                     🔄 Refresh
                 </button>
                 <button class="btn-primary" onclick="openAddAccessRequestModal()">
@@ -2775,7 +2778,7 @@
         </div>
 
         <!-- SUB-TAB 1: PERMINTAAN HAK AKSES -->
-        <div id="accessSubRequests" class="ats-sub-content">
+        <div id="accessSubRequests" class="ats-sub-content" style="display: block;">
             <div class="table-container">
                 <div class="table-toolbar">
                     <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
