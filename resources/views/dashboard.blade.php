@@ -132,7 +132,13 @@
             gap: 0.85rem;
             padding: 0.35rem 0.65rem 0.35rem 0.35rem;
             border-radius: 0.85rem;
-            border: 1px solid transparent;
+            border: 1px solid var(--border-color);
+            /* Bug fix: this fixed logo has no opaque backdrop, so scrolled page content
+               (which is otherwise normal document flow) shows through/behind it and looks
+               like it "tertimpa" the logo. Give it a solid background matching the sidebar
+               so it reads as a docked header chip instead of a transparent overlay. */
+            background: var(--sidebar-bg);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
             user-select: none;
             cursor: pointer;
             white-space: nowrap;
@@ -834,6 +840,13 @@
 
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.12);
+        }
+
+        .btn-secondary:disabled,
+        .btn-secondary[disabled] {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
         }
 
         .btn-sm {
@@ -1780,7 +1793,7 @@
                 <thead><tr><th>Task</th><th>Employee</th><th>Project</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due Date</th><th>Action</th></tr></thead>
                 <tbody id="tasksTableBody"><tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat tasks...</td></tr></tbody>
             </table>
-            <div class="employee-pagination" id="taskPagination" aria-live="polite"></div>
+            <div class="task-pagination" id="taskPagination" aria-live="polite"></div>
         </div>
     </section>
 
