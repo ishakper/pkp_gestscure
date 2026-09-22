@@ -29,10 +29,9 @@ class DoorFactory extends Factory
             'building_id' => Building::factory(),
             'door_id' => 'DR-' . fake()->unique()->numerify('####'),
             'name' => fake()->word() . ' Door',
-            'description' => fake()->sentence(),
+            'location' => fake()->address(),
             'connection_status' => 'online',
-            'health_status' => 'healthy',
-            'is_active' => true,
+            'status' => 'online',
         ];
     }
 
