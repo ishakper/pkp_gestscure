@@ -140,10 +140,10 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unauthorized_unlock_rejected()
     {
-        $user = Admin::factory()->create();
-        
-        // Explicitly deny the 'open' gate for this user (do NOT call allowUnlock())
+        // Explicitly deny the 'open' gate BEFORE authenticating
         Gate::define('open', fn ($user, $door) => false);
+        
+        $user = Admin::factory()->create();
 
         $response = $this->actingAs($user, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
