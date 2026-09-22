@@ -274,8 +274,21 @@ class AdminDoorController extends Controller
         }
 
         $request->validate([
-            'reason' => 'nullable|string|max:255',
+            'reason' => 'required|string|max:500',
+        ], [
+            'reason.required' => 'Alasan pembukaan pintu remote wajib diisi.',
+            'reason.max' => 'Alasan pembukaan maksimal 500 karakter.',
         ]);
+
+        // Normalize and validate reason: trim whitespace, reject whitespace-only
+        $reason = trim($request->input('reason', ''));
+        if (empty($reason)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Alasan pembukaan tidak boleh kosong atau hanya spasi.',
+            ], 422);
+        }
 
         if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
             return response()->json([
@@ -296,8 +309,7 @@ class AdminDoorController extends Controller
         }
 
         $doorName = $door->door_name ?? $door->name;
-        $reason = $request->input('reason');
-        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard." . ($reason ? " Alasan: {$reason}" : '');
+        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard. Alasan: {$reason}";
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
