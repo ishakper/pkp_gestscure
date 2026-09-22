@@ -97,6 +97,33 @@ class HikvisionIsapiService
     }
 
     /**
+     * Get device channel (ISAPI RemoteControl door number) from trusted server-side configuration.
+     * Never derives channel from frontend or untrusted sources.
+     *
+     * @param Door $door Trusted server-side Door model instance
+     * @return int Device channel number (default: 1)
+     */
+    public function getDoorDeviceChannel(Door $door): int
+    {
+        // 1. Check door-specific configuration
+        if (!empty($door->door_id)) {
+            $doorKey = strtoupper($door->door_id);
+            $configuredChannel = config("services.doors.{$doorKey}.channel");
+            if (is_numeric($configuredChannel)) {
+                return (int) $configuredChannel;
+            }
+        }
+
+        // 2. Check if Door model has device_channel attribute (future schema extension)
+        if (isset($door->device_channel) && is_numeric($door->device_channel)) {
+            return (int) $door->device_channel;
+        }
+
+        // 3. Default to channel 1 (safe fallback)
+        return 1;
+    }
+
+    /**
      * Build full URL for ISAPI endpoint.
      */
     public function buildUrl(string $endpoint, ?Door $door = null): string
@@ -354,7 +381,8 @@ class HikvisionIsapiService
 
     /**
      * Trigger remote control command on physical terminal (e.g. 'open' to unlock door).
-     * Uses ISAPI PUT /AccessControl/RemoteControl/door/1 with Digest Auth and XML payload.
+     * Uses ISAPI PUT /AccessControl/RemoteControl/door/{channel} with Digest Auth and XML payload.
+     * Channel derived from trusted Door configuration, never arbitrary frontend input.
      */
     public function remoteControlDoor(Door $door, string $command = 'open'): array
     {
@@ -385,8 +413,12 @@ class HikvisionIsapiService
             ];
         }
 
-        // 2. Real Physical Device Mode: PUT /ISAPI/AccessControl/RemoteControl/door/1
-        $url = $this->buildUrl('/AccessControl/RemoteControl/door/1', $door);
+        // 2. Real Physical Device Mode: Derive device channel from trusted server-side configuration
+        // Default to channel 1 if not explicitly configured. Channel is per-door, never from frontend.
+        $deviceChannel = $this->getDoorDeviceChannel($door);
+
+        // 3. PUT /ISAPI/AccessControl/RemoteControl/door/{channel}
+        $url = $this->buildUrl("/AccessControl/RemoteControl/door/{$deviceChannel}", $door);
         $xmlBody = "<?xml version=\"1.0\" encoding=\"UTF-8\"?><RemoteControlDoor><cmd>" . htmlspecialchars($command, ENT_XML1 | ENT_QUOTES, 'UTF-8') . "</cmd></RemoteControlDoor>";
 
         try {
