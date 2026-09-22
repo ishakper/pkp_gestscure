@@ -20,6 +20,10 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 | API Routes (v1)
 |--------------------------------------------------------------------------
+| 
+| Key endpoints for integration contracts:
+| /doors/simulate-event, /admin/doors, /admin/access-logs/sync-hardware
+| /admin/doors/check-all, /user-management/users
 */
 
 Route::prefix('v1')->group(function () {
