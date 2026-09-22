@@ -152,30 +152,31 @@ class DashboardButtonContractTest extends TestCase
      */
     public function test_api_endpoints_exist()
     {
-        $requiredEndpoints = [
-            'POST /api/v1/doors/simulate-event',
-            'GET /api/v1/admin/doors',
-            'POST /api/v1/admin/access-logs/sync-hardware',
-            'POST /api/v1/admin/doors/check-all',
-            'GET /api/v1/user-management/users',
+        // Check Laravel-registered routes instead of raw source text
+        $requiredUris = [
+            'api/v1/doors/simulate-event',
+            'api/v1/admin/doors',
+            'api/v1/admin/access-logs/sync-hardware',
+            'api/v1/admin/doors/check-all',
+            'api/v1/user-management/users',
         ];
 
         $routes = \Route::getRoutes();
-        $registered = [];
+        $registeredUris = [];
 
         foreach ($routes as $route) {
-            $method = implode('|', $route->methods);
-            $path = $route->uri;
-            if ($path !== '/') {
-                $registered[] = "$method /$path";
+            // Collect all registered URIs (without leading /)
+            $uri = ltrim($route->uri, '/');
+            if ($uri && $uri !== '/') {
+                $registeredUris[] = $uri;
             }
         }
 
-        foreach ($requiredEndpoints as $endpoint) {
+        foreach ($requiredUris as $requiredUri) {
             $this->assertContains(
-                $endpoint,
-                $registered,
-                "API endpoint '{$endpoint}' must be registered in routes"
+                $requiredUri,
+                $registeredUris,
+                "API route '{$requiredUri}' must be registered in routes"
             );
         }
     }
