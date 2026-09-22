@@ -217,7 +217,7 @@ XML;
         $this->actingAs($this->superAdmin)
             ->postJson('/api/v1/admin/doors/DOOR-B/open', ['reason' => 'Test offline device'])
             ->assertStatus(409)
-            ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online.');
+            ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online atau tidak aktif.');
     }
 
     /**
