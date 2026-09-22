@@ -128,6 +128,12 @@ return new class extends Migration
         Schema::dropIfExists('field_locations');
 
         if (Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'attendance_type')) {
+            if (DB::getDriverName() !== 'sqlite') {
+                Schema::table('attendances', function (Blueprint $table) {
+                    $table->dropIndex(['attendance_type']);
+                });
+            }
+
             Schema::table('attendances', function (Blueprint $table) {
                 $table->dropColumn('attendance_type');
             });
