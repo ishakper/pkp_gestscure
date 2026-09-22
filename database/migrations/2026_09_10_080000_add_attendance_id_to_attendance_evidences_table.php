@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -15,9 +16,19 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('attendance_evidences', function (Blueprint $table) {
-            $table->dropForeign(['attendance_id']);
-            $table->dropColumn('attendance_id');
-        });
+        // SQLite doesn't support dropping individual foreign keys without recreating the table.
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('PRAGMA foreign_keys=OFF');
+        }
+
+        try {
+            Schema::table('attendance_evidences', function (Blueprint $table) {
+                $table->dropColumn('attendance_id');
+            });
+        } finally {
+            if (DB::getDriverName() === 'sqlite') {
+                DB::statement('PRAGMA foreign_keys=ON');
+            }
+        }
     }
 };
