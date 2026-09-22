@@ -1526,22 +1526,13 @@ async function runEventSimulation(e) {
 }
 
 // ==========================================
-// Modal Utilities
+// Modal Utilities (openModal/closeModal live in the "Modal Window Utility" block near the top)
 // ==========================================
-function openModal(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('active');
-}
-
-function closeModal(id) {
-    const el = document.getElementById(id);
-    if (el) el.classList.remove('active');
-}
 
 // Close modals when clicking outside modal card
 window.addEventListener('click', (e) => {
     if (e.target.classList.contains('modal-overlay')) {
-        e.target.classList.remove('active');
+        closeModal(e.target);
     }
 });
 
@@ -4086,14 +4077,33 @@ function debounceDocSearch() {
 // SPRINT 6: ACCESS PROVISIONING, CREDENTIALS & E-MONEY CONTROLLER
 // =============================================================
 
+// Each loader resolves to `false` when its request failed (the table already shows the error).
 function loadAccessData() {
-    loadAccessMetrics();
-    loadAccessRequests();
-    loadAccessProfiles();
-    loadCredentials();
-    loadDeviceSyncs();
-    loadEmoneyCards();
-    populateAccessEmployees();
+    return Promise.all([
+        loadAccessMetrics(),
+        loadAccessRequests(),
+        loadAccessProfiles(),
+        loadCredentials(),
+        loadDeviceSyncs(),
+        loadEmoneyCards(),
+        populateAccessEmployees(),
+    ]);
+}
+
+async function refreshAccessData(button) {
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = 'ΓÅ│ Memuat...'; }
+    try {
+        const results = await loadAccessData();
+        const failed = results.filter(ok => ok === false).length;
+        if (failed > 0) {
+            showToast(`${failed} dari ${results.length} bagian data gagal dimuat. Periksa pesan di tabel, lalu coba lagi.`, 'warning');
+        } else {
+            showToast('Data Hak Akses & Kredensial berhasil dimuat ulang.', 'success');
+        }
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
+    }
 }
 
 function switchAccessSubTab(subTab, btn) {
@@ -4134,6 +4144,7 @@ async function loadAccessMetrics() {
         }
     } catch (e) {
         console.error('Failed to load access metrics', e);
+        return false;
     }
 }
 
@@ -4185,6 +4196,7 @@ async function loadAccessRequests() {
         }).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat permohonan akses: ${escapeHtml(e.message)}</td></tr>`;
+        return false;
     }
 }
 
@@ -4221,6 +4233,7 @@ async function loadAccessProfiles() {
         }).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat profil: ${escapeHtml(e.message)}</td></tr>`;
+        return false;
     }
 }
 
@@ -4271,6 +4284,7 @@ async function loadCredentials() {
         }).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat kredensial: ${escapeHtml(e.message)}</td></tr>`;
+        return false;
     }
 }
 
@@ -4322,6 +4336,7 @@ async function loadDeviceSyncs() {
         }).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat antrean sync: ${escapeHtml(e.message)}</td></tr>`;
+        return false;
     }
 }
 
@@ -4383,6 +4398,7 @@ async function loadEmoneyCards() {
         }).join('');
     } catch (e) {
         tbody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #ef4444; padding: 2rem;">Gagal memuat registri E-Money: ${escapeHtml(e.message)}</td></tr>`;
+        return false;
     }
 }
 
@@ -4437,6 +4453,7 @@ async function populateAccessEmployees() {
         }
     } catch (e) {
         console.error('Failed to populate employees for access modules', e);
+        return false;
     }
 }
 
