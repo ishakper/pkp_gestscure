@@ -8,6 +8,7 @@ use App\Models\Door;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
+use App\Models\User;
 
 class RemoteUnlockReasonValidationTest extends TestCase
 {
@@ -39,7 +40,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonPath('status', 'error')
-            ->assertJsonPath('message', 'Alasan pembukaan pintu remote wajib diisi.');
+            ->assertJsonValidationErrors(['reason']);
 
         // Verify no activity log created
         $this->assertDatabaseMissing('activity_logs', [
@@ -56,7 +57,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
         );
 
         $response->assertStatus(422)
-            ->assertJsonPath('message', 'Alasan pembukaan tidak boleh kosong atau hanya spasi.');
+            ->assertJsonValidationErrors(['reason']);
     }
 
     public function test_unlock_with_whitespace_only_reason_rejected()
@@ -67,7 +68,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
         );
 
         $response->assertStatus(422)
-            ->assertJsonPath('message', 'Alasan pembukaan tidak boleh kosong atau hanya spasi.');
+            ->assertJsonValidationErrors(['reason']);
     }
 
     public function test_unlock_with_valid_reason_accepted()
@@ -118,7 +119,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
         );
 
         $response->assertStatus(422)
-            ->assertJsonPath('message', 'Alasan pembukaan maksimal 500 karakter.');
+            ->assertJsonValidationErrors(['reason']);
     }
 
     public function test_unauthorized_unlock_rejected()

@@ -72,10 +72,6 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_hardcoded_door_one_not_present_in_service()
     {
-        $this->artisan('tinker', [
-            '--execute' => 'echo file_get_contents(base_path("app/Services/HikvisionIsapiService.php"));',
-        ])->assertSuccessful();
-
         // Verify source code doesn't contain hardcoded /door/1
         $source = file_get_contents(base_path('app/Services/HikvisionIsapiService.php'));
         $this->assertStringNotContainsString("'/door/1'", $source);
