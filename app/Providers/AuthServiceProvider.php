@@ -23,6 +23,10 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Define the 'open' gate for Door: only super_admin can remotely unlock doors
+        \Illuminate\Support\Facades\Gate::define('open', function ($user, $door) {
+            // Only super_admin role is permitted to remote unlock doors
+            return $user && $user->role === 'super_admin';
+        });
     }
 }

@@ -3,13 +3,12 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
     /**
      * Proposed Migration Schema — Setup Gedung Floor Hierarchy Extension (UNEXECUTED)
-     * 
+     *
      * Impact Analysis:
      * - Adds 'floors' table to bridge Building and Zone/Device level in hierarchy (Building -> Floor -> Zone -> Device).
      * - Adds nullable 'floor_id' foreign key to 'zones' table.
@@ -43,23 +42,13 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // SQLite doesn't support dropping individual foreign keys in traditional way.
-        // For PostgreSQL and MySQL, drop the foreign key constraint first.
-        if (DB::getDriverName() !== 'sqlite') {
-            Schema::table('doors', function (Blueprint $table) {
-                $table->dropForeign(['floor_id']);
-            });
-
-            Schema::table('zones', function (Blueprint $table) {
-                $table->dropForeign(['floor_id']);
-            });
-        }
-
         Schema::table('doors', function (Blueprint $table) {
+            $table->dropForeign(['floor_id']);
             $table->dropColumn('floor_id');
         });
 
         Schema::table('zones', function (Blueprint $table) {
+            $table->dropForeign(['floor_id']);
             $table->dropColumn('floor_id');
         });
 

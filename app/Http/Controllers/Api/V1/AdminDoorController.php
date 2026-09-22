@@ -269,9 +269,8 @@ class AdminDoorController extends Controller
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
 
-        if ($request->user() && method_exists($this, 'authorize')) {
-            $this->authorize('open', $door);
-        }
+        // Enforce fail-closed authorization: must have explicit permission, always
+        $this->authorize('open', $door);
 
         $request->validate([
             'reason' => 'required|string|max:500',
