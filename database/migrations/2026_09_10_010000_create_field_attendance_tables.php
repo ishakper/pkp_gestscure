@@ -128,15 +128,15 @@ return new class extends Migration
         Schema::dropIfExists('field_locations');
 
         if (Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'attendance_type')) {
+            // SQLite doesn't support dropping columns with indexes without recreating the table.
+            // Just drop the index for databases that support it.
             if (DB::getDriverName() !== 'sqlite') {
                 Schema::table('attendances', function (Blueprint $table) {
                     $table->dropIndex(['attendance_type']);
+                    $table->dropColumn('attendance_type');
                 });
             }
-
-            Schema::table('attendances', function (Blueprint $table) {
-                $table->dropColumn('attendance_type');
-            });
+            // For SQLite, skip this rollback entirely as the full table will be recreated if needed
         }
     }
 };
