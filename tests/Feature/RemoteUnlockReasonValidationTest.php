@@ -27,8 +27,14 @@ class RemoteUnlockReasonValidationTest extends TestCase
             'device_ip' => '192.168.1.100',
         ])->create();
 
-        // Mock authorization to allow remote unlock
+        // Define default authorization policy (allow by default for most tests)
         Gate::define('open', fn ($user, $door) => true);
+    }
+
+    private function denyUnlock(): void
+    {
+        // Override gate to deny access for specific tests
+        Gate::define('open', fn ($user, $door) => false);
     }
 
     public function test_unlock_without_reason_rejected()
@@ -124,8 +130,8 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unauthorized_unlock_rejected()
     {
+        $this->denyUnlock();
         $user = Admin::factory()->create();
-        Gate::define('open', fn ($user, $door) => false);
 
         $response = $this->actingAs($user, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
