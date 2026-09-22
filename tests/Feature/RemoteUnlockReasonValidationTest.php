@@ -26,8 +26,11 @@ class RemoteUnlockReasonValidationTest extends TestCase
             'health_status' => 'online',
             'device_ip' => '192.168.1.100',
         ])->create();
+    }
 
-        // Define default authorization policy (allow by default for most tests)
+    protected function allowUnlock(): void
+    {
+        // Define authorization to allow remote unlock (default for most tests)
         Gate::define('open', fn ($user, $door) => true);
     }
 
@@ -40,6 +43,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unlock_without_reason_rejected()
     {
+        $this->allowUnlock();
         $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
             []
@@ -58,6 +62,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unlock_with_empty_reason_rejected()
     {
+        $this->allowUnlock();
         $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
             ['reason' => '']
@@ -69,6 +74,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unlock_with_whitespace_only_reason_rejected()
     {
+        $this->allowUnlock();
         $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
             ['reason' => '   ']
@@ -82,6 +88,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
     {
         // Mock the ISAPI service to return success
         $this->mockHikvisionSuccess();
+        $this->allowUnlock();
 
         $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
@@ -102,6 +109,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
     public function test_unlock_reason_trimmed_in_audit_log()
     {
         $this->mockHikvisionSuccess();
+        $this->allowUnlock();
 
         $this->actingAs($this->admin, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
@@ -118,6 +126,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unlock_reason_max_length_enforced()
     {
+        $this->allowUnlock();
         $longReason = str_repeat('a', 501);
 
         $response = $this->actingAs($this->admin, 'sanctum')->postJson(
@@ -133,8 +142,8 @@ class RemoteUnlockReasonValidationTest extends TestCase
     {
         $user = Admin::factory()->create();
         
-        // Explicitly deny the 'open' gate for this user
-        Gate::define('open', fn ($u, $d) => false);
+        // Explicitly deny the 'open' gate for this user (do NOT call allowUnlock())
+        Gate::define('open', fn ($user, $door) => false);
 
         $response = $this->actingAs($user, 'sanctum')->postJson(
             route('api.doors.open', $this->door->door_id),
