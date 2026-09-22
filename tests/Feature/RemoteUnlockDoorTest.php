@@ -160,7 +160,7 @@ XML;
         Config::set('services.hikvision.use_mock', true);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open");
+            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Authorized maintenance access']);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -192,7 +192,7 @@ XML;
         ]);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open");
+            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Testing failure scenario']);
 
         $response->assertStatus(500)
             ->assertJson([
@@ -206,7 +206,7 @@ XML;
         $this->doorB->update(['connection_status' => 'offline', 'health_status' => 'offline']);
 
         $this->actingAs($this->superAdmin)
-            ->postJson('/api/v1/admin/doors/DOOR-B/open')
+            ->postJson('/api/v1/admin/doors/DOOR-B/open', ['reason' => 'Test offline device'])
             ->assertStatus(409)
             ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online.');
     }
@@ -230,7 +230,7 @@ XML;
         Config::set('services.hikvision.use_mock', true);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/doors/DOOR-B/unlock");
+            ->postJson("/api/v1/admin/doors/DOOR-A/unlock", ['reason' => 'Direct unlock test']);
 
         $response->assertStatus(200)
             ->assertJson([

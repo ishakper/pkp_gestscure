@@ -3,8 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\ActivityLog;
+use App\Models\Admin;
 use App\Models\Door;
-use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
@@ -13,14 +13,14 @@ class RemoteUnlockReasonValidationTest extends TestCase
 {
     use DatabaseMigrations;
 
-    private User $admin;
+    private Admin $admin;
     private Door $door;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->admin = User::factory()->state(['role' => 'super_admin'])->create();
+        $this->admin = Admin::factory()->state(['role' => 'super_admin'])->create();
         $this->door = Door::factory()->state([
             'connection_status' => 'online',
             'health_status' => 'healthy',

@@ -326,7 +326,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/{id}/attachment', [\App\Http\Controllers\Api\V1\OvertimeController::class, 'attachment']);
         });
 
-        Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.direct_unlock');
+        Route::post('/doors/{door_id}/unlock', [AdminDoorController::class, 'openDoor'])->name('api.doors.open');
         Route::post('/doors/simulate-event', [IsapiWebhookController::class, 'simulateEvent'])
             ->name('isapi.simulate-event');
     });
