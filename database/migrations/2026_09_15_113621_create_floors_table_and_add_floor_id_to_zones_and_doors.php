@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -42,15 +43,25 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::table('doors', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
-            $table->dropColumn('floor_id');
-        });
+        // SQLite doesn't support dropping individual foreign keys without recreating the table.
+        // For testing with :memory: SQLite DB, we disable constraints temporarily to allow column removal.
+        if (DB::getDriverName() === 'sqlite') {
+            DB::statement('PRAGMA foreign_keys=OFF');
+        }
 
-        Schema::table('zones', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
-            $table->dropColumn('floor_id');
-        });
+        try {
+            Schema::table('doors', function (Blueprint $table) {
+                $table->dropColumn('floor_id');
+            });
+
+            Schema::table('zones', function (Blueprint $table) {
+                $table->dropColumn('floor_id');
+            });
+        } finally {
+            if (DB::getDriverName() === 'sqlite') {
+                DB::statement('PRAGMA foreign_keys=ON');
+            }
+        }
 
         Schema::dropIfExists('floors');
     }

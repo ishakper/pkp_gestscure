@@ -8,7 +8,6 @@ use App\Models\Door;
 use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Support\Facades\Gate;
 use Tests\TestCase;
-use App\Models\User;
 
 class RemoteUnlockReasonValidationTest extends TestCase
 {
@@ -24,7 +23,8 @@ class RemoteUnlockReasonValidationTest extends TestCase
         $this->admin = Admin::factory()->state(['role' => 'super_admin'])->create();
         $this->door = Door::factory()->state([
             'connection_status' => 'online',
-            'health_status' => 'healthy',
+            'health_status' => 'online',
+            'device_ip' => '192.168.1.100',
         ])->create();
 
         // Mock authorization to allow remote unlock
@@ -124,7 +124,7 @@ class RemoteUnlockReasonValidationTest extends TestCase
 
     public function test_unauthorized_unlock_rejected()
     {
-        $user = User::factory()->create();
+        $user = Admin::factory()->create();
         Gate::define('open', fn ($user, $door) => false);
 
         $response = $this->actingAs($user)->postJson(
