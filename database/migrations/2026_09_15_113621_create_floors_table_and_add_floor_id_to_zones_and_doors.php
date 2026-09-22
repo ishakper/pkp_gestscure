@@ -43,25 +43,25 @@ return new class extends Migration
      */
     public function down(): void
     {
-        // SQLite doesn't support dropping individual foreign keys without recreating the table.
-        // For testing with :memory: SQLite DB, we disable constraints temporarily to allow column removal.
-        if (DB::getDriverName() === 'sqlite') {
-            DB::statement('PRAGMA foreign_keys=OFF');
-        }
-
-        try {
+        // SQLite doesn't support dropping individual foreign keys in traditional way.
+        // For PostgreSQL and MySQL, drop the foreign key constraint first.
+        if (DB::getDriverName() !== 'sqlite') {
             Schema::table('doors', function (Blueprint $table) {
-                $table->dropColumn('floor_id');
+                $table->dropForeign(['floor_id']);
             });
 
             Schema::table('zones', function (Blueprint $table) {
-                $table->dropColumn('floor_id');
+                $table->dropForeign(['floor_id']);
             });
-        } finally {
-            if (DB::getDriverName() === 'sqlite') {
-                DB::statement('PRAGMA foreign_keys=ON');
-            }
         }
+
+        Schema::table('doors', function (Blueprint $table) {
+            $table->dropColumn('floor_id');
+        });
+
+        Schema::table('zones', function (Blueprint $table) {
+            $table->dropColumn('floor_id');
+        });
 
         Schema::dropIfExists('floors');
     }
