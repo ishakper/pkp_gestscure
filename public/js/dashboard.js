@@ -43,9 +43,9 @@ let state = {
     },
 };
 
-// ==========================================
+// ------------------
 // Security & Sanitization Utilities (XSS Prevention)
-// ==========================================
+// ------------------
 function escapeHtml(str) {
     if (str === null || str === undefined) return '';
     return String(str)
@@ -56,9 +56,9 @@ function escapeHtml(str) {
         .replace(/'/g, '&#039;');
 }
 
-// ==========================================
+// ------------------
 // Toast Notification Utility
-// ==========================================
+// ------------------
 function showToast(message, type = 'success', duration = 3500) {
     const container = document.getElementById('toastContainer');
     if (!container) return;
@@ -94,9 +94,9 @@ function showToast(message, type = 'success', duration = 3500) {
     }, duration);
 }
 
-// ==========================================
+// ------------------
 // Centralized API Client (Fetch with Auth & Storm Guard)
-// ==========================================
+// ------------------
 let isRedirectingToLogin = false;
 const forbiddenCapabilities = new Set();
 let rateLimitCooldownUntil = 0;
@@ -214,9 +214,9 @@ async function apiFetchForm(endpoint, formData) {
     });
 }
 
-// ==========================================
+// ------------------
 // Centralized Metrics Scheduler (Debounced & Coalesced)
-// ==========================================
+// ------------------
 let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
 
@@ -281,9 +281,9 @@ async function updateMetricCards() {
     }
 }
 
-// ==========================================
+// ------------------
 // Section 1: Doors Monitoring & Control
-// ==========================================
+// ------------------
 async function loadDoors() {
     const grid = document.getElementById('doorsGrid');
     const overviewGrid = document.getElementById('overviewDoorsGrid');
@@ -514,9 +514,9 @@ async function checkAllDoors(btn) {
     }
 }
 
-// ==========================================
+// ------------------
 // Section 2: User & Privilege Management
-// ==========================================
+// ------------------
 async function loadOrganizationLookup() {
     try {
         const res = await apiFetch('/user-management/organization/lookup');
@@ -711,9 +711,9 @@ function renderEmployeePagination() {
     });
 }
 
-// ==========================================
+// ------------------
 // Door Assignment Modal Workflow
-// ==========================================
+// ------------------
 async function openDoorAssignmentModal(empId) {
     const employee = state.employees.find(e => e.id === empId || e.id == empId);
     if (!employee) return;
@@ -857,9 +857,9 @@ async function revokeSingleDoor(empId, doorId) {
     }
 }
 
-// ==========================================
+// ------------------
 // Employee CRUD Modals
-// ==========================================
+// ------------------
 function openAddEmployeeModal() {
     document.getElementById('employeeModalTitle').innerText = 'Tambah Karyawan Baru';
     document.getElementById('empDbId').value = '';
@@ -946,9 +946,9 @@ async function deleteEmployee(id, name) {
     }
 }
 
-// ==========================================
+// ------------------
 // Section 3: Security Access Logs & Filters
-// ==========================================
+// ------------------
 function syncLogFilters(sourceEl) {
     if (!sourceEl) return;
     const val = sourceEl.value;
@@ -1257,9 +1257,9 @@ function resetLogFilters() {
     loadAccessLogs();
 }
 
-// ==========================================
+// ------------------
 // Section 4: ISAPI Hardware Simulator
-// ==========================================
+// ------------------
 function handleSimEventTypeChange(eventType) {
     const userLabel = document.getElementById('simUserLabel');
     const userNik = document.getElementById('simUserNik');
@@ -1412,9 +1412,9 @@ async function runEventSimulation(e) {
     }
 }
 
-// ==========================================
+// ------------------
 // Modal Utilities
-// ==========================================
+// ------------------
 function openModal(id) {
     const el = document.getElementById(id);
     if (el) el.classList.add('active');
@@ -1468,9 +1468,9 @@ function switchTab(tabId, btn) {
     if (tabId === 'systemStatusTab') loadSystemHealth();
 }
 
-// ==========================================
+// ------------------
 // Floating Logo & Sidebar Controller
-// ==========================================
+// ------------------
 function initSidebar() {
     const isMobile = () => window.innerWidth <= 768;
     const backdrop = document.getElementById('sidebarBackdrop');
@@ -1602,9 +1602,9 @@ window.runEventSimulation = runEventSimulation;
 window.loadTasks = loadTasks;
 window.openTaskDetail = openTaskDetail;
 
-// ==========================================
+// ------------------
 // Section 5: Real-Time SSE Stream (Phase 7-13)
-// ==========================================
+// ------------------
 const realtime = {
     source: null,
     reconnectTimer: null,
@@ -1724,9 +1724,9 @@ function stopRealtime() {
     realtime.state = 'OFFLINE';
 }
 
-// ==========================================
+// ------------------
 // Initial Boot
-// ==========================================
+// ------------------
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
     initSidebar();
@@ -1755,9 +1755,9 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('pagehide', stopRealtime);
 });
 
-// ==========================================
+// ------------------
 // Section 7: Recruitment & ATS Controller
-// ==========================================
+// ------------------
 state.ats = {
     activePill: 'pipeline',
     vacancies: [],
@@ -2503,9 +2503,9 @@ async function submitConvertToEmployee(e) {
     }
 }
 
-// ==========================================
+// ------------------
 // Section 8: Internship Management Controller
-// ==========================================
+// ------------------
 state.internship = {
     activePill: 'interns',
     internships: [],
@@ -3257,9 +3257,9 @@ async function submitCompleteInternship(e) {
     }
 }
 
-// ============================================================
+// ------------------
 // SECTION 9: ONBOARDING, CONTRACTS & HR DOCUMENTS CONTROLLER
-// ============================================================
+// ------------------
 
 async function loadOnboardingData() {
     await Promise.all([
@@ -3602,9 +3602,9 @@ async function saveOnboardingCase(e) {
     }
 }
 
-// ==========================================
+// ------------------
 // Contracts Controller
-// ==========================================
+// ------------------
 async function loadOnboardingContracts() {
     const tbody = document.getElementById('contractsTableBody');
     if (!tbody) return;
@@ -3716,9 +3716,9 @@ async function saveContract(e) {
     }
 }
 
-// ==========================================
+// ------------------
 // Documents Controller (Private & Secure)
-// ==========================================
+// ------------------
 async function loadOnboardingDocuments() {
     const tbody = document.getElementById('documentsTableBody');
     if (!tbody) return;
@@ -3905,9 +3905,9 @@ async function downloadSecureDocument(docId, fileName) {
     }
 }
 
-// ==========================================
+// ------------------
 // Expiring Contracts Warning Controller
-// ==========================================
+// ------------------
 async function loadExpiringContracts() {
     const tbody = document.getElementById('expiringContractsTableBody');
     if (!tbody) return;
@@ -3969,9 +3969,9 @@ function debounceDocSearch() {
     state.searchDebounceTimer = setTimeout(loadOnboardingDocuments, 350);
 }
 
-// =============================================================
+// ------------------
 // SPRINT 6: ACCESS PROVISIONING, CREDENTIALS & E-MONEY CONTROLLER
-// =============================================================
+// ------------------
 
 function loadAccessData() {
     loadAccessMetrics();
@@ -4619,9 +4619,9 @@ function debounceEmoneySearch() {
     state.searchDebounceTimer = setTimeout(loadEmoneyCards, 350);
 }
 
-// =============================================================
+// ------------------
 // SPRINT 7: ENTERPRISE ASSET MANAGEMENT CONTROLLER
-// =============================================================
+// ------------------
 
 function loadAssetsData() {
     loadAssetsMetrics();
@@ -5440,9 +5440,9 @@ function debounceAssetSearch() {
     state.searchDebounceTimer = setTimeout(loadAssetsInventory, 350);
 }
 
-// ==========================================
+// ------------------
 // SPRINT 8: WORK CALENDAR & ATTENDANCE CORE
-// ==========================================
+// ------------------
 
 async function loadAttendanceData() {
     loadAttendanceMetrics();
@@ -5625,9 +5625,9 @@ async function submitDoorConfig(event) {
     } catch (error) { showToast(error.message, 'error'); }
 }
 
-// ==========================================
+// ------------------
 // SPRINT 10: FIELD ATTENDANCE + GPS + PHOTO
-// ==========================================
+// ------------------
 
 let currentFieldAssignment = null;
 let currentGpsCoords = null;
@@ -6110,9 +6110,9 @@ async function submitFieldOverride(e) {
     }
 }
 
-// =========================================================================
+// ------------------
 // SPRINT 11: ATTENDANCE REQUESTS (WFH, LEAVE, PERMISSION, SICK)
-// =========================================================================
+// ------------------
 
 let attendanceRequestsCache = [];
 
@@ -6403,9 +6403,9 @@ window.openRejectAttendanceRequestModal = openRejectAttendanceRequestModal;
 window.submitRejectAttendanceRequest = submitRejectAttendanceRequest;
 window.cancelAttendanceRequest = cancelAttendanceRequest;
 
-// =========================================================================
+// ------------------
 // SPRINT 12: ATTENDANCE CORRECTIONS (CLIENT CONTROLLER)
-// =========================================================================
+// ------------------
 async function loadAttendanceCorrectionsData() {
     const tbody = document.getElementById('attendanceCorrectionsTableBody');
     if (!tbody) return;
@@ -6636,9 +6636,9 @@ async function cancelAttendanceCorrection(id) {
     }
 }
 
-// =========================================================================
+// ------------------
 // SPRINT 12: OVERTIME REQUESTS (CLIENT CONTROLLER)
-// =========================================================================
+// ------------------
 async function loadOvertimeRequestsData() {
     const tbody = document.getElementById('overtimeRequestsTableBody');
     if (!tbody) return;
@@ -6895,9 +6895,9 @@ window.openRejectOvertimeModal = openRejectOvertimeModal;
 window.submitRejectOvertime = submitRejectOvertime;
 window.cancelOvertimeRequest = cancelOvertimeRequest;
 
-// ==========================================
+// ------------------
 // Setup Gedung & Facility Hierarchy Manager
-// ==========================================
+// ------------------
 async function loadBuildingHierarchy() {
     const container = document.getElementById('buildingHierarchyContainer');
     if (!container) return;
