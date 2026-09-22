@@ -625,14 +625,15 @@ async function loadOrganizationLookup() {
 
 async function loadEmployees(page = state.employeePage) {
     const tbody = document.getElementById('employeesTableBody');
+    const fullTbody = document.getElementById('fullEmployeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
     state.employeePage = Math.max(1, Number(page) || 1);
 
-    if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan & hak akses...</td></tr>`;
-    }
+    const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
+    if (tbody) tbody.innerHTML = loadingHtml;
+    if (fullTbody) fullTbody.innerHTML = loadingHtml;
 
     try {
         let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
@@ -654,9 +655,9 @@ async function loadEmployees(page = state.employeePage) {
             renderEmployeePagination();
         }
     } catch (err) {
-        if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
-        }
+        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = errorHtml;
+        if (fullTbody) fullTbody.innerHTML = errorHtml;
     }
 }
 
