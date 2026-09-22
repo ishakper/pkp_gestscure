@@ -290,12 +290,22 @@ class AdminDoorController extends Controller
             ], 422);
         }
 
-        if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
+        if (! $door->remoteUnlockAllowed()) {
             return response()->json([
                 'status' => 'error',
                 'code' => 409,
-                'message' => 'Remote unlock diblokir: terminal belum terverifikasi online.',
+                'message' => 'Remote unlock diblokir: terminal belum terverifikasi online atau tidak aktif.',
             ], 409);
+        }
+
+        $idempotencyKey = trim((string) $request->header('X-Idempotency-Key'));
+        if ($idempotencyKey !== '') {
+            $existing = ActivityLog::where('action', 'remote_door_opened')
+                ->where('description', 'like', "%Idempotency-Key: {$idempotencyKey}%")
+                ->latest('id')->first();
+            if ($existing) {
+                return response()->json(['status' => 'success', 'message' => 'Remote unlock request already processed.'], 200);
+            }
         }
 
         $result = $isapiService->remoteControlDoor($door, 'open');
@@ -310,6 +320,7 @@ class AdminDoorController extends Controller
 
         $doorName = $door->door_name ?? $door->name;
         $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard. Alasan: {$reason}";
+        if ($idempotencyKey !== '') $desc .= " Idempotency-Key: {$idempotencyKey}";
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,

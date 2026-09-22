@@ -125,6 +125,12 @@ class Door extends Model
         return $this->attributes['connection_status'] ?? $this->attributes['status'] ?? 'online';
     }
 
+    public function remoteUnlockAllowed(): bool
+    {
+        $health = strtolower((string) ($this->attributes['health_status'] ?? $this->attributes['connection_status'] ?? $this->attributes['status'] ?? 'offline'));
+        return $health === 'online' && ! $this->is_manual_override && filled($this->device_ip ?? $this->ip_address);
+    }
+
     public function setConnectionStatusAttribute($val)
     {
         $this->attributes['connection_status'] = $val;

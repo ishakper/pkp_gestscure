@@ -155,6 +155,15 @@ XML;
     /**
      * Test API endpoint POST /api/v1/admin/doors/{door_id}/open successfully unlocks door and logs activity.
      */
+    public function test_dashboard_uses_delegated_remote_unlock_button_contract(): void
+    {
+        $source = file_get_contents(public_path('js/dashboard.js'));
+        $this->assertStringContainsString('data-action="remote-unlock"', $source);
+        $this->assertStringContainsString('event.target.closest', $source);
+        $this->assertStringContainsString("X-Idempotency-Key", $source);
+        $this->assertStringNotContainsString('onclick="openRemoteUnlockModal', $source);
+    }
+
     public function test_admin_can_remote_unlock_door(): void
     {
         Config::set('services.hikvision.use_mock', true);

@@ -346,6 +346,15 @@ function refreshDoorFilters(doors) {
     });
 }
 
+function remoteUnlockAllowed(door) {
+    return Boolean(door?.remote_unlock_allowed ?? (
+        String(door?.health_status || door?.connection_status || door?.status || '').toLowerCase() === 'online' &&
+        !door?.is_manual_override && Boolean(door?.device_ip || door?.ip_address)
+    ));
+}
+
+const remoteUnlockPending = new Set();
+
 function renderDoorCards(doors) {
     const renderTargets = [document.getElementById('doorsGrid'), document.getElementById('overviewDoorsGrid')].filter(Boolean);
     if (renderTargets.length === 0) return;
@@ -357,13 +366,12 @@ function renderDoorCards(doors) {
 
     const canManageDevices = (window.APP_CONFIG?.permissions || []).includes('device.manage');
     const html = doors.map(door => {
-        const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
-        const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-        const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+        const healthStatus = door.normalized_health_status || String(door.health_status || door.connection_status || door.status || 'offline').toLowerCase();
+        const isOnline = remoteUnlockAllowed(door);
         const unlockDisabled = !isOnline;
         const isMaintenance = Boolean(door.is_manual_override);
-        const badgeClass = isMaintenance ? 'status-warning' : (isPrimaryDeploymentDoor && isOnline ? 'status-online' : 'status-offline');
-        const statusLabel = isMaintenance ? 'MAINTENANCE' : (isPrimaryDeploymentDoor ? (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE')) : 'PLANNED / NOT ACTIVE');
+        const badgeClass = isMaintenance ? 'status-warning' : (isOnline ? 'status-online' : 'status-offline');
+        const statusLabel = isMaintenance ? 'MAINTENANCE' : (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE'));
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.door_name || door.name || 'Tanpa nama');
         const safeLocation = escapeHtml(door.building_name || door.location || '-');
@@ -395,7 +403,7 @@ function renderDoorCards(doors) {
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
+                    ${canManageDevices ? `<button type="button" class="btn-action btn-unlock" data-action="remote-unlock" data-door-id="${safeDoorId}" aria-label="Buka ${safeDoorName} dari jarak jauh" aria-busy="false" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
                     <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
                     <button class="btn-action" onclick="openDoorUsers('${safeDoorId}')">Sync Users</button>
@@ -459,9 +467,7 @@ function onRemoteUnlockDoorChange(doorId) {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
-    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = remoteUnlockAllowed(door);
 
     if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
     if (codeEl) codeEl.textContent = door.door_id;
@@ -481,9 +487,7 @@ function openRemoteUnlockModal(doorId) {
     const select = document.getElementById('remoteUnlockDoorSelect');
     if (select) {
         select.innerHTML = doors.map(d => {
-            const isPrimary = d.door_id === 'DOOR-B';
-            const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
-            const online = isPrimary && health === 'online';
+            const online = remoteUnlockAllowed(d);
             return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
         }).join('');
         if (doorId) select.value = doorId;
@@ -519,11 +523,7 @@ async function confirmRemoteUnlock() {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
-    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
-
-    if (!isOnline) {
+    if (!remoteUnlockAllowed(door)) {
         showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
         return;
     }
@@ -552,6 +552,51 @@ async function confirmRemoteUnlock() {
         button.textContent = 'Konfirmasi & Buka Pintu';
     }
 }
+
+async function executeRemoteUnlock(button) {
+    const doorId = button?.dataset.doorId;
+    const door = (state.doors || []).find(item => String(item.door_id) === String(doorId));
+    if (!door || !remoteUnlockAllowed(door) || remoteUnlockPending.has(doorId)) return;
+
+    remoteUnlockPending.add(doorId);
+    const originalText = button.innerHTML;
+    const requestKey = `remote-unlock-${doorId}-${crypto.randomUUID?.() || Date.now()}`;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = 'Membuka...';
+    try {
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/open`, {
+            method: 'POST',
+            isBackground: false,
+            headers: { 'X-Idempotency-Key': requestKey },
+            body: JSON.stringify({ reason: 'Remote unlock dari dashboard' })
+        });
+        if (res.status !== 'success') throw new Error(res.message || 'Remote unlock gagal.');
+        showToast(`${door.door_name || door.name || doorId} berhasil dibuka`, 'success');
+        await loadDoors();
+    } catch (err) {
+        console.error('[SecureGate] Remote unlock failed:', err);
+        showToast(err.message || 'Remote unlock gagal. Periksa izin dan koneksi terminal.', 'error');
+    } finally {
+        remoteUnlockPending.delete(doorId);
+        button.disabled = !remoteUnlockAllowed(door);
+        button.setAttribute('aria-busy', 'false');
+        button.innerHTML = originalText;
+    }
+}
+
+function registerRemoteUnlockHandler() {
+    if (window.__secureGateRemoteUnlockHandler) return;
+    window.__secureGateRemoteUnlockHandler = true;
+    document.addEventListener('click', event => {
+        const button = event.target.closest('[data-action="remote-unlock"]');
+        if (!button || button.disabled) return;
+        event.preventDefault();
+        executeRemoteUnlock(button);
+    });
+}
+
+registerRemoteUnlockHandler();
 
 async function pingSingleDoor(doorId, btn) {
     const originalText = btn ? btn.innerHTML : '';
