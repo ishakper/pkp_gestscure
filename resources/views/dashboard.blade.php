@@ -173,6 +173,11 @@
             transform: scale(0.88);
         }
 
+        .floating-logo:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 4px;
+        }
+
         /* Sidebar Open State: Logo glides smoothly into the Sidebar header */
         body.sidebar-open .floating-logo,
         html.sidebar-open .floating-logo {
@@ -1348,6 +1353,48 @@
         .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
         .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
+        /* === PAGINATION RESPONSIVE & ACCESSIBILITY === */
+        .pagination-container {
+            display: block;
+            padding: 1rem;
+        }
+
+        .pagination-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            max-width: 100%;
+        }
+
+        .pagination-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 0.5rem 0.75rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .pagination-btn:disabled {
+            pointer-events: none;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 2px;
+        }
+
+        .pagination-status {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            padding: 0.5rem 0.25rem;
+            min-width: 120px;
+            text-align: center;
+        }
+
         /* Responsive Breakpoints (< 768px Mobile & Tablet) */
         @media (max-width: 768px) {
             .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1374,6 +1421,7 @@
                 max-width: 100vw !important;
                 width: 100% !important;
                 padding: 1.25rem 1rem !important;
+                padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)) !important;
             }
 
             body.sidebar-open .main-content,
@@ -1403,6 +1451,39 @@
 
             .table-container {
                 overflow-x: auto;
+            }
+
+            .pagination-wrapper {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .pagination-status {
+                order: -1;
+                width: 100%;
+                margin-bottom: 0.5rem;
+            }
+
+            .pagination-btn {
+                flex: 1;
+                min-width: 120px;
+            }
+        }
+
+        /* Extra small screens (< 400px) */
+        @media (max-width: 400px) {
+            .pagination-wrapper {
+                gap: 0.5rem;
+            }
+
+            .pagination-btn {
+                font-size: 0.85rem;
+                padding: 0.5rem 0.5rem;
+                min-width: 100px;
+            }
+
+            .pagination-status {
+                font-size: 0.75rem;
             }
         }
     </style>

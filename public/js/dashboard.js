@@ -797,12 +797,16 @@ function renderEmployeePagination() {
         }
         const current = Number(pagination.current_page || 1);
         const total = Number(pagination.total_pages || 1);
+        const prevDisabled = current <= 1;
+        const nextDisabled = current >= total;
         container.innerHTML = `
-            <div style="display:flex;justify-content:flex-end;align-items:center;gap:.75rem;padding:1rem;">
-                <button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
-                <span style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
-                <button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
-            </div>`;
+            <nav aria-label="Pengguna pagination" class="pagination-container">
+                <div class="pagination-wrapper">
+                    <button class="btn-secondary pagination-btn" aria-label="Halaman sebelumnya" ${prevDisabled ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
+                    <span class="pagination-status" aria-live="polite" aria-atomic="true">Halaman ${current} dari ${total}</span>
+                    <button class="btn-secondary pagination-btn" aria-label="Halaman berikutnya" ${nextDisabled ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+                </div>
+            </nav>`;
     });
 }
 
@@ -1214,7 +1218,16 @@ function renderTaskPagination(pagination) {
     if (!target || !pagination.total_pages) return;
     const current = Number(pagination.current_page || 1);
     const total = Number(pagination.total_pages || 1);
-    target.innerHTML = `<button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadTasks(${current - 1})">← Sebelumnya</button><span>Halaman ${current} / ${total}</span><button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadTasks(${current + 1})">Berikutnya →</button>`;
+    const prevDisabled = current <= 1;
+    const nextDisabled = current >= total;
+    target.innerHTML = `
+        <nav aria-label="Task pagination" class="pagination-container">
+            <div class="pagination-wrapper">
+                <button class="btn-secondary pagination-btn" aria-label="Halaman sebelumnya" ${prevDisabled ? 'disabled' : ''} onclick="loadTasks(${current - 1})">← Sebelumnya</button>
+                <span class="pagination-status" aria-live="polite" aria-atomic="true">Halaman ${current} dari ${total}</span>
+                <button class="btn-secondary pagination-btn" aria-label="Halaman berikutnya" ${nextDisabled ? 'disabled' : ''} onclick="loadTasks(${current + 1})">Berikutnya →</button>
+            </div>
+        </nav>`;
 }
 
 async function openTaskDetail(taskId) {
