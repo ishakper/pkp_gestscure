@@ -5574,6 +5574,38 @@ function debounceAssetSearch() {
 // SPRINT 8: WORK CALENDAR & ATTENDANCE CORE
 // ==========================================
 
+const ATTENDANCE_TIMEZONE = 'Asia/Jakarta';
+
+// The API serialises Attendance dates/times as ISO-8601 in UTC (e.g. 2026-09-20T17:00:00.000000Z, which is
+// 21 Sep 00:00 WIB). Reading the string directly shows UTC (7 hours behind WIB), so convert explicitly.
+// Values without a timezone marker ("2026-09-21 09:55:00" / "2026-09-21") are already local and are used as-is.
+function hasTimezoneMarker(value) {
+    return /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(value));
+}
+
+function formatAttendanceTime(value) {
+    if (!value) return '-';
+    const text = String(value);
+    if (!hasTimezoneMarker(text)) return /\d{2}:\d{2}/.test(text) ? text.substring(11, 16) : '-';
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return '-';
+    return new Intl.DateTimeFormat('en-GB', { timeZone: ATTENDANCE_TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+}
+
+function formatAttendanceDate(value) {
+    if (!value) return '-';
+    const text = String(value);
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    if (!hasTimezoneMarker(text)) {
+        const [year, month, day] = text.substring(0, 10).split('-').map(Number);
+        if (!year || !month || !day) return text;
+        return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+    }
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+    return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
+}
+
 async function loadAttendanceData() {
     loadAttendanceMetrics();
     loadAttendanceReport();
@@ -5615,11 +5647,11 @@ async function loadAttendanceData() {
 
             return `
                 <tr>
-                    <td>${escapeHtml(r.attendance_date)}</td>
+                    <td>${escapeHtml(formatAttendanceDate(r.attendance_date))}</td>
                     <td><strong>${escapeHtml(empName)}</strong></td>
                     <td>${escapeHtml(calName)}</td>
-                    <td>${r.clock_in_at ? r.clock_in_at.substring(11, 16) : '-'}</td>
-                    <td>${r.clock_out_at ? r.clock_out_at.substring(11, 16) : '-'}</td>
+                    <td>${escapeHtml(formatAttendanceTime(r.clock_in_at))}</td>
+                    <td>${escapeHtml(formatAttendanceTime(r.clock_out_at))}</td>
                     <td>${escapeHtml(doorName)}</td>
                     <td>${escapeHtml(credential)}</td>
                     <td><span class="status-badge ${sourceLog ? 'status-active' : 'status-info'}">${escapeHtml(processingState)}</span></td>
@@ -5995,8 +6027,8 @@ async function loadFieldAttendanceData() {
         if (todayCard) {
             if (todayAttendanceData && (todayAttendanceData.clock_in_at || todayAttendanceData.clock_out_at)) {
                 todayCard.style.display = 'block';
-                const inTime = todayAttendanceData.clock_in_at ? todayAttendanceData.clock_in_at.substring(11, 16) : '-';
-                const outTime = todayAttendanceData.clock_out_at ? todayAttendanceData.clock_out_at.substring(11, 16) : 'Belum Check-Out';
+                const inTime = formatAttendanceTime(todayAttendanceData.clock_in_at) || '-';
+                const outTime = formatAttendanceTime(todayAttendanceData.clock_out_at) || 'Belum Check-Out';
                 const duration = todayAttendanceData.effective_work_minutes ? `${Math.floor(todayAttendanceData.effective_work_minutes / 60)}j ${todayAttendanceData.effective_work_minutes % 60}m` : '-';
 
                 let badge = '<span class="status-badge status-active">HADIR</span>';
@@ -6042,7 +6074,7 @@ async function loadFieldAttendanceData() {
                 const empName = ev.employee ? ev.employee.name : '-';
                 const locName = ev.field_location ? ev.field_location.name : '-';
                 const dateStr = ev.attendance_date ? ev.attendance_date.substring(0, 10) : '';
-                const timeStr = ev.captured_at ? ev.captured_at.substring(11, 16) : '';
+                const timeStr = formatAttendanceTime(ev.captured_at) || '';
 
                 let typeBadge = ev.type === 'CHECK_IN'
                     ? '<span class="status-badge" style="background:rgba(16,185,129,0.15);color:#10b981;">CHECK-IN</span>'
@@ -6751,14 +6783,14 @@ async function loadAttendanceCorrectionsData() {
             const corrDate = item.correction_date ? item.correction_date.substring(0, 10) : '-';
 
             // Original snapshot
-            const origIn = item.original_check_in ? item.original_check_in.substring(11, 16) : '-';
-            const origOut = item.original_check_out ? item.original_check_out.substring(11, 16) : '-';
+            const origIn = formatAttendanceTime(item.original_check_in) || '-';
+            const origOut = formatAttendanceTime(item.original_check_out) || '-';
             const origStat = item.original_status || '-';
             const origSummary = `<span style="font-size: 0.75rem; color: var(--text-muted);">${origIn} - ${origOut} [${origStat}]</span>`;
 
             // Requested snapshot
-            const reqIn = item.requested_check_in ? item.requested_check_in.substring(11, 16) : origIn;
-            const reqOut = item.requested_check_out ? item.requested_check_out.substring(11, 16) : origOut;
+            const reqIn = formatAttendanceTime(item.requested_check_in) || origIn;
+            const reqOut = formatAttendanceTime(item.requested_check_out) || origOut;
             const reqStat = item.requested_status || (item.status === 'APPROVED' ? item.corrected_status : '-');
             const reqSummary = `<span style="font-size: 0.8rem; font-weight: 600; color: #fff;">${reqIn} - ${reqOut}</span>` + (reqStat !== '-' ? ` <span class="badge" style="font-size: 0.65rem; background: var(--border-color);">${reqStat}</span>` : '');
 
