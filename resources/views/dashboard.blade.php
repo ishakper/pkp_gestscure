@@ -1775,7 +1775,7 @@
                     </div>
                 </div>
                 <div class="toolbar-right">
-                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText">Total: - Karyawan</span>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText" aria-live="polite">Menampilkan - pengguna</span>
                 </div>
             </div>
             <table>
@@ -1823,6 +1823,7 @@
             <div>
                 <h2 class="section-title">👥 Manajemen Pengguna</h2>
                 <p class="section-desc">Daftar lengkap pengguna terdaftar, status biometrik, dan distribusi izin pintu</p>
+                <span style="display: block; margin-top: 0.75rem; font-size: 0.95rem; font-weight: 500;" id="employeeTotalSummary" aria-live="polite">Total Pengguna: <strong>—</strong></span>
             </div>
             <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
         </div>

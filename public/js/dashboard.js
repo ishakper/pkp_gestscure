@@ -644,11 +644,31 @@ async function loadEmployees(page = state.employeePage) {
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
-            state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
+            state.metrics.totalUsers = res.pagination?.total_all ?? res.pagination?.total_records ?? state.employees.length;
             scheduleMetricCardsUpdate();
 
             if (countBadge) {
-                countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
+                const total = res.pagination?.total_all ?? '-';
+                const formattedTotal = typeof total === 'number' ? new Intl.NumberFormat('id-ID').format(total) : total;
+                const from = res.pagination?.from ?? 0;
+                const to = res.pagination?.to ?? 0;
+                const filtered = res.pagination?.total_records ?? 0;
+                
+                if (filtered === 0) {
+                    countBadge.innerText = `Menampilkan 0 pengguna`;
+                } else if (searchVal || doorFilter) {
+                    countBadge.innerText = `Menampilkan ${from}–${to} dari ${new Intl.NumberFormat('id-ID').format(filtered)} hasil — ${formattedTotal} total pengguna`;
+                } else {
+                    countBadge.innerText = `Menampilkan ${from}–${to} dari ${formattedTotal} pengguna`;
+                }
+            }
+            
+            // Update total summary in section header
+            const totalSummary = document.getElementById('employeeTotalSummary');
+            if (totalSummary && res.pagination?.total_all !== undefined) {
+                const total = res.pagination.total_all;
+                const formatted = new Intl.NumberFormat('id-ID').format(total);
+                totalSummary.innerHTML = `Total Pengguna: <strong>${formatted}</strong>`;
             }
 
             renderEmployeesTable(state.employees);
