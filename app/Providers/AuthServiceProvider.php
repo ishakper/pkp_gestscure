@@ -16,6 +16,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\AttendanceRequest::class => \App\Policies\AttendanceRequestPolicy::class,
         \App\Models\AttendanceCorrectionRequest::class => \App\Policies\AttendanceCorrectionRequestPolicy::class,
         \App\Models\OvertimeRequest::class => \App\Policies\OvertimeRequestPolicy::class,
+        \App\Models\Door::class => \App\Policies\DoorPolicy::class,
     ];
 
     /**
@@ -23,10 +24,6 @@ class AuthServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Define the 'open' gate for Door: only super_admin can remotely unlock doors
-        \Illuminate\Support\Facades\Gate::define('open', function ($user, $door) {
-            // Only super_admin role is permitted to remote unlock doors
-            return $user && $user->role === 'super_admin';
-        });
+        //
     }
 }
