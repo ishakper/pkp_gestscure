@@ -43,12 +43,18 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('doors', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
+            // SQLite doesn't support dropping foreign keys directly
+            if (\DB::getDriverName() !== 'sqlite') {
+                $table->dropForeign(['floor_id']);
+            }
             $table->dropColumn('floor_id');
         });
 
         Schema::table('zones', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
+            // SQLite doesn't support dropping foreign keys directly
+            if (\DB::getDriverName() !== 'sqlite') {
+                $table->dropForeign(['floor_id']);
+            }
             $table->dropColumn('floor_id');
         });
 
