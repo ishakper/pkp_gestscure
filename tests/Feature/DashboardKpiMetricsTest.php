@@ -11,7 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 /**
  * REGRESSION TEST: KPI Query Operator Precedence and Field Mapping
- * 
+ *
  * Verifies that:
  * 1. Terdaftar (registered) = employees found in backup source (source_person_number NOT NULL)
  * 2. Kartu Terkonfirmasi = credential_method='card' AND status='confirmed_from_backup' AND fingerprint_verified=false
@@ -28,7 +28,7 @@ class DashboardKpiMetricsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         // Create test admin with global access
         $this->admin = Admin::factory()->create([
             'email' => 'test@example.com',

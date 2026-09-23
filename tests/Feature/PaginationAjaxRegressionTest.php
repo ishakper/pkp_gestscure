@@ -9,7 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 /**
  * PAGINATION TEST: AJAX Page Navigation, Scroll Position, Stale Response Prevention
- * 
+ *
  * Verifies:
  * 1. Page 1 → Page 2 navigation
  * 2. Page 2 → Page 1 backward navigation
@@ -26,7 +26,7 @@ class PaginationAjaxRegressionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        
+
         $this->admin = Admin::factory()->create([
             'email' => 'test@example.com',
             'name' => 'Test Admin',
@@ -157,7 +157,7 @@ class PaginationAjaxRegressionTest extends TestCase
         // Verify pagination metadata for disabled button states
         $this->assertEquals(1, $pagination['current_page']);
         $this->assertEquals(1, $pagination['total_pages']);
-        
+
         // Client should disable "Previous" button (page=1 and total_pages=1)
         $this->assertTrue($pagination['current_page'] == 1);
     }
@@ -195,7 +195,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         $response->assertStatus(200);
         $perPage = $response->json('pagination.per_page');
-        
+
         // Should be capped at 100 per code: min(max(...),100)
         $this->assertLessThanOrEqual(100, $perPage);
     }
