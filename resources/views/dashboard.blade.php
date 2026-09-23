@@ -3312,7 +3312,7 @@
                 <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
                     <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
                     <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
-                    <button class="btn-secondary" onclick="exportAttendanceReport()">⬇ Export CSV</button>
+                    <button class="btn-secondary" onclick="exportAttendanceReport(this)">⬇ Export CSV</button>
                     <button class="btn-secondary" onclick="printAttendanceReport()">🖨️ Cetak PDF</button>
                 </div>
             </div>

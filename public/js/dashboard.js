@@ -5851,8 +5851,10 @@ async function loadAttendanceReport() {
     const query = new URLSearchParams({ month: month.value });
     if (building.value) query.set('building_id', building.value);
     const buildingLabel = attendanceReportBuildingLabel();
+    if (seq !== attendanceReportSeq) return;
     try {
         const res = await apiFetch(`/attendance/reports/monthly?${query}`);
+        if (seq !== attendanceReportSeq) return;
         if (seq !== attendanceReportSeq) return;
         attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows, buildingLabel };
         attendanceReportState.buildingLabel = buildingLabel;
@@ -5864,11 +5866,10 @@ async function loadAttendanceReport() {
     }
 }
 
-async function exportAttendanceReport() {
+async function exportAttendanceReport(btn) {
     const query = new URLSearchParams({ month: document.getElementById('attendanceReportMonth').value });
     const building = document.getElementById('attendanceReportBuilding').value;
     if (building) query.set('building_id', building);
-    const btn = event?.target;
     if (btn) { btn.disabled = true; btn.innerHTML = '⬇ Mempersiapkan export...'; }
     try {
         const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, { headers: { Accept: 'text/csv', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) } });
@@ -5884,10 +5885,7 @@ async function exportAttendanceReport() {
         if (!blob.type.includes('csv') && !blob.type.includes('plain')) {
             return showToast('Blob type bukan CSV, pembatalan download.', 'error');
         }
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url; link.download = `attendance-report-${query.get('month')}.csv`; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 100);
+        downloadBlobAsFile(blob, `attendance-report-${query.get('month')}.csv`);
         showToast('Laporan kehadiran berhasil diunduh.', 'success');
     } catch (error) {
         showToast(`Export error: ${escapeHtml(error.message)}`, 'error');
@@ -5902,10 +5900,10 @@ function printAttendanceReport() {
         showToast('Tidak ada data untuk dicetak.', 'warning');
         return;
     }
-    const { month, totals, rows, buildingLabel } = state.data;
+    const { month, totals, rows, buildingLabel: scope } = state.data;
     const printWindow = window.open('', '_blank');
     const monthLabel = new Date(`${month}-01`).toLocaleDateString('id-ID', { year: 'numeric', month: 'long' });
-    const buildingName = buildingLabel ? ` — ${escapeHtml(buildingLabel)}` : '';
+    const buildingName = scope ? ` — ${escapeHtml(scope)}` : '';
     const rowsHtml = rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.employee_code)}</td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('');
     printWindow.document.write(`
         <!DOCTYPE html>
@@ -5957,6 +5955,17 @@ function printAttendanceReport() {
         </html>
     `);
     printWindow.document.close();
+}
+
+function downloadBlobAsFile(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
 }
 
 async function openFacilityModal(doorId = null) {
