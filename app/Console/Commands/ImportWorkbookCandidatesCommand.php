@@ -115,41 +115,26 @@ class ImportWorkbookCandidatesCommand extends Command
                 foreach ($candidates as $c) {
                     $pNo = (string) $c['person_no'];
                     $displayName = $c['name'];
-                    $hasCard = (bool) $c['has_card'];
-                    $cardType = $c['card_type'];
 
-                    $emp = $existingEmployees->get($pNo) ?: Employee::create([
-                        'employee_id' => $pNo,
-                        'hikvision_employee_no' => $pNo,
-                        'name' => $displayName !== '' ? $displayName : "Physical User {$pNo}",
-                        'nik' => 'UNVERIFIED-NIK-' . $pNo,
-                        'department' => 'UNASSIGNED',
-                        'role' => 'staff',
-                        'role_jabatan' => 'Staff',
-                        'employment_status' => 'ACTIVE',
-                    ]);
-
-                    // Classify and apply credential status based on Hikvision backup data
-                    $credMethod = 'unknown';
-                    $credStatus = 'unknown';
-                    
-                    // Nameless override: If display_name is empty or '-', mark for review
-                    if ($displayName === '' || $displayName === '-') {
-                        $credMethod = 'review';
-                        $credStatus = 'needs_verification';
-                    } elseif ($hasCard) {
-                        $credMethod = 'card';
-                        $credStatus = 'confirmed_from_backup';
+                    $emp = $existingEmployees->get($pNo);
+                    if (!$emp) {
+                        Employee::create([
+                            'employee_id' => $pNo,
+                            'hikvision_employee_no' => $pNo,
+                            'name' => $displayName !== '' ? $displayName : "Physical User {$pNo}",
+                            // Schema requires NOT NULL UNIQUE NIK: generate explicit technical placeholder
+                            // prefixed with UNVERIFIED-NIK- to avoid fabricating a real business identity.
+                            'nik' => 'UNVERIFIED-NIK-' . $pNo,
+                            // Schema requires NOT NULL department: store explicit unassigned flag
+                            'department' => 'UNASSIGNED',
+                            'role' => 'staff',
+                            'role_jabatan' => 'Staff',
+                            'employment_status' => 'ACTIVE',
+                        ]);
                     }
-
-                    $emp->update([
-                        'credential_method' => $credMethod,
-                        'credential_status' => $credStatus,
-                        'card_registered' => $hasCard,
-                        'card_type' => $hasCard ? $cardType : null,
-                        'source_person_number' => $pNo,
-                        'last_reconciled_at' => now(),
-                    ]);
+                    // NOTE: CredentialRecord is NOT synthesized here because the backup workbook
+                    // contains NO actual or masked card identifier (Column D is 'Not exposed').
+                    // Physical card registration must be verified against live device or physical badge.
                 }
             });
         } catch (\Throwable $e) {

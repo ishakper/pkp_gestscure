@@ -26,7 +26,6 @@ return new class extends Migration
                 'expected_from_backup',
                 'verified',
                 'conflict',
-                'needs_verification',
                 'unknown'
             ])->default('unknown')->nullable()->after('credential_method');
 
