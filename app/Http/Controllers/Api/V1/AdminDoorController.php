@@ -71,15 +71,48 @@ class AdminDoorController extends Controller
                 ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhereHas('doors', fn ($doors) => $doors->where('location', $admin->assigned_building))));
         }
         $totalUsers = (clone $employees)->count();
-        $activeEmployees = (clone $employees)->where('employment_status', 'ACTIVE')->count();
-        if ($activeEmployees === 0 && $totalUsers > 0) {
-            $activeEmployees = $totalUsers;
-        }
+        $activeEmployeesQuery = (clone $employees)->where(function ($query) {
+            $query->where('employment_status', 'ACTIVE')
+                ->orWhereNull('employment_status')
+                ->orWhere('employment_status', '');
+        });
+        $activeEmployees = (clone $activeEmployeesQuery)->count();
 
-        $registeredCredentials = (clone $employees)->where(function ($query) {
-            $query->where(fn ($q) => $q->whereNotNull('card_no')->where('card_no', '!=', ''))
-                ->orWhereHas('biometricStatus', fn ($q) => $q->where('has_fingerprint', true)->orWhere('card_enrolled', true));
-        })->count();
+        // Registered (Terdaftar) = all active employees found in Hikvision backup source,
+        // regardless of classification status. This counts presence in source inventory.
+        $registeredCredentials = (clone $activeEmployeesQuery)
+            ->whereNotNull('source_person_number')
+            ->where('source_person_number', '!=', '')
+            ->count();
+
+        $fingerprintVerified = (clone $activeEmployeesQuery)
+            ->where(fn ($query) => $query
+                ->where('fingerprint_verified', true)
+                ->orWhere('credential_status', 'verified'))
+            ->count();
+        $cardConfirmed = (clone $activeEmployeesQuery)
+            ->where('credential_method', 'card')
+            ->where('credential_status', 'confirmed_from_backup')
+            ->where('fingerprint_verified', false)
+            ->count();
+        $fingerprintExpected = (clone $activeEmployeesQuery)
+            ->where('credential_method', 'fingerprint')
+            ->where('credential_status', 'expected_from_backup')
+            ->where('fingerprint_verified', false)
+            ->count();
+        $reviewCredentials = (clone $activeEmployeesQuery)
+            ->where(fn ($query) => $query
+                ->where('credential_method', 'review')
+                ->orWhere('credential_status', 'conflict'))
+            ->count();
+        $unknownCredentials = max(
+            0,
+            $activeEmployees
+                - $cardConfirmed
+                - $fingerprintExpected
+                - $fingerprintVerified
+                - $reviewCredentials
+        );
 
         return response()->json([
             'status' => 'success',
@@ -87,6 +120,13 @@ class AdminDoorController extends Controller
                 'totalUsers' => $totalUsers,
                 'activeEmployees' => $activeEmployees,
                 'registeredCredentials' => $registeredCredentials,
+                'credentialSummary' => [
+                    'card' => $cardConfirmed,
+                    'fingerprint_expected' => $fingerprintExpected,
+                    'fingerprint_verified' => $fingerprintVerified,
+                    'review' => $reviewCredentials,
+                    'unknown' => $unknownCredentials,
+                ],
                 'activeDoors' => $scopedDoors->where('connection_status', 'online')->count(),
                 'totalDoors' => $scopedDoors->count(),
                 'grantedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Granted')->count(),
