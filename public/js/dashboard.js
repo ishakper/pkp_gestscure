@@ -258,54 +258,79 @@ function scheduleMetricCardsUpdate(force = false) {
     }
 }
 
+let renderedMetricsScope = null; // which scope the numbers on screen belong to
+
+function setMetric(id, value, hint) {
+    const element = document.getElementById(id);
+    if (!element) return;
+    const missing = value === null || value === undefined;
+    element.innerText = missing ? '—' : value;
+    element.title = missing ? hint : '';
+}
+
 async function updateMetricCards() {
     if (document.hidden || isRedirectingToLogin) return;
     lastMetricsFetchTime = Date.now();
+    const scope = state.buildingFilter;
+    const seq = ++metricsRequestSeq;
+    const grid = document.querySelector('.metrics-grid');
+    if (grid) grid.dataset.state = 'loading';
+    scopeFlags.loading++;
+    renderScopeStatus();
 
     try {
         const canViewAttendance = hasCapability('attendance.view');
-        const scope = state.buildingFilter;
-        const metricsRequest = scope
-            ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
-            : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
-        const [res, attendance] = await Promise.all([
-            metricsRequest,
-            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
+        const [metrics, attendance] = await Promise.all([
+            fetchScoped('/admin/dashboard-metrics', 'metrics', scope).catch(error => ({ error })),
+            canViewAttendance ? fetchScoped('/attendance/metrics', 'attendance', scope).catch(error => ({ error })) : Promise.resolve(null),
         ]);
-        if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
+        if (seq !== metricsRequestSeq) return; // a newer update owns the cards
 
-        if (res && res.status === 'success') {
-            const data = res.data;
-            const activeUserMetric = document.getElementById('metricActiveEmployees');
-            if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
-            const userMetric = document.getElementById('metricTotalUsers');
-            if (userMetric) userMetric.innerText = data.totalUsers ?? 0;
-
-            const regCredMetric = document.getElementById('metricRegisteredCredentials');
-            if (regCredMetric) regCredMetric.innerText = data.registeredCredentials ?? 0;
-
-            const doorMetric = document.getElementById('metricActiveDoors');
-            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
-
-            const deniedMetric = document.getElementById('metricDeniedLogs');
-            if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
+        let data = metrics.res?.status === 'success' ? metrics.res.data : null;
+        let failure = metrics.error || null;
+        if (!data && metrics.legacy) {
+            try { data = await legacyBuildingMetrics(scope); } catch (error) { failure = error; }
+            if (seq !== metricsRequestSeq) return;
         }
 
-        if (attendance && attendance.success) {
-            const today = attendance.data?.today || {};
+        if (data) {
+            const missingHint = 'Belum tersedia untuk gedung ini (menunggu API)';
+            const active = data.activeEmployees !== undefined ? data.activeEmployees : (data.totalUsers ?? 0);
+            setMetric('metricActiveEmployees', active, 'Status kepegawaian belum terisi untuk gedung ini');
+            setMetric('metricTotalUsers', data.totalUsers ?? 0, missingHint);
+            setMetric('metricRegisteredCredentials', data.registeredCredentials === undefined ? 0 : data.registeredCredentials, missingHint);
+            const doorMetric = document.getElementById('metricActiveDoors');
+            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
+            setMetric('metricDeniedLogs', data.deniedLogs ?? 0, missingHint);
+            renderedMetricsScope = scope;
+            if (grid) grid.dataset.state = 'ready';
+        } else {
+            if (renderedMetricsScope !== scope) {
+                // The numbers on screen belong to another building: blank them rather than mislabel them.
+                ['metricActiveEmployees', 'metricRegisteredCredentials', 'metricDeniedLogs'].forEach(id => setMetric(id, null, 'Gagal memuat'));
+                const doorMetric = document.getElementById('metricActiveDoors');
+                if (doorMetric) doorMetric.innerText = '—';
+            }
+            if (grid) grid.dataset.state = 'error';
+            if (failure) reportScopeError('angka KPI', failure);
+        }
+
+        if (attendance?.res?.success) {
+            const today = attendance.res.data?.today || {};
             const values = {
                 metricAttendancePresent: Number(today.present || 0) + Number(today.late || 0),
                 metricAttendanceLate: Number(today.late || 0),
                 metricAttendanceAbsent: Number(today.absent || 0),
                 metricAttendanceCheckout: Number(today.checkout || 0),
             };
-            Object.entries(values).forEach(([id, value]) => {
-                const element = document.getElementById(id);
-                if (element) element.innerText = value;
-            });
+            Object.entries(values).forEach(([id, value]) => setMetric(id, value, ''));
+        } else if (attendance?.legacy) {
+            ['metricAttendancePresent', 'metricAttendanceLate', 'metricAttendanceAbsent', 'metricAttendanceCheckout']
+                .forEach(id => setMetric(id, null, 'Belum tersedia per gedung (menunggu API)'));
         }
-    } catch (_) {
-        // Silently caught; metrics updates must never break UI flow
+    } finally {
+        scopeFlags.loading--;
+        renderScopeStatus();
     }
 }
 
@@ -316,13 +341,13 @@ async function loadDoors() {
     const grid = document.getElementById('doorsGrid');
     const overviewGrid = document.getElementById('overviewDoorsGrid');
     if (!grid && !overviewGrid) return;
-
-    [grid, overviewGrid].filter(Boolean).forEach(target => {
-        target.innerHTML = '<div class="loading-td"><div class="spinner"></div> CHECKING terminal Gedung B...</div>';
-    });
+    const targets = [grid, overviewGrid].filter(Boolean);
+    const seq = ++doorsRequestSeq;
+    targets.forEach(target => beginLoad(target, '<div class="loading-td"><div class="spinner"></div> Memuat terminal pintu...</div>'));
 
     try {
         const res = await apiFetch('/admin/doors');
+        if (seq !== doorsRequestSeq) return; // a newer request owns the grids
         if (res.status === 'success') {
             state.allDoors = res.data;
             state.doors = doorsInBuildingScope(state.allDoors);
@@ -331,20 +356,39 @@ async function loadDoors() {
             scheduleMetricCardsUpdate();
         }
     } catch (err) {
-        if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
-        if (overviewGrid) overviewGrid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
+        if (seq !== doorsRequestSeq) return;
+        reportScopeError('status pintu', err);
+        targets.forEach(target => {
+            if (target.dataset.loaded !== '1') target.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${escapeHtml(err.message)}</div>`;
+        });
+    } finally {
+        if (seq === doorsRequestSeq) targets.forEach(endLoad);
     }
 }
 
 // ==========================================
 // Dashboard building scope (Semua Gedung / Gedung A / B / C / D)
 // One selector in the top bar scopes the KPI cards, door cards, access log and user list.
-// Frontend only: it reuses filters the API already has (building_id on employees, door_id on
-// access logs, building_id on doors) because /admin/dashboard-metrics has no building parameter.
+//
+// API contract: GET /admin/dashboard-metrics, GET /attendance/metrics and GET /admin/access-logs accept
+// ?building_id= and echo it back as `scope.building_id`. The echo is how the frontend knows the backend
+// really filtered. Without it the endpoint is treated as legacy: the dashboard then shows only values it
+// can obtain exactly from filters that already exist, and "—" for the rest. It never invents a number.
 // ==========================================
 const BUILDING_FILTER_KEY = 'pkp_dashboard_building';
+const scopeSupport = { metrics: null, attendance: null, logs: null }; // null = not probed, true = honoured, false = legacy
+const scopeFlags = { loading: 0, error: '', offline: false, legacy: new Set() };
+let metricsRequestSeq = 0;
+let doorsRequestSeq = 0;
+let employeesRequestSeq = 0;
+
+function isBuildingAdmin() {
+    return window.APP_CONFIG?.admin?.role === 'building_admin';
+}
 
 function restoreBuildingFilter() {
+    // The backend already limits a building admin to their own building: never send or remember a filter.
+    if (isBuildingAdmin()) { state.buildingFilter = ''; return; }
     try { state.buildingFilter = localStorage.getItem(BUILDING_FILTER_KEY) || ''; } catch (_) { state.buildingFilter = ''; }
 }
 
@@ -353,45 +397,170 @@ function doorsInBuildingScope(doors) {
     return (doors || []).filter(door => String(door.building_id) === String(state.buildingFilter));
 }
 
+function selectedBuildingName() {
+    const select = document.getElementById('dashboardBuildingFilter');
+    if (!state.buildingFilter || !select) return '';
+    return (select.options[select.selectedIndex]?.text || '').replace(/^🏢\s*/, '') || 'gedung terpilih';
+}
+
+function scopeHonoured(res, scope) {
+    const echoed = res?.scope?.building_id ?? res?.data?.scope?.building_id;
+    return echoed !== undefined && echoed !== null && String(echoed) === String(scope);
+}
+
+function scopedPath(path, scope) {
+    return `${path}${path.includes('?') ? '&' : '?'}building_id=${encodeURIComponent(scope)}`;
+}
+
+// Requests `path` for one building. Resolves { res } when the backend honoured building_id and
+// { legacy: true } when it ignored it, so callers fall back to exact data or an explicit "—".
+async function fetchScoped(path, key, scope) {
+    if (!scope) return { res: await apiFetch(path, { isBackground: true }) };
+    if (scopeSupport[key] !== false) {
+        const res = await apiFetch(scopedPath(path, scope), { isBackground: true });
+        if (scopeHonoured(res, scope)) {
+            scopeSupport[key] = true;
+            scopeFlags.legacy.delete(key);
+            return { res };
+        }
+        scopeSupport[key] = false; // building_id was ignored: remember it and stop sending it
+    }
+    scopeFlags.legacy.add(key);
+    return { legacy: true };
+}
+
+// ---- status line (loading / legacy / offline / error) -------------------------------------------
+function renderScopeStatus() {
+    const el = document.getElementById('dashboardScopeStatus');
+    if (!el) return;
+    const name = selectedBuildingName();
+    let kind = 'idle';
+    let text = '';
+    if (scopeFlags.offline) {
+        kind = 'offline';
+        text = 'Offline: menampilkan data terakhir yang berhasil dimuat.';
+    } else if (scopeFlags.error) {
+        kind = 'error';
+        text = scopeFlags.error;
+    } else if (scopeFlags.loading > 0) {
+        kind = 'loading';
+        text = name ? `Memuat data ${name}…` : 'Memuat data…';
+    } else if (state.buildingFilter && scopeFlags.legacy.size > 0) {
+        kind = 'legacy';
+        text = `Menampilkan ${name}. Mode sementara (API lama): angka yang belum bisa dipastikan per gedung ditampilkan "—".`;
+    } else if (state.buildingFilter) {
+        kind = 'ready';
+        text = `Menampilkan data ${name}`;
+    }
+    el.dataset.state = kind;
+    el.hidden = kind === 'idle';
+    el.innerHTML = kind === 'idle' ? '' : `<span class="scope-dot" aria-hidden="true"></span><span>${escapeHtml(text)}</span>`
+        + (kind === 'error' ? '<button type="button" class="scope-retry" onclick="refreshDashboardScope()">Coba lagi</button>' : '');
+}
+
+function reportScopeError(what, err) {
+    if (err?.suppressed) return; // a permission the admin does not have is not an outage
+    if (navigator.onLine === false) { scopeFlags.offline = true; } else { scopeFlags.error = `Gagal memuat ${what}: ${err?.message || 'kesalahan tidak diketahui'}`; }
+    renderScopeStatus();
+}
+
+function initScopeConnectivity() {
+    scopeFlags.offline = navigator.onLine === false;
+    window.addEventListener('offline', () => { scopeFlags.offline = true; renderScopeStatus(); });
+    window.addEventListener('online', () => {
+        scopeFlags.offline = false;
+        scopeFlags.error = '';
+        renderScopeStatus();
+        refreshDashboardScope();
+    });
+    renderScopeStatus();
+}
+
+// ---- keep the old content on screen while a refresh is running (no layout collapse, no jump to top) ----
+function beginLoad(el, spinnerHtml) {
+    if (!el) return;
+    if (el.dataset.loaded === '1') {
+        el.classList.add('is-busy');
+        el.setAttribute('aria-busy', 'true');
+        return;
+    }
+    el.innerHTML = spinnerHtml;
+}
+
+function endLoad(el) {
+    if (!el) return;
+    el.classList.remove('is-busy');
+    el.removeAttribute('aria-busy');
+}
+
+function markLoaded(targets) {
+    targets.forEach(el => { if (el) el.dataset.loaded = '1'; });
+}
+
+// ---- selector ----------------------------------------------------------------------------------
+function lockBuildingSelect(select, name, reason) {
+    select.innerHTML = `<option value="">🏢 ${escapeHtml(name || 'Gedung Anda')}</option>`;
+    select.disabled = true;
+    select.title = reason;
+}
+
 async function loadDashboardBuildings() {
     const select = document.getElementById('dashboardBuildingFilter');
     if (!select) return;
+    if (isBuildingAdmin()) {
+        lockBuildingSelect(select, window.APP_CONFIG?.admin?.assigned_building, 'Akses Anda dibatasi ke gedung ini.');
+        return;
+    }
     try {
         const res = await apiFetch('/user-management/organization/lookup');
         const buildings = res.data?.buildings || [];
         if (buildings.length <= 1) {
-            // A building admin: the backend already limits every endpoint to their building.
-            select.innerHTML = `<option value="">🏢 ${escapeHtml(buildings[0]?.name || 'Gedung Anda')}</option>`;
-            select.disabled = true;
-            select.title = 'Akses Anda dibatasi ke satu gedung.';
+            lockBuildingSelect(select, buildings[0]?.name, 'Akses Anda dibatasi ke satu gedung.');
             if (state.buildingFilter) { state.buildingFilter = ''; refreshDashboardScope(); }
             return;
         }
         select.innerHTML = '<option value="">🏢 Semua Gedung</option>'
             + buildings.map(building => `<option value="${building.id}">${escapeHtml(building.name)}</option>`).join('');
+        select.disabled = false;
         if (state.buildingFilter && !buildings.some(building => String(building.id) === String(state.buildingFilter))) {
             state.buildingFilter = ''; // the saved building no longer exists
             refreshDashboardScope();
         }
         select.value = state.buildingFilter;
-    } catch (_) {
-        select.disabled = true; // lookup unavailable: keep "Semua Gedung" behaviour
+        renderScopeStatus();
+    } catch (err) {
+        lockBuildingSelect(select, 'Semua Gedung', 'Daftar gedung tidak dapat dimuat.');
+        reportScopeError('daftar gedung', err);
     }
 }
 
 function onDashboardBuildingChange(value) {
+    if (isBuildingAdmin()) return;
     state.buildingFilter = value || '';
     try { localStorage.setItem(BUILDING_FILTER_KEY, state.buildingFilter); } catch (_) { /* storage unavailable: selection just isn't remembered */ }
     refreshDashboardScope();
 }
 
 function refreshDashboardScope() {
-    state.doors = doorsInBuildingScope(state.allDoors);
-    renderDoorCards(state.doors);
-    refreshDoorFilters(state.doors);
-    loadEmployees(1);
-    loadAccessLogs();
-    scheduleMetricCardsUpdate(true);
+    const scrollY = window.scrollY;
+    scopeFlags.error = '';
+    if (!state.buildingFilter) scopeFlags.legacy.clear();
+    if (state.allDoors.length) {
+        state.doors = doorsInBuildingScope(state.allDoors);
+        renderDoorCards(state.doors);
+        refreshDoorFilters(state.doors);
+    }
+    renderScopeStatus();
+    Promise.allSettled([
+        state.allDoors.length ? null : loadDoors(),
+        loadEmployees(1),
+        loadAccessLogs(),
+        updateMetricCards(),
+        state.activeTab === 'attendanceTab' ? loadAttendanceMetrics() : null,
+    ]).then(() => {
+        if (Math.abs(window.scrollY - scrollY) > 4) window.scrollTo({ top: scrollY });
+        renderScopeStatus();
+    });
 }
 
 async function fetchTotalRecords(url) {
@@ -399,37 +568,33 @@ async function fetchTotalRecords(url) {
     return Number(res.pagination?.total_records ?? 0);
 }
 
-// KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
-async function buildingMetrics(buildingId) {
+// Legacy fallback: only numbers the existing endpoints can give exactly. Anything that would need
+// the backend's own definition (registered credentials) stays null and is rendered as "—".
+async function legacyBuildingMetrics(scope) {
+    if (!state.allDoors.length) {
+        const res = await apiFetch('/admin/doors', { isBackground: true });
+        state.allDoors = res.data || [];
+    }
     const doors = doorsInBuildingScope(state.allDoors);
-    const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
-    const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
-        fetchTotalRecords(`${base}&per_page=1`),
-        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`),
+    const base = `/user-management/employees?building_id=${encodeURIComponent(scope)}&per_page=1`;
+    const [totalUsers, activeUsers, denied] = await Promise.all([
+        fetchTotalRecords(base),
+        fetchTotalRecords(`${base}&employment_status=ACTIVE`),
         Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
-        fetchEmployeesForBuilding(buildingId),
     ]);
-    const registered = employees.filter(emp =>
-        emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
-        || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
     return {
         totalUsers,
-        activeEmployees: activeUsers === 0 && totalUsers > 0 ? totalUsers : activeUsers,
-        registeredCredentials: registered,
+        activeEmployees: activeUsers === 0 && totalUsers > 0 ? null : activeUsers, // status not filled in: unknown, not zero
+        registeredCredentials: null,
         activeDoors: doors.filter(door => door.connection_status === 'online').length,
         totalDoors: doors.length,
-        deniedLogs: deniedPerDoor.reduce((sum, count) => sum + count, 0),
+        deniedLogs: denied.reduce((sum, count) => sum + count, 0),
     };
 }
 
-async function fetchEmployeesForBuilding(buildingId) {
-    const all = [];
-    for (let page = 1; page <= 5; page++) { // 5 x 100 employees per building is a safe upper bound
-        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
-        all.push(...(res.data || []));
-        if (page >= Number(res.pagination?.total_pages || 1)) break;
-    }
-    return all;
+function buildingEmptyText(what) {
+    const name = selectedBuildingName();
+    return name ? `${what} untuk ${name}.` : `${what}.`;
 }
 
 function refreshDoorFilters(doors) {
@@ -455,7 +620,8 @@ function renderDoorCards(doors) {
     if (renderTargets.length === 0) return;
 
     if (!Array.isArray(doors) || doors.length === 0) {
-        renderTargets.forEach(target => target.innerHTML = '<div class="empty-td">Belum ada terminal pintu terkonfigurasi.</div>');
+        renderTargets.forEach(target => target.innerHTML = `<div class="empty-td">${escapeHtml(buildingEmptyText('Belum ada terminal pintu terkonfigurasi'))}</div>`);
+        markLoaded(renderTargets);
         return;
     }
 
@@ -508,6 +674,7 @@ function renderDoorCards(doors) {
     }).join('');
 
     renderTargets.forEach(target => target.innerHTML = html);
+    markLoaded(renderTargets);
 }
 
 async function toggleDoorStatus(doorId, enabled) {
@@ -735,9 +902,10 @@ async function loadEmployees(page = state.employeePage) {
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
     state.employeePage = Math.max(1, Number(page) || 1);
 
+    const targets = [tbody, fullTbody].filter(Boolean);
+    const seq = ++employeesRequestSeq;
     const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
-    if (tbody) tbody.innerHTML = loadingHtml;
-    if (fullTbody) fullTbody.innerHTML = loadingHtml;
+    targets.forEach(target => beginLoad(target, loadingHtml));
 
     try {
         let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
@@ -746,6 +914,7 @@ async function loadEmployees(page = state.employeePage) {
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
         const res = await apiFetch(url);
+        if (seq !== employeesRequestSeq) return; // a newer page/filter/building request owns the table
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
@@ -760,9 +929,12 @@ async function loadEmployees(page = state.employeePage) {
             renderEmployeePagination();
         }
     } catch (err) {
-        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
-        if (tbody) tbody.innerHTML = errorHtml;
-        if (fullTbody) fullTbody.innerHTML = errorHtml;
+        if (seq !== employeesRequestSeq) return;
+        reportScopeError('data pengguna', err);
+        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${escapeHtml(err.message)}</td></tr>`;
+        targets.forEach(target => { if (target.dataset.loaded !== '1') target.innerHTML = errorHtml; });
+    } finally {
+        if (seq === employeesRequestSeq) targets.forEach(endLoad);
     }
 }
 
@@ -776,8 +948,9 @@ function renderEmployeesTable(employees) {
 
     if (employees.length === 0) {
         targets.forEach(t => {
-            t.innerHTML = `<tr><td colspan="7" class="empty-td">Tidak ada data karyawan ditemukan.</td></tr>`;
+            t.innerHTML = `<tr><td colspan="7" class="empty-td">${escapeHtml(buildingEmptyText('Tidak ada data karyawan ditemukan'))}</td></tr>`;
         });
+        markLoaded(targets);
         return;
     }
 
@@ -879,6 +1052,7 @@ function renderEmployeesTable(employees) {
     }).join('');
 
     targets.forEach(t => t.innerHTML = html);
+    markLoaded(targets);
 }
 
 function handleDeleteEmployeeBtn(id, btn) {
@@ -1199,15 +1373,15 @@ async function loadAccessLogs() {
     }
 
     const requestSeq = ++accessLogsRequestSeq;
-
-    if (tbody) {
-            tbody.innerHTML = `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`;
-    }
+    const scope = state.buildingFilter;
+    const targets = [tbody, recentTbody].filter(Boolean);
+    targets.forEach(target => beginLoad(target, `<tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat event logs akses pintu...</td></tr>`));
 
     try {
-        const buildUrl = doorId => {
+        const buildUrl = (doorId, buildingId) => {
             let url = `/admin/access-logs?limit=40`;
             if (doorId) url += `&door_id=${encodeURIComponent(doorId)}`;
+            if (buildingId) url += `&building_id=${encodeURIComponent(buildingId)}`;
             if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
             if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
             if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
@@ -1216,17 +1390,30 @@ async function loadAccessLogs() {
             return url;
         };
 
-        let logs;
-        if (!doorFilter && state.buildingFilter) {
-            // The API filters by a single door, so query every door of the selected building and merge.
-            const doorIds = doorsInBuildingScope(state.allDoors).map(door => door.door_id);
-            const responses = await Promise.all(doorIds.map(id => apiFetch(buildUrl(id))));
-            logs = responses
-                .flatMap(response => (response.status === 'success' ? response.data : []))
-                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-                .slice(0, 40);
+        let logs = null;
+        if (!doorFilter && scope) {
+            if (scopeSupport.logs !== false) {
+                const res = await apiFetch(buildUrl('', scope));
+                if (scopeHonoured(res, scope)) {
+                    scopeSupport.logs = true;
+                    scopeFlags.legacy.delete('logs');
+                    logs = res.status === 'success' ? res.data : null;
+                } else {
+                    scopeSupport.logs = false; // building_id was ignored: do not show unfiltered rows as if they were scoped
+                }
+            }
+            if (scopeSupport.logs === false) {
+                // Legacy API filters by a single door: query every door of the building and merge (real rows only).
+                scopeFlags.legacy.add('logs');
+                const doorIds = doorsInBuildingScope(state.allDoors).map(door => door.door_id);
+                const responses = await Promise.all(doorIds.map(id => apiFetch(buildUrl(id, ''))));
+                logs = responses
+                    .flatMap(response => (response.status === 'success' ? response.data : []))
+                    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                    .slice(0, 40);
+            }
         } else {
-            const res = await apiFetch(buildUrl(doorFilter));
+            const res = await apiFetch(buildUrl(doorFilter, ''));
             logs = res.status === 'success' ? res.data : null;
         }
         if (requestSeq !== accessLogsRequestSeq) return; // a newer filter request superseded this one
@@ -1237,9 +1424,11 @@ async function loadAccessLogs() {
         }
     } catch (err) {
         if (requestSeq !== accessLogsRequestSeq) return;
+        reportScopeError('log akses', err);
         const errorHtml = `<tr><td colspan="8" class="error-td">Gagal memuat log akses: ${escapeHtml(err.message)}</td></tr>`;
-        if (tbody) tbody.innerHTML = errorHtml;
-        if (recentTbody) recentTbody.innerHTML = errorHtml;
+        targets.forEach(target => { if (target.dataset.loaded !== '1') target.innerHTML = errorHtml; });
+    } finally {
+        if (requestSeq === accessLogsRequestSeq) targets.forEach(endLoad);
     }
 }
 
@@ -1390,8 +1579,9 @@ function renderAccessLogsTable(logs) {
 
     if (logs.length === 0) {
         renderTargets.forEach(target => {
-            target.innerHTML = `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
+            target.innerHTML = `<tr><td colspan="8" class="empty-td">${escapeHtml(buildingEmptyText('Tidak ada data log yang sesuai dengan filter'))}</td></tr>`;
         });
+        markLoaded(renderTargets);
         return;
     }
 
@@ -1477,6 +1667,7 @@ function renderAccessLogsTable(logs) {
     }).join('');
 
     renderTargets.forEach(target => target.innerHTML = html);
+    markLoaded(renderTargets);
 }
 
 function resetLogFilters() {
@@ -1956,6 +2147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Initial data loading. Doors load first so a remembered building can scope the access log.
     restoreBuildingFilter();
+    initScopeConnectivity();
     loadDashboardBuildings();
     loadDoors().finally(loadAccessLogs);
     loadEmployees();
@@ -5780,7 +5972,12 @@ async function loadAttendanceMetrics() {
     if (!container) return;
 
     try {
-        const res = await apiFetch('/attendance/metrics');
+        const scoped = await fetchScoped('/attendance/metrics', 'attendance', state.buildingFilter);
+        if (scoped.legacy) {
+            container.innerHTML = `<div class="stat-card" style="grid-column:1/-1"><div class="stat-title">Metrik kehadiran per gedung</div><div class="stat-desc">${escapeHtml(buildingEmptyText('Belum tersedia (menunggu API GET /attendance/metrics?building_id=)'))} Pilih "Semua Gedung" untuk angka keseluruhan.</div></div>`;
+            return;
+        }
+        const res = scoped.res;
         if (!res.success) return;
         
         const m = res.data;

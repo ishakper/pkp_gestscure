@@ -40,7 +40,10 @@ class PenggunaPaginationAndSidebarTest extends TestCase
         $body = substr($this->script, $start, $end - $start);
 
         $this->assertStringContainsString("getElementById('fullEmployeesTableBody')", $body);
-        $this->assertStringContainsString('if (fullTbody) fullTbody.innerHTML', $body);
+        // Both tables are handled together (loading via beginLoad, error via the same targets list).
+        $this->assertStringContainsString('const targets = [tbody, fullTbody].filter(Boolean);', $body);
+        $this->assertStringContainsString('targets.forEach(target => beginLoad(target, loadingHtml));', $body);
+        $this->assertStringContainsString('targets.forEach(target => { if (target.dataset.loaded !== \'1\') target.innerHTML = errorHtml; });', $body);
     }
 
     public function test_disabled_pagination_buttons_are_visually_disabled(): void

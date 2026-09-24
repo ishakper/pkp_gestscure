@@ -584,6 +584,52 @@
             flex-wrap: wrap;
         }
 
+        /* Dashboard building selector + status line */
+        .scope-select { min-width: 13rem; max-width: 100%; }
+        .scope-select:disabled { opacity: 0.7; cursor: not-allowed; }
+        .scope-status {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-wrap: wrap;
+            margin: -1rem 0 1.25rem;
+            padding: 0.5rem 0.85rem;
+            border: 1px solid var(--border-color);
+            border-radius: 0.6rem;
+            background: rgba(255, 255, 255, 0.03);
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+        .scope-status[hidden] { display: none; }
+        .scope-dot { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--primary); flex-shrink: 0; }
+        .scope-status[data-state="loading"] .scope-dot { animation: scopePulse 1s ease-in-out infinite; }
+        .scope-status[data-state="legacy"] { border-color: rgba(245, 158, 11, 0.4); color: #fcd34d; }
+        .scope-status[data-state="legacy"] .scope-dot { background: var(--warning); }
+        .scope-status[data-state="offline"] { border-color: rgba(148, 163, 184, 0.4); }
+        .scope-status[data-state="offline"] .scope-dot { background: var(--text-dim); }
+        .scope-status[data-state="error"] { border-color: rgba(239, 68, 68, 0.45); color: #fca5a5; }
+        .scope-status[data-state="error"] .scope-dot { background: var(--danger); }
+        .scope-retry {
+            margin-left: auto;
+            padding: 0.2rem 0.7rem;
+            border: 1px solid currentColor;
+            border-radius: 0.4rem;
+            background: transparent;
+            color: inherit;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        @keyframes scopePulse { 50% { opacity: 0.3; } }
+        /* Old content stays on screen (dimmed) while a refresh runs, so the page never collapses or jumps. */
+        .is-busy { opacity: 0.55; pointer-events: none; transition: opacity 0.15s ease; }
+        .metrics-grid[data-state="loading"] .metric-value,
+        .metrics-grid[data-state="error"] .metric-value { opacity: 0.55; }
+        @media (max-width: 768px) {
+            .top-bar-actions .scope-select { flex: 1 1 100%; }
+            .scope-status { margin-top: -0.5rem; }
+            .scope-retry { margin-left: 0; }
+        }
+
         .page-title {
             font-size: 1.55rem;
             font-weight: 800;
@@ -1535,7 +1581,7 @@
             <div class="top-bar-logo-placeholder" aria-hidden="true"></div>
         </div>
         <div class="top-bar-actions">
-            <select id="dashboardBuildingFilter" class="form-control" style="min-width:12rem;" onchange="onDashboardBuildingChange(this.value)" aria-label="Filter dashboard per gedung" title="Tampilkan data Dashboard untuk satu gedung">
+            <select id="dashboardBuildingFilter" class="form-control scope-select" onchange="onDashboardBuildingChange(this.value)" aria-label="Filter dashboard per gedung" aria-controls="dashboardScopeStatus" title="Tampilkan data Dashboard untuk satu gedung" disabled>
                 <option value="">🏢 Semua Gedung</option>
             </select>
             <button class="btn-secondary" onclick="refreshOperationalData(this)">
@@ -1546,6 +1592,9 @@
             </button>
         </div>
     </div>
+
+    <!-- Building scope status: loading / legacy API / offline / error (filled by dashboard.js) -->
+    <div id="dashboardScopeStatus" class="scope-status" role="status" aria-live="polite" hidden></div>
 
     <!-- TOP METRIC CARDS (4 TARGET CARDS) -->
     <div class="metrics-grid">
@@ -5835,7 +5884,8 @@
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),
-            role: @json(Auth::user()->role ?? 'super_admin')
+            role: @json(Auth::user()->role ?? 'super_admin'),
+            assigned_building: @json(Auth::user()->assigned_building ?? null)
         }
     };
 </script>

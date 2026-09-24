@@ -24,7 +24,9 @@ class SecureGateUiRefactorTest extends TestCase
         $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
         $script = file_get_contents(public_path('js/dashboard.js'));
         $this->assertStringContainsString('.advanced-nav { display: none !important; }', $blade);
-        $this->assertStringContainsString("CHECKING terminal Gedung B", $script);
+        // The door grid spinner no longer hard-codes "Gedung B": the dashboard is now building-aware.
+        $this->assertStringContainsString("Memuat terminal pintu...", $script);
+        $this->assertStringNotContainsString("CHECKING terminal Gedung B", $script);
         $this->assertStringContainsString("apiFetch('/attendance/records')", $script);
         $this->assertStringNotContainsString("apiFetch('/api/v1/attendance/records')", $script);
     }
