@@ -2,104 +2,110 @@
 
 namespace App\Services;
 
-use App\Models\Employee;
-use App\Models\CredentialReconciliationBatch;
 use App\Models\CredentialReconciliationAudit;
+use App\Models\CredentialReconciliationBatch;
+use App\Models\Employee;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class HikvisionCredentialReconciliation
 {
-    protected $workbookPath;
-    protected $sourceHash;
-    protected $dryRun;
-    protected $batchId;
-    protected $results = [];
+    protected string $workbookPath;
+    protected string $sourceHash;
+    protected bool $dryRun;
+    protected string $batchId;
+    protected ?int $summaryNamelessOrDummy = null;
 
-    public function __construct($workbookPath, $dryRun = true)
+    public function __construct(string $workbookPath, bool $dryRun = true)
     {
-        if (!file_exists($workbookPath)) {
-            throw new \Exception("Workbook not found: $workbookPath");
+        if (!is_file($workbookPath)) {
+            throw new \InvalidArgumentException("Workbook not found: {$workbookPath}");
         }
 
         $this->workbookPath = $workbookPath;
         $this->sourceHash = hash_file('sha256', $workbookPath);
         $this->dryRun = $dryRun;
-        $this->batchId = Str::uuid()->toString();
+        $this->batchId = (string) Str::uuid();
+    }
+
+    public function sourceHash(): string
+    {
+        return $this->sourceHash;
     }
 
     /**
-     * Parse workbook using built-in ZipArchive + DOMDocument (no external dependencies)
-     * Handles shared strings properly for modern XLSX format.
+     * Parse the fixed nine-column backup format.
      */
-    public function parseWorkbook()
+    public function parseWorkbook(): array
     {
-        $zip = new \ZipArchive();
-        
-        if ($zip->open($this->workbookPath) !== true) {
-            throw new \Exception("Cannot open workbook as ZIP: " . $this->workbookPath);
-        }
+        $workbook = IOFactory::load($this->workbookPath);
+        $sheet = null;
+        $headerRow = null;
 
-        // 1. Load shared strings (if present)
-        $sharedStrings = [];
-        $ssXml = $zip->getFromName('xl/sharedStrings.xml');
-        if ($ssXml) {
-            $ssDom = new \DOMDocument();
-            $ssDom->loadXML($ssXml);
-            $ssElements = $ssDom->getElementsByTagName('si');
-            foreach ($ssElements as $si) {
-                $tNode = $si->getElementsByTagName('t')->item(0);
-                $sharedStrings[] = $tNode ? $tNode->textContent : '';
+        foreach ($workbook->getWorksheetIterator() as $candidate) {
+            $lastProbeRow = min($candidate->getHighestRow(), 20);
+            for ($rowNumber = 1; $rowNumber <= $lastProbeRow; $rowNumber++) {
+                $first = trim((string) $candidate->getCell("A{$rowNumber}")->getFormattedValue());
+                $second = trim((string) $candidate->getCell("B{$rowNumber}")->getFormattedValue());
+                $seventh = trim((string) $candidate->getCell("G{$rowNumber}")->getFormattedValue());
+
+                if ($first === 'No'
+                    && $second === 'Employee/Person No'
+                    && $seventh === 'Card Registered') {
+                    $sheet = $candidate;
+                    $headerRow = $rowNumber;
+                    break 2;
+                }
             }
         }
 
-        // 2. Load sheet1
-        $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
-        if (!$sheetXml) {
-            $zip->close();
-            throw new \Exception("No sheet1.xml found in workbook");
+        if ($sheet === null || $headerRow === null) {
+            throw new \RuntimeException('Workbook does not contain the expected nine-column credential table.');
         }
 
-        $dom = new \DOMDocument();
-        $dom->loadXML($sheetXml);
-        $rows = $dom->getElementsByTagName('row');
+        $this->summaryNamelessOrDummy = $this->readSummaryMetric(
+            $workbook,
+            'Dummy-only employees'
+        );
 
         $data = [];
-        foreach ($rows as $rowNode) {
+        for ($rowNumber = $headerRow + 1; $rowNumber <= $sheet->getHighestRow(); $rowNumber++) {
             $rowData = [];
-            $cells = $rowNode->getElementsByTagName('c');
-            
-            foreach ($cells as $cellNode) {
-                $t = $cellNode->getAttribute('t'); // Cell type: s=shared string, n=number
-                $vNode = $cellNode->getElementsByTagName('v')->item(0);
-                $value = '';
-                
-                if ($t === 's' && $vNode) {
-                    // Shared string reference (index into sharedStrings array)
-                    $idx = intval($vNode->textContent);
-                    $value = $sharedStrings[$idx] ?? '';
-                } elseif ($vNode) {
-                    // Direct value (number, etc.)
-                    $value = $vNode->textContent;
-                }
-                
-                $rowData[] = $value;
+            for ($column = 1; $column <= 9; $column++) {
+                // Formatted values preserve leading zeroes (for example, 00001).
+                $rowData[] = $sheet->getCell([$column, $rowNumber])->getFormattedValue();
             }
-            
-            // Only include non-empty rows
-            if (array_filter($rowData)) {
-                $data[] = $rowData;
+
+            // The fixed export uses a numeric sequence in column A for each
+            // device user. This excludes titles, headers, blank rows, and notes.
+            if (!ctype_digit(trim((string) ($rowData[0] ?? '')))) {
+                continue;
             }
+
+            $data[] = $rowData;
         }
 
-        $zip->close();
         return $data;
     }
 
-    /**
-     * Validate and count source records
-     */
-    public function validateSource($rawData)
+    protected function readSummaryMetric($workbook, string $metric): ?int
+    {
+        foreach ($workbook->getWorksheetIterator() as $sheet) {
+            for ($rowNumber = 1; $rowNumber <= $sheet->getHighestRow(); $rowNumber++) {
+                $label = trim((string) $sheet->getCell("A{$rowNumber}")->getFormattedValue());
+                if ($label !== $metric) {
+                    continue;
+                }
+
+                $value = $sheet->getCell("B{$rowNumber}")->getCalculatedValue();
+                return is_numeric($value) ? (int) $value : null;
+            }
+        }
+
+        return null;
+    }
+    public function validateSource(array $rawData): array
     {
         $validation = [
             'source_rows' => 0,
@@ -115,86 +121,76 @@ class HikvisionCredentialReconciliation
             'duplicate_display_names' => 0,
             'inconsistent_card_rows' => 0,
             'invalid_ids' => 0,
-            'records' => []
+            'records' => [],
         ];
 
-        $exactIds = [];
-        $foldedIds = [];
+        $seenIds = [];
+        $seenFoldedIds = [];
         $seenNames = [];
 
-        // Auto-detect header row: skip rows until we find "No", "Employee/Person No", "Display Name"
-        $headerIdx = 0;
-        foreach ($rawData as $idx => $row) {
-            if (!empty($row[0]) && in_array(trim($row[0]), ['No', 'INDEX'])) {
-                $headerIdx = $idx + 1; // Start processing from next row
-                break;
-            }
-        }
+        foreach ($rawData as $row) {
+            $personNo = trim((string) ($row[1] ?? ''));
+            $displayName = trim((string) ($row[2] ?? ''));
+            $cardRegistered = strtoupper(trim((string) ($row[6] ?? ''))) === 'YES';
+            $cardCount = (int) ($row[7] ?? 0);
+            $cardType = trim((string) ($row[8] ?? ''));
 
-        foreach ($rawData as $idx => $row) {
-            if ($idx < $headerIdx) continue; // Skip everything before data rows
-
-            $record = [
-                'no' => $row[0] ?? '',
-                'person_no' => (string)($row[1] ?? ''),
-                'display_name' => trim($row[2] ?? ''),
-                'cards' => $row[3] ?? '',
-                'status' => $row[4] ?? '',
-                'securegate_mapping' => $row[5] ?? '',
-                'card_registered' => strtoupper(trim($row[6] ?? '')) === 'YES',
-                'card_count' => (int)($row[7] ?? 0),
-                'card_type' => $row[8] ?? '',
-            ];
-
-            // Validate person_no
-            if (empty($record['person_no'])) {
+            if ($personNo === '') {
                 $validation['invalid_ids']++;
                 continue;
             }
 
-            $personNumber = $record['person_no'];
-            $exactKey = "id\0" . $personNumber;
-            $foldKey = "fold\0" . mb_strtolower($personNumber, 'UTF-8');
-
-            // Check exact duplicates before storing current ID.
-            if (isset($exactIds[$exactKey])) {
+            if (isset($seenIds[$personNo])) {
                 $validation['exact_duplicate_person_ids']++;
                 continue;
             }
-            // Check case-folded collisions without changing original ID value.
-            if (isset($foldedIds[$foldKey])) {
+
+            $foldedId = strtolower($personNo);
+            if (isset($seenFoldedIds[$foldedId])) {
                 $validation['case_variant_ids']++;
                 continue;
             }
-            $exactIds[$exactKey] = true;
-            $foldedIds[$foldKey] = true;
 
-            // Check nameless
-            if ($record['display_name'] === '-' || empty($record['display_name'])) {
+            $seenIds[$personNo] = true;
+            $seenFoldedIds[$foldedId] = true;
+
+            $record = [
+                'no' => (string) ($row[0] ?? ''),
+                'person_no' => $personNo,
+                'display_name' => $displayName,
+                'cards' => (string) ($row[3] ?? ''),
+                'status' => (string) ($row[4] ?? ''),
+                'securegate_mapping' => (string) ($row[5] ?? ''),
+                'card_registered' => $cardRegistered,
+                'card_count' => $cardCount,
+                'card_type' => $cardType,
+            ];
+
+            if ($displayName === '' || $displayName === '-') {
                 $validation['nameless_or_dummy']++;
             } else {
-                if (isset($seenNames[$record['display_name']])) {
+                if (isset($seenNames[$displayName])) {
                     $validation['duplicate_display_names']++;
                 }
-                $seenNames[$record['display_name']] = true;
+                $seenNames[$displayName] = true;
             }
 
-            // Validate card consistency
-            if ($record['card_registered']) {
+            if ($cardRegistered) {
                 $validation['with_card']++;
-                if ($record['card_count'] <= 0) {
+                if ($cardCount <= 0) {
                     $validation['inconsistent_card_rows']++;
                     $record['conflict'] = 'Card registered YES but count is 0';
                 } else {
-                    match($record['card_type']) {
+                    match ($cardType) {
                         'normalCard' => $validation['normal_card']++,
                         'superCard' => $validation['super_card']++,
                         'patrolCard' => $validation['patrol_card']++,
+                        default => null,
                     };
                 }
             } else {
                 $validation['without_card']++;
-                if ($record['card_count'] > 0) {
+                if ($cardCount > 0) {
                     $validation['inconsistent_card_rows']++;
                     $record['conflict'] = 'Card registered NO but count > 0';
                 }
@@ -205,13 +201,14 @@ class HikvisionCredentialReconciliation
             $validation['records'][] = $record;
         }
 
+        if ($this->summaryNamelessOrDummy !== null) {
+            $validation['nameless_or_dummy'] = $this->summaryNamelessOrDummy;
+        }
+
         return $validation;
     }
 
-    /**
-     * Reconcile employee identities
-     */
-    public function reconcileIdentities($validation)
+    public function reconcileIdentities(array $validation): array
     {
         $reconciliation = [
             'exact_matches' => [],
@@ -224,145 +221,196 @@ class HikvisionCredentialReconciliation
             'credential_conflicts' => [],
         ];
 
-        $appEmployees = Employee::all()->keyBy('hikvision_employee_no');
+        $appEmployees = Employee::all();
+        $employeesByIdentifier = $appEmployees->keyBy(
+            fn (Employee $employee) => (string) ($employee->hikvision_employee_no ?: $employee->employee_id)
+        );
+        $matchedEmployeeIds = [];
 
         foreach ($validation['records'] as $record) {
-            if (isset($appEmployees[$record['person_no']])) {
+            if (isset($employeesByIdentifier[$record['person_no']])) {
+                $employee = $employeesByIdentifier[$record['person_no']];
+                $matchedEmployeeIds[] = $employee->id;
+
+                if (isset($record['conflict'])) {
+                    $reconciliation['credential_conflicts'][] = [
+                        'source' => $record,
+                        'employee' => $employee,
+                    ];
+                    continue;
+                }
+
                 $reconciliation['exact_matches'][] = [
                     'source' => $record,
-                    'employee' => $appEmployees[$record['person_no']]
+                    'employee' => $employee,
                 ];
-            } elseif ($record['display_name'] === '-') {
+            } elseif ($record['display_name'] === '' || $record['display_name'] === '-') {
                 $reconciliation['nameless_source'][] = $record;
             } elseif (isset($record['conflict'])) {
-                $reconciliation['credential_conflicts'][] = $record;
+                $reconciliation['credential_conflicts'][] = ['source' => $record, 'employee' => null];
             } else {
                 $reconciliation['source_only_valid'][] = $record;
             }
         }
 
+        $reconciliation['application_only'] = $appEmployees
+            ->reject(fn (Employee $employee) => in_array($employee->id, $matchedEmployeeIds, true))
+            ->values()
+            ->all();
+
         return $reconciliation;
     }
 
-    /**
-     * Classify credential method for a record
-     */
-    public function classifyCredential($record)
+    public function classifyCredential(array $record): array
     {
-        $method = 'unknown';
-        $status = 'unknown';
-
-        if ($record['card_registered'] && $record['card_count'] > 0) {
-            $method = 'card';
-            $status = 'confirmed_from_backup';
-        } elseif (!$record['card_registered'] && $record['card_count'] === 0) {
-            $method = 'fingerprint';
-            $status = 'expected_from_backup'; // NOT verified without explicit proof
-        } elseif (isset($record['conflict'])) {
-            $method = 'review';
-            $status = 'conflict';
+        if (isset($record['conflict'])) {
+            return ['method' => 'review', 'status' => 'conflict'];
         }
 
-        return compact('method', 'status');
+        $displayName = trim((string) ($record['display_name'] ?? ''));
+        if (array_key_exists('display_name', $record)
+            && ($displayName === '' || $displayName === '-')) {
+            return ['method' => 'review', 'status' => 'needs_verification'];
+        }
+
+        if ($record['card_registered'] && $record['card_count'] > 0) {
+            return ['method' => 'card', 'status' => 'confirmed_from_backup'];
+        }
+
+        if (!$record['card_registered'] && $record['card_count'] === 0) {
+            return ['method' => 'fingerprint', 'status' => 'expected_from_backup'];
+        }
+
+        return ['method' => 'unknown', 'status' => 'unknown'];
     }
 
     /**
-     * Execute dry-run or apply
+     * Dry-run is strictly read-only. Apply only mutates exact, non-conflicting IDs.
      */
-    public function reconcile()
+    public function reconcile(): array
     {
         $startedAt = now();
 
         try {
-            // Parse workbook
-            $rawData = $this->parseWorkbook();
-            $validation = $this->validateSource($rawData);
+            $validation = $this->validateSource($this->parseWorkbook());
             $reconciliation = $this->reconcileIdentities($validation);
+            $totalReview = count($reconciliation['credential_conflicts'])
+                + count($reconciliation['nameless_source']);
 
-            // Calculate totals
-            $totalCreated = count($reconciliation['source_only_valid']);
-            $totalUpdated = count($reconciliation['exact_matches']);
-            $totalReview = count($reconciliation['credential_conflicts']) + count($reconciliation['nameless_source']);
-
-            // Create batch record
-            $batch = $this->createBatchRecord(
+            $batchAttributes = $this->batchAttributes(
                 $startedAt,
                 $validation,
                 $reconciliation,
-                $totalCreated,
-                $totalUpdated,
+                0,
+                0,
+                0,
                 $totalReview
             );
 
-            // If apply mode and all checks pass, mutate database
-            if (!$this->dryRun && $this->canApply($validation, $reconciliation)) {
-                DB::transaction(function () use ($reconciliation, $batch) {
-                    // Update exact matches
-                    foreach ($reconciliation['exact_matches'] as $match) {
-                        $credential = $this->classifyCredential($match['source']);
-                        $employee = $match['employee'];
+            if ($this->dryRun) {
+                return [
+                    'batch' => new CredentialReconciliationBatch($batchAttributes),
+                    'validation' => $validation,
+                    'reconciliation' => $reconciliation,
+                    'mutations' => 0,
+                ];
+            }
 
-                        $before = [
-                            'credential_method' => $employee->credential_method,
-                            'credential_status' => $employee->credential_status,
-                        ];
+            if (!$this->canApply($validation)) {
+                throw new \RuntimeException(
+                    'Apply blocked: duplicate or case-variant person identifiers were found.'
+                );
+            }
 
-                        $cardType = $match['source']['card_registered'] ? ($match['source']['card_type'] ?? 'normalCard') : null;
+            $totalUpdated = 0;
+            $totalUnchanged = 0;
 
-                        $employee->update([
-                            'credential_method' => $credential['method'],
-                            'credential_status' => $credential['status'],
-                            'credential_source' => 'hikvision_backup',
-                            'card_registered' => $match['source']['card_registered'],
-                            'card_count' => $match['source']['card_count'],
-                            'card_type' => $cardType,
-                            'source_person_number' => $match['source']['person_no'],
-                            'last_reconciled_at' => now(),
-                            'reconciliation_batch_id' => $batch->batch_id,
-                        ]);
+            $batch = DB::transaction(function () use (
+                $reconciliation,
+                $batchAttributes,
+                &$totalUpdated,
+                &$totalUnchanged
+            ) {
+                $batch = CredentialReconciliationBatch::create($batchAttributes);
 
-                        CredentialReconciliationAudit::create([
-                            'batch_id' => $batch->batch_id,
-                            'employee_id' => $employee->id,
-                            'source_person_number' => $match['source']['person_no'],
-                            'source_display_name' => $match['source']['display_name'],
-                            'source_card_status' => $match['source']['card_registered'] ? 'YES' : 'NO',
-                            'source_card_count' => $match['source']['card_count'],
-                            'source_card_type' => $match['source']['card_type'],
-                            'action' => 'updated',
-                            'before_credential_method' => $before['credential_method'],
-                            'before_credential_status' => $before['credential_status'],
-                            'after_credential_method' => $credential['method'],
-                            'after_credential_status' => $credential['status'],
-                        ]);
+                foreach ($reconciliation['exact_matches'] as $match) {
+                    $credential = $this->classifyCredential($match['source']);
+                    $employee = $match['employee'];
+                    $before = [
+                        'credential_method' => $employee->credential_method,
+                        'credential_status' => $employee->credential_status,
+                    ];
+                    $changes = [
+                        'credential_method' => $credential['method'],
+                        'credential_status' => $credential['status'],
+                        'credential_source' => 'hikvision_backup',
+                        'card_registered' => $match['source']['card_registered'],
+                        'card_count' => $match['source']['card_count'],
+                        'card_type' => $match['source']['card_registered']
+                            ? ($match['source']['card_type'] ?: null)
+                            : null,
+                        'fingerprint_verified' => false,
+                        'source_person_number' => $match['source']['person_no'],
+                    ];
+
+                    $employee->fill($changes);
+                    if (!$employee->isDirty()) {
+                        $totalUnchanged++;
+                        continue;
                     }
-                });
+
+                    $employee->last_reconciled_at = now();
+                    $employee->reconciliation_batch_id = $batch->batch_id;
+                    $employee->save();
+                    $totalUpdated++;
+
+                    CredentialReconciliationAudit::create([
+                        'batch_id' => $batch->batch_id,
+                        'employee_id' => $employee->id,
+                        'source_person_number' => $match['source']['person_no'],
+                        'source_display_name' => $match['source']['display_name'],
+                        'source_card_status' => $match['source']['card_registered'] ? 'YES' : 'NO',
+                        'source_card_count' => $match['source']['card_count'],
+                        'source_card_type' => $match['source']['card_type'] ?: null,
+                        'action' => 'updated',
+                        'before_credential_method' => $before['credential_method'],
+                        'before_credential_status' => $before['credential_status'],
+                        'after_credential_method' => $credential['method'],
+                        'after_credential_status' => $credential['status'],
+                    ]);
+                }
 
                 $batch->update([
+                    'updated_employees' => $totalUpdated,
+                    'unchanged_employees' => $totalUnchanged,
                     'status' => 'success',
                     'completed_at' => now(),
                 ]);
-            }
+
+                return $batch->fresh();
+            });
 
             return [
                 'batch' => $batch,
                 'validation' => $validation,
                 'reconciliation' => $reconciliation,
+                'mutations' => $totalUpdated,
             ];
-        } catch (\Exception $e) {
-            return [
-                'error' => $e->getMessage(),
-                'batch' => null,
-            ];
+        } catch (\Throwable $error) {
+            return ['error' => $error->getMessage(), 'batch' => null];
         }
     }
 
-    /**
-     * Create batch record
-     */
-    protected function createBatchRecord($startedAt, $validation, $reconciliation, $totalCreated, $totalUpdated, $totalReview)
-    {
-        return CredentialReconciliationBatch::create([
+    protected function batchAttributes(
+        $startedAt,
+        array $validation,
+        array $reconciliation,
+        int $totalCreated,
+        int $totalUpdated,
+        int $totalUnchanged,
+        int $totalReview
+    ): array {
+        return [
             'batch_id' => $this->batchId,
             'source_filename' => basename($this->workbookPath),
             'source_sha256' => $this->sourceHash,
@@ -372,7 +420,7 @@ class HikvisionCredentialReconciliation
             'source_rows' => $validation['source_rows'],
             'exact_matches' => count($reconciliation['exact_matches']),
             'source_only_valid' => count($reconciliation['source_only_valid']),
-            'application_only' => 0, // Will need separate query
+            'application_only' => count($reconciliation['application_only']),
             'nameless_source' => count($reconciliation['nameless_source']),
             'duplicate_ids' => $validation['exact_duplicate_person_ids'],
             'case_conflicts' => $validation['case_variant_ids'],
@@ -380,36 +428,22 @@ class HikvisionCredentialReconciliation
             'card_confirmed' => $validation['with_card'],
             'fingerprint_expected' => $validation['without_card'],
             'fingerprint_verified' => 0,
-            'created_employees' => $this->dryRun ? 0 : $totalCreated,
-            'updated_employees' => $this->dryRun ? 0 : $totalUpdated,
-            'unchanged_employees' => 0,
+            'unknown' => 0,
+            'review' => $totalReview,
+            'created_employees' => $totalCreated,
+            'updated_employees' => $totalUpdated,
+            'staged_candidates' => count($reconciliation['source_only_valid']),
+            'unchanged_employees' => $totalUnchanged,
             'skipped_employees' => $totalReview,
-            'door_assignments_created' => 0, // Permission mapping not available
+            'door_assignments_created' => 0,
             'physical_device_requests' => 0,
             'status' => $this->dryRun ? 'pending' : 'success',
-        ]);
+        ];
     }
 
-    /**
-     * Check if apply is safe
-     */
-    protected function canApply($validation, $reconciliation)
+    protected function canApply(array $validation): bool
     {
-        // Must not have conflicts
-        if (count($reconciliation['credential_conflicts']) > 0) {
-            return false;
-        }
-
-        // Must not have case variants
-        if ($validation['case_variant_ids'] > 0) {
-            return false;
-        }
-
-        // Must not have duplicate IDs
-        if ($validation['exact_duplicate_person_ids'] > 0) {
-            return false;
-        }
-
-        return true;
+        return $validation['case_variant_ids'] === 0
+            && $validation['exact_duplicate_person_ids'] === 0;
     }
 }

@@ -220,7 +220,7 @@ async function apiFetch(endpoint, options = {}) {
 
         return data;
     } catch (err) {
-        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
+        if (err.name !== 'AbortError' && err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
@@ -668,64 +668,118 @@ async function loadOrganizationLookup() {
     } catch (err) { console.warn('Organization lookup unavailable', err); }
 }
 
-async function loadEmployees(page = state.employeePage) {
+let employeeRequestController = null;
+let employeeRequestSequence = 0;
+
+async function loadEmployees(page = state.employeePage, options = {}) {
     const tbody = document.getElementById('employeesTableBody');
     const fullTbody = document.getElementById('fullEmployeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
-    state.employeePage = Math.max(1, Number(page) || 1);
+    const requestedPage = Math.max(1, Number(page) || 1);
+    const previousScrollY = options.previousScrollY ?? window.scrollY;
+    const requestSequence = ++employeeRequestSequence;
 
-    const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
-    if (tbody) tbody.innerHTML = loadingHtml;
-    if (fullTbody) fullTbody.innerHTML = loadingHtml;
+    if (employeeRequestController) employeeRequestController.abort();
+    employeeRequestController = new AbortController();
+
+    const tableContainers = [tbody, fullTbody].filter(Boolean)
+        .map(element => element.closest('.table-container')).filter(Boolean);
+    tableContainers.forEach(container => {
+        container.classList.add('employee-table-loading');
+        container.setAttribute('aria-busy', 'true');
+    });
+
+    const loadingHtml = '<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>';
+    if (!options.preserveScroll) {
+        if (tbody) tbody.innerHTML = loadingHtml;
+        if (fullTbody) fullTbody.innerHTML = loadingHtml;
+    }
 
     try {
-        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
-        if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
+        const params = new URLSearchParams({ per_page: '20', page: String(requestedPage) });
+        if (searchVal) params.set('search', searchVal);
+        if (doorFilter) params.set('door_id', doorFilter);
 
-        const res = await apiFetch(url);
-        if (res.status === 'success') {
-            state.employees = res.data;
-            state.employeePagination = res.pagination || null;
-            state.metrics.totalUsers = res.pagination?.total_all ?? res.pagination?.total_records ?? state.employees.length;
-            scheduleMetricCardsUpdate();
+        const res = await apiFetch(`/user-management/employees?${params.toString()}`, {
+            signal: employeeRequestController.signal,
+        });
+        if (requestSequence !== employeeRequestSequence || res.status !== 'success') return;
 
-            if (countBadge) {
-                const total = res.pagination?.total_all ?? '-';
-                const formattedTotal = typeof total === 'number' ? new Intl.NumberFormat('id-ID').format(total) : total;
-                const from = res.pagination?.from ?? 0;
-                const to = res.pagination?.to ?? 0;
-                const filtered = res.pagination?.total_records ?? 0;
-                
-                if (filtered === 0) {
-                    countBadge.innerText = `Menampilkan 0 pengguna`;
-                } else if (searchVal || doorFilter) {
-                    countBadge.innerText = `Menampilkan ${from}–${to} dari ${new Intl.NumberFormat('id-ID').format(filtered)} hasil — ${formattedTotal} total pengguna`;
-                } else {
-                    countBadge.innerText = `Menampilkan ${from}–${to} dari ${formattedTotal} pengguna`;
-                }
+        state.employeePage = requestedPage;
+        state.employees = res.data;
+        state.employeePagination = res.pagination || null;
+        state.metrics.totalUsers = res.pagination?.total_all ?? res.pagination?.total_records ?? state.employees.length;
+        scheduleMetricCardsUpdate();
+
+        if (countBadge) {
+            const total = res.pagination?.total_all ?? '-';
+            const formattedTotal = typeof total === 'number' ? new Intl.NumberFormat('id-ID').format(total) : total;
+            const from = res.pagination?.from ?? 0;
+            const to = res.pagination?.to ?? 0;
+            const filtered = res.pagination?.total_records ?? 0;
+            if (filtered === 0) {
+                countBadge.innerText = 'Menampilkan 0 pengguna';
+            } else if (searchVal || doorFilter) {
+                countBadge.innerText = `Menampilkan ${from}–${to} dari ${new Intl.NumberFormat('id-ID').format(filtered)} hasil — ${formattedTotal} total pengguna`;
+            } else {
+                countBadge.innerText = `Menampilkan ${from}–${to} dari ${formattedTotal} pengguna`;
             }
-            
-            // Update total summary in section header
-            const totalSummary = document.getElementById('employeeTotalSummary');
-            if (totalSummary && res.pagination?.total_all !== undefined) {
-                const total = res.pagination.total_all;
-                const formatted = new Intl.NumberFormat('id-ID').format(total);
-                totalSummary.innerHTML = `Total Pengguna: <strong>${formatted}</strong>`;
-            }
-
-            renderEmployeesTable(state.employees);
-            renderEmployeePagination();
         }
-    } catch (err) {
-        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
+
+        const totalSummary = document.getElementById('employeeTotalSummary');
+        if (totalSummary && res.pagination?.total_all !== undefined) {
+            totalSummary.innerHTML = `Total Pengguna: <strong>${new Intl.NumberFormat('id-ID').format(res.pagination.total_all)}</strong>`;
+        }
+
+        renderEmployeesTable(state.employees);
+        renderEmployeePagination();
+
+        if (options.updateHistory !== false) {
+            const browserUrl = new URL(window.location.href);
+            browserUrl.searchParams.set('employee_page', String(requestedPage));
+            searchVal ? browserUrl.searchParams.set('employee_search', searchVal) : browserUrl.searchParams.delete('employee_search');
+            doorFilter ? browserUrl.searchParams.set('employee_door', doorFilter) : browserUrl.searchParams.delete('employee_door');
+            window.history.replaceState(window.history.state, '', browserUrl);
+        }
+
+        if (options.preserveScroll) {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    window.scrollTo(0, previousScrollY);
+                    document.querySelector(
+                        `.employee-pagination [data-pagination-action="${options.action || 'next'}"]:not(:disabled)`
+                    )?.focus({ preventScroll: true });
+                });
+            });
+        }
+    } catch (error) {
+        if (error.name === 'AbortError' || requestSequence !== employeeRequestSequence) return;
+        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${escapeHtml(error.message)}</td></tr>`;
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
+    } finally {
+        if (requestSequence === employeeRequestSequence) {
+            tableContainers.forEach(container => {
+                container.classList.remove('employee-table-loading');
+                container.setAttribute('aria-busy', 'false');
+            });
+        }
     }
 }
 
+function changeEmployeePage(event, page, control) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!control || control.disabled || control.getAttribute('aria-disabled') === 'true') return;
+
+    const previousScrollY = window.scrollY;
+    const action = control.dataset.paginationAction || 'next';
+    control.disabled = true;
+    control.setAttribute('aria-disabled', 'true');
+    loadEmployees(page, { preserveScroll: true, previousScrollY, action, updateHistory: true });
+}
 function renderEmployeesTable(employees) {
     const targets = [
         document.getElementById('employeesTableBody'),
@@ -742,18 +796,28 @@ function renderEmployeesTable(employees) {
     }
 
     const html = employees.map(emp => {
-        // Biometric Badges
-        const hasFp = emp.biometric_status?.fingerprint_enrolled;
-        const hasCard = emp.biometric_status?.card_enrolled || emp.card_registered === 'YES';
-        const fpBadge = hasFp
-            ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
-            : `<span class="badge badge-dim" title="Status sidik jari tidak diketahui">FP Unknown</span>`;
-        const cardBadge = hasCard
-            ? `<span class="badge badge-info" title="Kartu terdaftar"><span class="badge-dot"></span> Kartu</span>`
-            : `<span class="badge badge-dim" title="Status kartu tidak diketahui">Card Unknown</span>`;
+        const method = emp.credential_method || 'unknown';
+        const credentialStatus = emp.credential_status || 'unknown';
+        const cardLabels = {
+            normalCard: 'Card Registered',
+            superCard: 'Super Card',
+            patrolCard: 'Patrol Card',
+        };
+        let credentialBadge = '<span class="badge badge-dim">Belum Diketahui</span>';
+
+        if (emp.fingerprint_verified || credentialStatus === 'verified') {
+            credentialBadge = '<span class="badge badge-success" title="Template fingerprint telah diverifikasi">FP Terverifikasi</span>';
+        } else if (method === 'card' && credentialStatus === 'confirmed_from_backup') {
+            const label = cardLabels[emp.card_type] || 'Card Registered';
+            credentialBadge = `<span class="badge badge-info" title="Kartu terkonfirmasi dari backup">${escapeHtml(label)}</span>`;
+        } else if (method === 'fingerprint' && credentialStatus === 'expected_from_backup') {
+            credentialBadge = '<span class="badge badge-fingerprint-expected" title="Metode fingerprint terindikasi dari backup karena tidak ada kartu terdaftar. Template fingerprint belum diverifikasi.">FP Berdasarkan Backup</span>';
+        } else if (method === 'review' || credentialStatus === 'conflict') {
+            credentialBadge = '<span class="badge badge-warning">Perlu Verifikasi</span>';
+        }
 
         // Door Assignment Badges
-        let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
+        let doorBadges = '<span class="badge badge-dim">Credential terdaftar — hak pintu belum dipetakan</span>';
         if (emp.door_assign && emp.door_assign.length > 0) {
             doorBadges = emp.door_assign.map(d => {
                 let badgeCls = 'badge-pending';
@@ -785,8 +849,8 @@ function renderEmployeesTable(employees) {
 
         const safeUserId = escapeHtml(emp.user_id || emp.employee_id || '-');
         const safeNik = escapeHtml(emp.nik || '-');
-        const safeName = escapeHtml(emp.name || 'Unnamed');
-        const safeDept = escapeHtml(emp.department || '-');
+        const safeName = escapeHtml(emp.name || 'Nama belum tersedia');
+        const safeDept = escapeHtml(!emp.department || emp.department === 'UNASSIGNED' ? 'Belum Ditentukan' : emp.department);
         const safeRole = escapeHtml(emp.role || emp.role_jabatan || 'Staff');
         const empId = Number(emp.id);
 
@@ -812,8 +876,7 @@ function renderEmployeesTable(employees) {
                 </td>
                 <td>
                     <div class="bio-pill-group">
-                        ${fpBadge}
-                        ${cardBadge}
+                        ${credentialBadge}
                     </div>
                 </td>
                 <td>
@@ -860,16 +923,23 @@ function renderEmployeePagination() {
             container.innerHTML = '';
             return;
         }
+
         const current = Number(pagination.current_page || 1);
         const total = Number(pagination.total_pages || 1);
         const prevDisabled = current <= 1;
         const nextDisabled = current >= total;
         container.innerHTML = `
-            <nav aria-label="Pengguna pagination" class="pagination-container">
+            <nav aria-label="Paginasi pengguna" class="pagination-container">
                 <div class="pagination-wrapper">
-                    <button class="btn-secondary pagination-btn" aria-label="Halaman sebelumnya" ${prevDisabled ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
-                    <span class="pagination-status" aria-live="polite" aria-atomic="true">Halaman ${current} dari ${total}</span>
-                    <button class="btn-secondary pagination-btn" aria-label="Halaman berikutnya" ${nextDisabled ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+                    <button type="button" class="btn-secondary pagination-btn"
+                        data-pagination-action="previous" aria-label="Halaman sebelumnya"
+                        aria-disabled="${prevDisabled}" ${prevDisabled ? 'disabled' : ''}
+                        onclick="changeEmployeePage(event, ${current - 1}, this)">← Sebelumnya</button>
+                    <span class="pagination-status" aria-live="polite" aria-atomic="true" aria-current="page">Halaman ${current} dari ${total}</span>
+                    <button type="button" class="btn-secondary pagination-btn"
+                        data-pagination-action="next" aria-label="Halaman berikutnya"
+                        aria-disabled="${nextDisabled}" ${nextDisabled ? 'disabled' : ''}
+                        onclick="changeEmployeePage(event, ${current + 1}, this)">Berikutnya →</button>
                 </div>
             </nav>`;
     });
