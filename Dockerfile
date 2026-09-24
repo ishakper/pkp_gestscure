@@ -36,7 +36,8 @@ RUN docker-php-ext-install \
     xml \
     zip \
     pcntl \
-    opcache
+    opcache \
+    gd
 
 # 3. Install Composer binary
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -57,7 +58,7 @@ CMD ["artisan", "--version"]
 FROM base AS production
 
 # 4. Copy Composer Manifests & Install Dependencies First (Layer Caching)
-COPY composer.json composer.lock ./
+COPY composer.json ./
 RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
 
 # 5. Copy Application Source Code

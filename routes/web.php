@@ -1,9 +1,6 @@
 <?php
 
-use App\Models\Admin;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
+use App\Http\Controllers\Web\AuthController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -12,46 +9,9 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-Route::get('/login', function () {
-    if (Auth::check()) {
-        return redirect('/');
-    }
-    return view('login');
-})->name('login');
-
-Route::post('/login', function (Request $request) {
-    $request->validate([
-        'email' => 'required|email',
-        'password' => 'required',
-    ]);
-
-    $admin = Admin::where('email', $request->email)->first();
-
-    if ($admin && Hash::check($request->password, $admin->password)) {
-        Auth::login($admin);
-        $request->session()->regenerate();
-        $token = $admin->createToken('web-session-token');
-        $request->session()->put([
-            'api_token' => $token->plainTextToken,
-            'api_token_id' => $token->accessToken->getKey(),
-        ]);
-
-        return redirect('/');
-    }
-
-    return back()->withErrors(['email' => 'Kredensial login tidak valid.']);
-})->middleware('throttle:login');
-
-Route::post('/logout', function (Request $request) {
-    $tokenId = $request->session()->get('api_token_id');
-    if ($tokenId) {
-        $request->user()?->tokens()->whereKey($tokenId)->where('name', 'web-session-token')->delete();
-    }
-    Auth::logout();
-    $request->session()->invalidate();
-    $request->session()->regenerateToken();
-    return redirect('/login');
-})->name('logout');
+Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
+Route::post('/login', [AuthController::class, 'handleLogin'])->middleware('web', 'throttle:login');
+Route::post('/logout', [AuthController::class, 'handleLogout'])->name('logout');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/', function () {

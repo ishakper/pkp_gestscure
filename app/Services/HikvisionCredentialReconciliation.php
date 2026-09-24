@@ -7,7 +7,6 @@ use App\Models\CredentialReconciliationBatch;
 use App\Models\CredentialReconciliationAudit;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use PhpOffice\PhpSpreadsheet\IOFactory;
 
 class HikvisionCredentialReconciliation
 {
@@ -30,24 +29,70 @@ class HikvisionCredentialReconciliation
     }
 
     /**
-     * Parse workbook and return raw data
+     * Parse workbook using built-in ZipArchive + DOMDocument (no external dependencies)
+     * Handles shared strings properly for modern XLSX format.
      */
     public function parseWorkbook()
     {
-        $spreadsheet = IOFactory::load($this->workbookPath);
-        $sheet = $spreadsheet->getActiveSheet();
-        $data = [];
+        $zip = new \ZipArchive();
+        
+        if ($zip->open($this->workbookPath) !== true) {
+            throw new \Exception("Cannot open workbook as ZIP: " . $this->workbookPath);
+        }
 
-        foreach ($sheet->getIterator() as $row) {
-            $rowData = [];
-            foreach ($row->getCellIterator() as $cell) {
-                $rowData[] = $cell->getValue();
+        // 1. Load shared strings (if present)
+        $sharedStrings = [];
+        $ssXml = $zip->getFromName('xl/sharedStrings.xml');
+        if ($ssXml) {
+            $ssDom = new \DOMDocument();
+            $ssDom->loadXML($ssXml);
+            $ssElements = $ssDom->getElementsByTagName('si');
+            foreach ($ssElements as $si) {
+                $tNode = $si->getElementsByTagName('t')->item(0);
+                $sharedStrings[] = $tNode ? $tNode->textContent : '';
             }
-            if (array_filter($rowData)) { // Skip empty rows
+        }
+
+        // 2. Load sheet1
+        $sheetXml = $zip->getFromName('xl/worksheets/sheet1.xml');
+        if (!$sheetXml) {
+            $zip->close();
+            throw new \Exception("No sheet1.xml found in workbook");
+        }
+
+        $dom = new \DOMDocument();
+        $dom->loadXML($sheetXml);
+        $rows = $dom->getElementsByTagName('row');
+
+        $data = [];
+        foreach ($rows as $rowNode) {
+            $rowData = [];
+            $cells = $rowNode->getElementsByTagName('c');
+            
+            foreach ($cells as $cellNode) {
+                $t = $cellNode->getAttribute('t'); // Cell type: s=shared string, n=number
+                $vNode = $cellNode->getElementsByTagName('v')->item(0);
+                $value = '';
+                
+                if ($t === 's' && $vNode) {
+                    // Shared string reference (index into sharedStrings array)
+                    $idx = intval($vNode->textContent);
+                    $value = $sharedStrings[$idx] ?? '';
+                } elseif ($vNode) {
+                    // Direct value (number, etc.)
+                    $value = $vNode->textContent;
+                }
+                
+                $rowData[] = $value;
+            }
+            
+            // Only include non-empty rows
+            if (array_filter($rowData)) {
                 $data[] = $rowData;
             }
         }
 
+        $zip->close();
         return $data;
     }
 
@@ -73,11 +118,21 @@ class HikvisionCredentialReconciliation
             'records' => []
         ];
 
-        $seenIds = [];
+        $exactIds = [];
+        $foldedIds = [];
         $seenNames = [];
 
+        // Auto-detect header row: skip rows until we find "No", "Employee/Person No", "Display Name"
+        $headerIdx = 0;
         foreach ($rawData as $idx => $row) {
-            if ($idx === 0) continue; // Skip header
+            if (!empty($row[0]) && in_array(trim($row[0]), ['No', 'INDEX'])) {
+                $headerIdx = $idx + 1; // Start processing from next row
+                break;
+            }
+        }
+
+        foreach ($rawData as $idx => $row) {
+            if ($idx < $headerIdx) continue; // Skip everything before data rows
 
             $record = [
                 'no' => $row[0] ?? '',
@@ -97,20 +152,22 @@ class HikvisionCredentialReconciliation
                 continue;
             }
 
-            // Check duplicates
-            if (isset($seenIds[$record['person_no']])) {
+            $personNumber = $record['person_no'];
+            $exactKey = "id\0" . $personNumber;
+            $foldKey = "fold\0" . mb_strtolower($personNumber, 'UTF-8');
+
+            // Check exact duplicates before storing current ID.
+            if (isset($exactIds[$exactKey])) {
                 $validation['exact_duplicate_person_ids']++;
                 continue;
             }
-            $seenIds[$record['person_no']] = true;
-
-            // Check case variants
-            foreach ($seenIds as $id => $val) {
-                if ($id !== $record['person_no'] && strtolower($id) === strtolower($record['person_no'])) {
-                    $validation['case_variant_ids']++;
-                    continue 2;
-                }
+            // Check case-folded collisions without changing original ID value.
+            if (isset($foldedIds[$foldKey])) {
+                $validation['case_variant_ids']++;
+                continue;
             }
+            $exactIds[$exactKey] = true;
+            $foldedIds[$foldKey] = true;
 
             // Check nameless
             if ($record['display_name'] === '-' || empty($record['display_name'])) {
@@ -250,13 +307,15 @@ class HikvisionCredentialReconciliation
                             'credential_status' => $employee->credential_status,
                         ];
 
+                        $cardType = $match['source']['card_registered'] ? ($match['source']['card_type'] ?? 'normalCard') : null;
+
                         $employee->update([
                             'credential_method' => $credential['method'],
                             'credential_status' => $credential['status'],
                             'credential_source' => 'hikvision_backup',
                             'card_registered' => $match['source']['card_registered'],
                             'card_count' => $match['source']['card_count'],
-                            'card_type' => $match['source']['card_type'] ?? null,
+                            'card_type' => $cardType,
                             'source_person_number' => $match['source']['person_no'],
                             'last_reconciled_at' => now(),
                             'reconciliation_batch_id' => $batch->batch_id,
