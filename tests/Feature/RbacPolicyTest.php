@@ -26,7 +26,7 @@ class RbacPolicyTest extends TestCase
         ]);
 
         $doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Gedung B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -51,7 +51,7 @@ class RbacPolicyTest extends TestCase
 
         // Attempting to assign access to Door B (which belongs to Gedung B) should be forbidden 403
         $response = $this->postJson("/api/v1/user-management/employees/{$employeeB->id}/door-access", [
-            'door_id' => 'DOOR-B',
+            'door_id' => $doorB->door_id,
         ]);
 
         $response->assertStatus(403)

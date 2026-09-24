@@ -36,7 +36,7 @@ class HikvisionAlertStreamTest extends TestCase
         HikvisionAlertStreamClient::$streamHandler = null;
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Lab R&D',
             'location' => 'Gedung B Lt 2',
             'device_ip' => '192.168.90.15',

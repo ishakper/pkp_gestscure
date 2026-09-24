@@ -411,7 +411,7 @@ class HikvisionInventoryTest extends TestCase
     {
         Config::set('services.hikvision.use_mock', false);
         $door = $this->door();
-        $otherDoor = Door::create(['door_id' => 'DOOR-A', 'door_name' => 'Door A', 'location' => 'Gedung A', 'device_ip' => '192.168.90.11']);
+        $otherDoor = Door::create(['door_id' => 'DOOR-'.uniqid(), 'door_name' => 'Door A', 'location' => 'Gedung A', 'device_ip' => '192.168.90.11']);
         $employee = Employee::create(['employee_id' => 'EMP-LOCAL', 'hikvision_employee_no' => 'DEVICE-001', 'nik' => 'NIK-1', 'name' => 'Known Employee', 'department' => 'Operations']);
         $this->accessLog($door, 'LOG-1', $employee, 'DEVICE-001', now(), 'Card');
         $this->accessLog($door, 'LOG-2', $employee, 'DEVICE-001', now()->subMinute(), 'Fingerprint');
@@ -529,7 +529,7 @@ class HikvisionInventoryTest extends TestCase
     private function door(): Door
     {
         return Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',

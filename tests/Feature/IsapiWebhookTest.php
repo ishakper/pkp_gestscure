@@ -22,7 +22,7 @@ class IsapiWebhookTest extends TestCase
         parent::setUp();
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -51,7 +51,7 @@ class IsapiWebhookTest extends TestCase
 
         $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'verify_method' => 'Fingerprint',
                 'access_status' => 'Granted',
@@ -79,7 +79,7 @@ class IsapiWebhookTest extends TestCase
 
         Log::shouldHaveReceived('info')
             ->with('[ISAPI Webhook] Access event recorded', \Mockery::on(function (array $context) {
-                return $context['door_id'] === 'DOOR-A'
+                return $context['door_id'] === $this->door->door_id
                     && $context['access_status'] === 'Granted'
                     && !array_key_exists('card_number', $context)
                     && !array_key_exists('authorization', $context);
@@ -96,7 +96,7 @@ class IsapiWebhookTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'card_number' => 'UNKNOWN_CARD_999',
             ], [
                 'X-Device-Secret' => 'secret_door_a_9981',
@@ -126,7 +126,7 @@ class IsapiWebhookTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'invalid_hacker_secret_token',
@@ -143,7 +143,7 @@ class IsapiWebhookTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'secret_door_a_9981',
@@ -159,7 +159,7 @@ class IsapiWebhookTest extends TestCase
     public function test_public_172_address_is_not_trusted_as_proxy(): void
     {
         $this->withServerVariables(['REMOTE_ADDR' => '172.15.0.1'])
-            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+            ->postJson('/api/v1/isapi/event-notification?door_id='.$this->door->door_id, [
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'secret_door_a_9981',
@@ -234,20 +234,21 @@ class IsapiWebhookTest extends TestCase
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
-        $token = $admin->createToken('device-token-DOOR-B', ['device:push-log'])->plainTextToken;
+        $otherDoor = Door::create(['door_id' => 'DOOR-'.uniqid(), 'door_name' => 'Door B', 'location' => 'Gedung B', 'device_ip' => '192.168.90.15']);
+        $token = $admin->createToken('device-token-'.$otherDoor->door_id, ['device:push-log'])->plainTextToken;
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->withToken($token)
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
             ])->assertStatus(403);
     }
 
     public function test_claimed_door_must_match_direct_source_ip(): void
     {
-        Door::create([
-            'door_id' => 'DOOR-B',
+        $doorB = Door::create([
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -255,7 +256,7 @@ class IsapiWebhookTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-B',
+                'door_id' => $doorB->door_id,
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'secret_door_b_9982',
@@ -264,8 +265,8 @@ class IsapiWebhookTest extends TestCase
 
     public function test_door_secret_cannot_authorize_another_door(): void
     {
-        Door::create([
-            'door_id' => 'DOOR-B',
+        $doorB = Door::create([
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -273,7 +274,7 @@ class IsapiWebhookTest extends TestCase
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.15'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-B',
+                'door_id' => $doorB->door_id,
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'secret_door_a_9981',
@@ -449,7 +450,7 @@ XML;
         config(['services.hikvision.allowed_device_ips' => '172.25.0.1']);
 
         $response = $this->withServerVariables(['REMOTE_ADDR' => '172.25.0.1'])
-            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+            ->postJson('/api/v1/isapi/event-notification?door_id='.$this->door->door_id, [
                 'user' => 'NIK-882101',
                 'verify_method' => 'Fingerprint',
                 'access_status' => 'Granted',
@@ -458,7 +459,7 @@ XML;
             ]);
 
         $response->assertStatus(200)
-            ->assertJsonPath('data.door_id', 'DOOR-A');
+            ->assertJsonPath('data.door_id', $this->door->door_id);
     }
 
     /**
@@ -467,7 +468,7 @@ XML;
     public function test_untrusted_source_with_door_id_parameter_rejected(): void
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.5'])
-            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
+            ->postJson('/api/v1/isapi/event-notification?door_id='.$this->door->door_id, [
                 'user' => 'NIK-882101',
             ], [
                 'X-Device-Secret' => 'secret_door_a_9981',
@@ -484,7 +485,7 @@ XML;
         // First request
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'serial_no' => '123456',
                 'event_type' => 'STANDARD_TAP',
@@ -497,7 +498,7 @@ XML;
         // Duplicate request
         $response = $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'serial_no' => '123456',
                 'event_type' => 'STANDARD_TAP',
@@ -516,8 +517,8 @@ XML;
         Log::spy();
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
-            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
-                'door_id' => 'DOOR-A',
+            ->postJson('/api/v1/isapi/event-notification?door_id='.$this->door->door_id, [
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'access_status' => 'Granted',
             ])->assertStatus(200);
@@ -526,7 +527,7 @@ XML;
             ->with('[ISAPI Webhook] Physical device authenticated', \Mockery::on(fn (array $context) =>
                 $context === [
                     'auth_mode' => 'physical_ip_bound',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $this->door->door_id,
                     'ip' => '192.168.90.11',
                 ]
             ))
@@ -537,8 +538,8 @@ XML;
     {
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->withHeader('Authorization', 'Bearer invalid-token')
-            ->postJson('/api/v1/isapi/event-notification?door_id=DOOR-A', [
-                'door_id' => 'DOOR-A',
+            ->postJson('/api/v1/isapi/event-notification?door_id='.$this->door->door_id, [
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
             ])->assertStatus(403);
     }

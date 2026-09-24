@@ -21,9 +21,10 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_door_channel_derived_from_door_config()
     {
-        config(['services.doors.DOOR-A.channel' => 2]);
+        $doorId = 'DOOR-'.uniqid();
+        config(['services.doors.'.$doorId.'.channel' => 2]);
 
-        $door = Door::factory()->state(['door_id' => 'DOOR-A'])->create();
+        $door = Door::factory()->state(['door_id' => $doorId])->create();
 
         $channel = $this->service->getDoorDeviceChannel($door);
 
@@ -32,7 +33,7 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_door_channel_derived_from_door_model_attribute()
     {
-        $door = Door::factory()->create(['door_id' => 'DOOR-B']);
+        $door = Door::factory()->create(['door_id' => 'DOOR-'.uniqid()]);
         // Simulate device_channel attribute if schema is extended
         $door->device_channel = 3;
 
@@ -52,12 +53,13 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_remote_control_uses_derived_channel_in_url()
     {
+        $doorId = 'DOOR-'.uniqid();
         config([
             'services.hikvision.use_mock' => true,
-            'services.doors.DOOR-X.channel' => 4,
+            'services.doors.'.$doorId.'.channel' => 4,
         ]);
 
-        $door = Door::factory()->state(['door_id' => 'DOOR-X'])->create();
+        $door = Door::factory()->state(['door_id' => $doorId])->create();
 
         // Mock remoteControlDoor to capture the URL
         $result = $this->service->remoteControlDoor($door, 'open');

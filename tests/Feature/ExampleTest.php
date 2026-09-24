@@ -25,9 +25,10 @@ class ExampleTest extends TestCase
 
     public function test_authenticated_admin_can_view_dashboard_with_all_sections(): void
     {
+        $email = 'test_'.uniqid().'@accesscontrol.local';
         $admin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => Hash::make('password'),
             'role' => 'super_admin',
         ]);

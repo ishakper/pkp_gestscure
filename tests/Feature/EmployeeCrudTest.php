@@ -14,13 +14,15 @@ class EmployeeCrudTest extends TestCase
     use RefreshDatabase;
 
     protected Admin $admin;
+    protected string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->admin = Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->adminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);

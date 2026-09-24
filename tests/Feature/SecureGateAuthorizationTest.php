@@ -44,7 +44,7 @@ class SecureGateAuthorizationTest extends TestCase
     private function door(): Door
     {
         return Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Restricted Server Room',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',

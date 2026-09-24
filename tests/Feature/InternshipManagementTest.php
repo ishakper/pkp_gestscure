@@ -23,14 +23,16 @@ class InternshipManagementTest extends TestCase
     protected Admin $superAdmin;
     protected Admin $hrdAdmin;
     protected Employee $mentor;
+    protected string $superAdminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->superAdminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->superAdmin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => Hash::make('password'),
             'role' => 'super_admin',
         ]);

@@ -20,6 +20,7 @@ class RemoteUnlockDoorTest extends TestCase
     protected Admin $superAdmin;
     protected Admin $buildingAdmin;
     protected HikvisionIsapiService $service;
+    protected string $superAdminEmail;
 
     protected function setUp(): void
     {
@@ -28,7 +29,7 @@ class RemoteUnlockDoorTest extends TestCase
         $this->service = app(HikvisionIsapiService::class);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Kantor Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -36,16 +37,17 @@ class RemoteUnlockDoorTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Restricted Server Room',
             'location' => 'Gedung B (IT & Infra)',
             'device_ip' => '192.168.90.15',
             'connection_status' => 'online',
         ]);
 
+        $this->superAdminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->superAdmin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);

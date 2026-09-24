@@ -16,7 +16,7 @@ class RegisterHikvisionWebhookCommandTest extends TestCase
         parent::setUp();
 
         Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Pintu Gedung B',
             'door_name' => 'Pintu Gedung B',
             'location' => 'Gedung B (IT & Infra)',

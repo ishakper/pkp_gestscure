@@ -26,7 +26,7 @@ class BuildingFactory extends Factory
     {
         return [
             'code' => fake()->unique()->numerify('BLD-####'),
-            'name' => fake()->word() . ' Building',
+            'name' => fake()->unique()->word() . ' Building ' . uniqid(),
             'description' => fake()->sentence(),
             'is_active' => true,
         ];

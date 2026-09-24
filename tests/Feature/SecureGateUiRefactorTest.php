@@ -44,7 +44,7 @@ class SecureGateUiRefactorTest extends TestCase
     public function test_offline_device_card_disables_unlock_and_keeps_connection_check(): void
     {
         Door::create([
-            'door_id' => 'DOOR-OFF', 'name' => 'Offline Door', 'location' => 'Gedung A',
+            'door_id' => 'DOOR-'.uniqid(), 'name' => 'Offline Door', 'location' => 'Gedung A',
             'device_ip' => '192.168.90.99', 'device_model' => 'DS-K1T804AMF',
             'status' => 'offline', 'connection_status' => 'offline',
         ]);

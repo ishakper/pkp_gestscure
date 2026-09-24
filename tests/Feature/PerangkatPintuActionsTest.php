@@ -48,7 +48,7 @@ class PerangkatPintuActionsTest extends TestCase
         ]);
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Door B - Server Room',
             'door_name' => 'Door B - Server Room',
             'location' => $this->building->name,
@@ -64,7 +64,7 @@ class PerangkatPintuActionsTest extends TestCase
     public function test_admin_can_update_door_configuration_and_audit_trail_is_logged(): void
     {
         $response = $this->actingAs($this->superAdmin)->putJson("/api/v1/admin/doors/{$this->door->door_id}", [
-            'door_id' => 'DOOR-B',
+            'door_id' => $this->door->door_id,
             'name' => 'Door B - Updated Main Server',
             'building_id' => $this->building->id,
             'device_ip' => '192.168.90.15',

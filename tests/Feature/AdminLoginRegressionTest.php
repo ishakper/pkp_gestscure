@@ -11,13 +11,16 @@ class AdminLoginRegressionTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $superAdminEmail;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         // Seed demo admin accounts for testing
+        $this->superAdminEmail = 'test_'.uniqid().'@accesscontrol.local';
         Admin::create([
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'name' => 'Super Administrator',
             'password' => Hash::make('password'),
             'role' => 'super_admin',
@@ -36,13 +39,13 @@ class AdminLoginRegressionTest extends TestCase
     public function test_valid_super_admin_login()
     {
         $response = $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => 'password',
         ]);
 
         $response->assertRedirect('/');
         $this->assertAuthenticatedAs(
-            Admin::where('email', 'admin@accesscontrol.local')->first(),
+            Admin::where('email', $this->superAdminEmail)->first(),
             'web'
         );
     }
@@ -64,7 +67,7 @@ class AdminLoginRegressionTest extends TestCase
     public function test_invalid_password_rejected()
     {
         $response = $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => 'wrongpassword',
         ]);
 
@@ -89,7 +92,7 @@ class AdminLoginRegressionTest extends TestCase
     {
         // Test with wrong password
         $response = $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => 'wrong',
         ]);
 
@@ -105,7 +108,7 @@ class AdminLoginRegressionTest extends TestCase
     public function test_session_regenerated_after_login()
     {
         $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => 'password',
         ]);
 
@@ -120,11 +123,11 @@ class AdminLoginRegressionTest extends TestCase
     public function test_api_token_created_on_login()
     {
         $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => 'password',
         ]);
 
-        $admin = Admin::where('email', 'admin@accesscontrol.local')->first();
+        $admin = Admin::where('email', $this->superAdminEmail)->first();
         $this->assertTrue($admin->tokens()->exists());
         $this->assertTrue($admin->tokens()->where('name', 'web-session-token')->exists());
     }
@@ -141,7 +144,7 @@ class AdminLoginRegressionTest extends TestCase
     public function test_missing_password_validation_fails()
     {
         $response = $this->post('/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
         ]);
 
         $response->assertSessionHasErrors(['password']);
@@ -149,7 +152,7 @@ class AdminLoginRegressionTest extends TestCase
 
     public function test_authenticated_admin_cannot_access_login_page()
     {
-        $admin = Admin::where('email', 'admin@accesscontrol.local')->first();
+        $admin = Admin::where('email', $this->superAdminEmail)->first();
         $this->actingAs($admin, 'web');
 
         $response = $this->get('/login');
@@ -164,7 +167,7 @@ class AdminLoginRegressionTest extends TestCase
 
     public function test_logout_clears_session_and_tokens()
     {
-        $admin = Admin::where('email', 'admin@accesscontrol.local')->first();
+        $admin = Admin::where('email', $this->superAdminEmail)->first();
         $this->actingAs($admin, 'web');
 
         // Create a token in session

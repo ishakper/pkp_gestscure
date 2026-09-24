@@ -55,7 +55,7 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
     public function test_infra_can_register_building_and_door_without_mutating_existing_door_b(): void
     {
         $existing = Door::create([
-            'door_id' => 'DOOR-B', 'name' => 'Stable Door B', 'location' => 'Gedung Lama',
+            'door_id' => 'DOOR-'.uniqid(), 'name' => 'Stable Door B', 'location' => 'Gedung Lama',
             'device_ip' => '192.168.90.12', 'device_model' => 'DS-K1T804AMF',
             'status' => 'online', 'connection_status' => 'online',
         ]);
@@ -78,7 +78,7 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
             ->assertJsonPath('data.building_name', 'Gedung Baru')
             ->assertJsonPath('data.connection_status', 'offline');
 
-        $this->assertDatabaseHas('doors', ['door_id' => 'DOOR-B', 'id' => $existing->id, 'device_ip' => '192.168.90.12', 'connection_status' => 'online']);
+        $this->assertDatabaseHas('doors', ['door_id' => $existing->door_id, 'id' => $existing->id, 'device_ip' => '192.168.90.12', 'connection_status' => 'online']);
     }
 
     public function test_management_cannot_change_facility_configuration(): void
@@ -93,10 +93,10 @@ class AttendanceReportingAndFacilityConfigurationTest extends TestCase
     {
         $building = Building::create(['code' => 'BLD-A', 'name' => 'Gedung A', 'is_active' => true]);
         $zone = $building->zones()->create(['code' => 'ZN-A', 'name' => 'Zone A', 'is_active' => true]);
-        Door::create(['door_id' => 'DOOR-A', 'name' => 'Door A', 'building_id' => $building->id, 'zone_id' => $zone->id, 'location' => $building->name, 'device_ip' => '192.168.90.21']);
+        $door = Door::create(['door_id' => 'DOOR-'.uniqid(), 'name' => 'Door A', 'building_id' => $building->id, 'zone_id' => $zone->id, 'location' => $building->name, 'device_ip' => '192.168.90.21']);
 
         $this->actingAs($this->admin('management'))->getJson('/api/v1/admin/buildings')
-            ->assertOk()->assertJsonPath('data.0.zones.0.doors.0.door_id', 'DOOR-A');
+            ->assertOk()->assertJsonPath('data.0.zones.0.doors.0.door_id', $door->door_id);
     }
 
     public function test_zone_code_is_normalized_before_duplicate_validation(): void

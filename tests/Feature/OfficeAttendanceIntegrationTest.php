@@ -17,6 +17,8 @@ class OfficeAttendanceIntegrationTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected Door $door;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -32,7 +34,7 @@ class OfficeAttendanceIntegrationTest extends TestCase
                 'is_working_day' => true, 'work_start' => '08:00:00', 'work_end' => '17:00:00',
             ]);
         }
-        Door::create(['door_id' => 'DOOR-TEST', 'name' => 'Main Door', 'device_ip' => '192.168.1.100', 'location' => 'Main Entrance']);
+        $this->door = Door::create(['door_id' => 'DOOR-'.uniqid(), 'name' => 'Main Door', 'device_ip' => '192.168.1.100', 'location' => 'Main Entrance']);
     }
 
     private function employee(): Employee
@@ -49,7 +51,7 @@ class OfficeAttendanceIntegrationTest extends TestCase
         if ($employeeNo !== null) $event['employeeNoString'] = $employeeNo;
 
         $this->postJson('/api/v1/isapi/event-notification', [
-            'door_id' => 'DOOR-TEST',
+            'door_id' => $this->door->door_id,
             'AccessControllerEvent' => $event,
             'dateTime' => $at->toIso8601String(), 'ipAddress' => '192.168.1.100',
         ], [

@@ -16,13 +16,14 @@ class HardwareEventSimulationTest extends TestCase
     protected Door $door;
     protected Employee $employee;
     protected Admin $admin;
+    protected string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -38,9 +39,10 @@ class HardwareEventSimulationTest extends TestCase
             'department' => 'IT Support',
         ]);
 
+        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->admin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->adminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
@@ -53,7 +55,7 @@ class HardwareEventSimulationTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'event_type' => 'DOOR_FORCED_OPEN',
                 'verify_method' => 'Sensor',
                 'access_status' => 'Alarm',
@@ -66,7 +68,7 @@ class HardwareEventSimulationTest extends TestCase
                 'status' => 'success',
                 'data' => [
                     'event_type' => 'DOOR_FORCED_OPEN',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $this->door->door_id,
                     'access_status' => 'Alarm',
                 ],
             ]);
@@ -86,7 +88,7 @@ class HardwareEventSimulationTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'event_type' => 'TAMPER_ALARM',
                 'verify_method' => 'Sensor',
                 'access_status' => 'Alarm',
@@ -99,7 +101,7 @@ class HardwareEventSimulationTest extends TestCase
                 'status' => 'success',
                 'data' => [
                     'event_type' => 'TAMPER_ALARM',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $this->door->door_id,
                     'access_status' => 'Alarm',
                 ],
             ]);
@@ -118,7 +120,7 @@ class HardwareEventSimulationTest extends TestCase
     {
         $response = $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'event_type' => 'DURESS_FINGERPRINT',
                 'verify_method' => 'Duress_Fingerprint',
@@ -132,7 +134,7 @@ class HardwareEventSimulationTest extends TestCase
                 'status' => 'success',
                 'data' => [
                     'event_type' => 'DURESS_FINGERPRINT',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $this->door->door_id,
                     'employee_name' => 'Budi Santoso',
                     'access_status' => 'Duress',
                 ],

@@ -19,20 +19,22 @@ class DashboardIntegrationTest extends TestCase
     protected Admin $admin;
     protected Door $doorA;
     protected Employee $employee;
+    protected string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
 
+        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->admin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->adminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',

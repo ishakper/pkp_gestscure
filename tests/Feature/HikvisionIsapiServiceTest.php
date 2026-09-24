@@ -23,7 +23,7 @@ class HikvisionIsapiServiceTest extends TestCase
         $this->service = new HikvisionIsapiService();
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -494,10 +494,11 @@ XML;
      */
     public function test_credentials_resolved_from_config_per_door(): void
     {
-        Config::set('services.doors.DOOR-B.username', 'admin_door_b');
-        Config::set('services.doors.DOOR-B.password', 'CustomPassDoorB123');
+        $doorId = 'DOOR-'.uniqid();
+        Config::set('services.doors.'.$doorId.'.username', 'admin_door_b');
+        Config::set('services.doors.'.$doorId.'.password', 'CustomPassDoorB123');
 
-        $doorB = new Door(['door_id' => 'DOOR-B', 'device_ip' => '192.168.90.15']);
+        $doorB = new Door(['door_id' => $doorId, 'device_ip' => '192.168.90.15']);
         $creds = $this->service->getDeviceCredentials($doorB);
 
         $this->assertEquals('admin_door_b', $creds['username']);
@@ -514,10 +515,11 @@ XML;
      */
     public function test_device_host_and_port_resolved_from_config(): void
     {
-        Config::set('services.doors.DOOR-C.ip', '192.168.90.13');
+        $doorId = 'DOOR-'.uniqid();
+        Config::set('services.doors.'.$doorId.'.ip', '192.168.90.13');
         Config::set('services.hikvision.port', 8088);
 
-        $doorC = new Door(['door_id' => 'DOOR-C']);
+        $doorC = new Door(['door_id' => $doorId]);
         $hostPort = $this->service->getDeviceHostAndPort($doorC);
 
         $this->assertEquals('192.168.90.13', $hostPort['host']);
@@ -526,13 +528,14 @@ XML;
 
     public function test_real_mode_fails_closed_when_credentials_are_missing(): void
     {
+        $doorId = 'DOOR-'.uniqid();
         Config::set('services.hikvision.use_mock', false);
-        Config::set('services.doors.DOOR-B.username', null);
-        Config::set('services.doors.DOOR-B.password', null);
+        Config::set('services.doors.'.$doorId.'.username', null);
+        Config::set('services.doors.'.$doorId.'.password', null);
         Config::set('services.hikvision.username', null);
         Config::set('services.hikvision.password', null);
 
         $this->expectException(\RuntimeException::class);
         $this->expectExceptionMessage('Hikvision credentials are not configured');
-        $this->service->getDeviceCredentials(new Door(['door_id' => 'DOOR-B']));
+        $this->service->getDeviceCredentials(new Door(['door_id' => $doorId]));
     }}
