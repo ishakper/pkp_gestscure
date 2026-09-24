@@ -183,11 +183,11 @@ class HikvisionIsapiService
                 $jsonResponse = $mockController->deviceStatus();
                 $data = $jsonResponse->getData(true) ?? [];
 
-                // Normalize model, serialNumber, firmware, and doorStatus
-                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
-                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'DS-K1T804AMF20260901');
-                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.2.3');
-                $data['doorStatus'] = $data['doorStatus'] ?? ($data['DeviceStatus']['doorStatus'] ?? 'closed');
+                // Normalize model, serialNumber, firmware, and doorStatus (with null safety)
+                $data['model'] = $data['model'] ?? (isset($data['DeviceInfo']) && is_array($data['DeviceInfo']) ? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF') : 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? (isset($data['DeviceInfo']) && is_array($data['DeviceInfo']) ? ($data['DeviceInfo']['serialNumber'] ?? 'DS-K1T804AMF20260901') : 'DS-K1T804AMF20260901');
+                $data['firmware'] = $data['firmware'] ?? (isset($data['DeviceInfo']) && is_array($data['DeviceInfo']) ? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.2.3') : 'V1.2.3');
+                $data['doorStatus'] = $data['doorStatus'] ?? (isset($data['DeviceStatus']) && is_array($data['DeviceStatus']) ? ($data['DeviceStatus']['doorStatus'] ?? 'closed') : 'closed');
                 $data['online'] = true;
 
                 return [
@@ -234,11 +234,11 @@ class HikvisionIsapiService
                     $data = $response->json() ?? [];
                 }
 
-                // Map model, serialNumber, firmware, and doorStatus cleanly
+                // Map model, serialNumber, firmware, and doorStatus cleanly (with null safety)
                 $model = $data['model'] ?? ($data['deviceModel'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'));
                 $serialNumber = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? null);
                 $firmware = $data['firmwareVersion'] ?? ($data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? null));
-                $doorStatus = $data['doorStatus'] ?? ($data['DeviceStatus']['doorStatus'] ?? 'closed');
+                $doorStatus = $data['doorStatus'] ?? (isset($data['DeviceStatus']) && is_array($data['DeviceStatus']) ? ($data['DeviceStatus']['doorStatus'] ?? 'closed') : 'closed');
 
                 $data['model'] = $model;
                 $data['serialNumber'] = $serialNumber;
