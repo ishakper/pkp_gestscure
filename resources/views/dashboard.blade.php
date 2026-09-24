@@ -1353,6 +1353,36 @@
         .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
         .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
+        .table-container:has(> .employee-pagination) {
+            min-height: 680px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .table-container:has(> .employee-pagination) > table {
+            flex: 1 0 auto;
+            transition: opacity 180ms ease;
+        }
+
+        .table-container.employee-table-loading > table {
+            opacity: 0.55;
+        }
+
+        .employee-pagination {
+            position: sticky;
+            bottom: 0;
+            z-index: 3;
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            background: rgba(15, 23, 42, 0.98);
+        }
+
+        .badge-fingerprint-expected {
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.35);
+        }
+
         /* === PAGINATION RESPONSIVE & ACCESSIBILITY === */
         .pagination-container {
             display: block;
@@ -1638,7 +1668,7 @@
         <div class="metric-card">
             <div class="metric-icon-box icon-indigo">💳</div>
             <div>
-                <div class="metric-label">Terdaftar</div>
+                <div class="metric-label">Terdaftar di Perangkat</div>
                 <div class="metric-value" id="metricRegisteredCredentials">-</div>
             </div>
         </div>

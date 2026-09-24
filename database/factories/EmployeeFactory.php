@@ -32,11 +32,4 @@ class EmployeeFactory extends Factory
             'fingerprint_verified' => false,
         ];
     }
-
-    public function withoutEmploymentStatus(): static
-    {
-        return $this->state(fn (array $attributes) => [
-            'employment_status' => 'ACTIVE', // Force to ACTIVE if nullable
-        ]);
-    }
 }
