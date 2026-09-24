@@ -110,7 +110,7 @@ class BiometricUserProvisioningTest extends TestCase
         ]);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Pintu Utama (DOOR-A)',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -119,7 +119,7 @@ class BiometricUserProvisioningTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Ruang Server (DOOR-B)',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.12',

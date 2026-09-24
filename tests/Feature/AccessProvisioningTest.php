@@ -31,7 +31,7 @@ class AccessProvisioningTest extends TestCase
         parent::setUp();
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Pintu Lobby Utama',
             'door_name' => 'Pintu Lobby Utama',
             'location' => 'Kantor Pusat PKP',
@@ -41,7 +41,7 @@ class AccessProvisioningTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Pintu Server Room',
             'door_name' => 'Pintu Server Room',
             'location' => 'Kantor Pusat PKP',
@@ -51,7 +51,7 @@ class AccessProvisioningTest extends TestCase
         ]);
 
         $this->doorC = Door::create([
-            'door_id' => 'DOOR-C',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Pintu Cabang Surabaya',
             'door_name' => 'Pintu Cabang Surabaya',
             'location' => 'Gedung Cabang Surabaya',
@@ -87,7 +87,7 @@ class AccessProvisioningTest extends TestCase
             'name' => 'Akses Ruang Keuangan Terbatas',
             'description' => 'Akses staf finance ke brankas',
             'building_name' => 'Kantor Pusat PKP',
-            'allowed_doors' => ['DOOR-A', 'DOOR-B'],
+            'allowed_doors' => [$this->doorA->door_id, $this->doorB->door_id],
             'schedule_type' => 'BUSINESS_HOURS',
             'start_time' => '08:00',
             'end_time' => '17:00',
@@ -170,7 +170,7 @@ class AccessProvisioningTest extends TestCase
             'request_number' => 'REQ-2026-0001',
             'employee_id' => $employee->id,
             'building_name' => 'Kantor Pusat PKP',
-            'specific_doors' => ['DOOR-A', 'DOOR-B'],
+            'specific_doors' => [$this->doorA->door_id, $this->doorB->door_id],
             'business_reason' => 'Perawatan jaringan server',
             'status' => 'PENDING_APPROVAL',
             'valid_from' => Carbon::today()->toDateString(),

@@ -16,13 +16,15 @@ class DoorAccessSyncTest extends TestCase
     use RefreshDatabase;
 
     protected Admin $admin;
+    protected string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->admin = Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->adminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
@@ -41,7 +43,7 @@ class DoorAccessSyncTest extends TestCase
         ]);
 
         $door = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -50,7 +52,7 @@ class DoorAccessSyncTest extends TestCase
         ]);
 
         $response = $this->postJson("/api/v1/user-management/employees/{$employee->id}/door-access", [
-            'door_id' => 'DOOR-A',
+            'door_id' => $door->door_id,
         ]);
 
         $response->assertStatus(200)
@@ -58,7 +60,7 @@ class DoorAccessSyncTest extends TestCase
                 'status' => 'success',
                 'data' => [
                     'employee_id' => 'USR-1001',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $door->door_id,
                     'sync_status' => 'pending',
                 ],
             ]);
@@ -85,7 +87,7 @@ class DoorAccessSyncTest extends TestCase
         ]);
 
         $doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -94,7 +96,7 @@ class DoorAccessSyncTest extends TestCase
         ]);
 
         $doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Ruang Server',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -111,9 +113,9 @@ class DoorAccessSyncTest extends TestCase
 
         $response = $this->postJson('/api/v1/user-management/bulk-access', [
             'changes' => [
-                ['employee_id' => $emp1->employee_id, 'door_id' => 'DOOR-A', 'action' => 'grant'],
-                ['employee_id' => $emp2->employee_id, 'door_id' => 'DOOR-B', 'action' => 'grant'],
-                ['employee_id' => $emp1->employee_id, 'door_id' => 'DOOR-B', 'action' => 'revoke'],
+                ['employee_id' => $emp1->employee_id, 'door_id' => $doorA->door_id, 'action' => 'grant'],
+                ['employee_id' => $emp2->employee_id, 'door_id' => $doorB->door_id, 'action' => 'grant'],
+                ['employee_id' => $emp1->employee_id, 'door_id' => $doorB->door_id, 'action' => 'revoke'],
             ],
         ]);
 

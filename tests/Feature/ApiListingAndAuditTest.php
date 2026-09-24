@@ -30,7 +30,7 @@ class ApiListingAndAuditTest extends TestCase
 
         $this->admin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => 'test_'.uniqid().'@accesscontrol.local',
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
@@ -38,7 +38,7 @@ class ApiListingAndAuditTest extends TestCase
         Sanctum::actingAs($this->admin);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Door A - Kantor Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -46,7 +46,7 @@ class ApiListingAndAuditTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Door B - Server Room',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -54,7 +54,7 @@ class ApiListingAndAuditTest extends TestCase
         ]);
 
         $this->doorC = Door::create([
-            'door_id' => 'DOOR-C',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Door C - Lapangan',
             'location' => 'Gedung C',
             'device_ip' => '192.168.90.13',
@@ -62,7 +62,7 @@ class ApiListingAndAuditTest extends TestCase
         ]);
 
         $this->doorD = Door::create([
-            'door_id' => 'DOOR-D',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Door D - Pabrik',
             'location' => 'Gedung D',
             'device_ip' => '192.168.90.14',
@@ -192,11 +192,11 @@ class ApiListingAndAuditTest extends TestCase
                 ]
             ]);
 
-        $doorAData = collect($response->json('data'))->firstWhere('door_id', 'DOOR-A');
+        $doorAData = collect($response->json('data'))->firstWhere('door_id', $this->doorA->door_id);
         $this->assertEquals(1, $doorAData['total_assigned_users']);
         $this->assertEquals('online', $doorAData['connection_status']);
 
-        $doorCData = collect($response->json('data'))->firstWhere('door_id', 'DOOR-C');
+        $doorCData = collect($response->json('data'))->firstWhere('door_id', $this->doorC->door_id);
         $this->assertEquals(0, $doorCData['total_assigned_users']);
         $this->assertEquals('offline', $doorCData['connection_status']);
     }
@@ -242,14 +242,14 @@ class ApiListingAndAuditTest extends TestCase
 
         $response = $this->postJson('/api/v1/user-management/assign-doors', [
             'employee_id' => $emp->id,
-            'door_id' => 'DOOR-C',
+            'door_id' => $this->doorC->door_id,
         ]);
 
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
                 'data' => [
-                    'door_id' => 'DOOR-C',
+                    'door_id' => $this->doorC->door_id,
                     'sync_status' => 'pending',
                 ],
             ]);

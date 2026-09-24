@@ -220,7 +220,7 @@ class WorkbookCandidateImportTest extends TestCase
         ]);
 
         $door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Ruang Staff',
             'location' => 'Lantai 1 Kantor Pusat',
             'ip_address' => '192.168.90.15',

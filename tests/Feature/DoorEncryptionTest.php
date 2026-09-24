@@ -16,7 +16,7 @@ class DoorEncryptionTest extends TestCase
     private function createBaseDoor(array $attributes = []): Door
     {
         return Door::create(array_merge([
-            'door_id' => 'DOOR-ENC-01',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Secure Server Room Door',
             'location' => 'Gedung Server Lt 1',
             'device_ip' => '192.168.90.100',

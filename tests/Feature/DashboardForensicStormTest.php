@@ -133,7 +133,7 @@ class DashboardForensicStormTest extends TestCase
         ]);
 
         Door::create([
-            'door_id' => 'DOOR-TEST-1',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Main Test Door',
             'location' => 'Gedung A',
             'device_ip' => '192.168.1.50',

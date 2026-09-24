@@ -65,9 +65,10 @@ class DeviceOnboardingTest extends TestCase
     {
         $admin = $this->createAdmin('super_admin');
         $building = Building::create(['code' => 'BLD-TEST', 'name' => 'Gedung Test R&D', 'is_active' => true]);
+        $uniqueDoorId = 'DOOR-'.uniqid();
 
         $response = $this->actingAs($admin)->postJson('/api/v1/admin/doors/onboard', [
-            'door_id' => 'DOOR-005',
+            'door_id' => $uniqueDoorId,
             'name' => 'Pintu Lab R&D Lt 2',
             'building_id' => $building->id,
             'floor_id' => 2,
@@ -84,14 +85,14 @@ class DeviceOnboardingTest extends TestCase
             ->assertJsonMissing(['isapi_password']);
 
         // Assert database record exists
-        $door = Door::where('door_id', 'DOOR-005')->firstOrFail();
+        $door = Door::where('door_id', $uniqueDoorId)->firstOrFail();
         $this->assertEquals('Pintu Lab R&D Lt 2', $door->name);
         $this->assertEquals('192.168.90.20', $door->device_ip);
         $this->assertEquals('admin', $door->isapi_username);
         $this->assertEquals('online', $door->connection_status);
 
         // Assert password is encrypted in raw database, but transparently decrypted via model cast
-        $rawCiphertext = \Illuminate\Support\Facades\DB::table('doors')->where('door_id', 'DOOR-005')->value('isapi_password');
+        $rawCiphertext = \Illuminate\Support\Facades\DB::table('doors')->where('door_id', $uniqueDoorId)->value('isapi_password');
         $this->assertNotEmpty($rawCiphertext);
         $this->assertNotEquals('SuperSecretPass123!', $rawCiphertext);
         $this->assertEquals('SuperSecretPass123!', Crypt::decryptString($rawCiphertext));

@@ -40,12 +40,22 @@ class SecurityHardeningTest extends TestCase
         $admin = $this->admin('infra_admin', 'Gedung A');
         Sanctum::actingAs($admin);
         $employee = $this->employee();
-        $this->door('DOOR-A', 'Gedung A');
-        $this->door('DOOR-B', 'Gedung B');
+        $doorA = Door::create([
+            'door_id' => 'DOOR-'.uniqid(),
+            'door_name' => 'Door A',
+            'location' => 'Gedung A',
+            'device_ip' => '192.168.90.11',
+        ]);
+        $doorB = Door::create([
+            'door_id' => 'DOOR-'.uniqid(),
+            'door_name' => 'Door B',
+            'location' => 'Gedung B',
+            'device_ip' => '192.168.90.15',
+        ]);
 
         $this->postJson('/api/v1/user-management/assign-doors', [
             'employee_id' => $employee->id,
-            'door_ids' => ['DOOR-A', 'DOOR-B'],
+            'door_ids' => [$doorA->door_id, $doorB->door_id],
         ])->assertForbidden();
 
         $this->assertSame(0, DoorAssignment::count());
@@ -57,11 +67,16 @@ class SecurityHardeningTest extends TestCase
         Queue::fake();
         Sanctum::actingAs($this->admin('super_admin'));
         $employee = $this->employee();
-        $this->door('DOOR-A', 'Gedung A');
+        $doorA = Door::create([
+            'door_id' => 'DOOR-'.uniqid(),
+            'door_name' => 'Door A',
+            'location' => 'Gedung A',
+            'device_ip' => '192.168.90.11',
+        ]);
 
         $this->postJson('/api/v1/user-management/assign-doors', [
             'employee_id' => $employee->id,
-            'door_id' => 'DOOR-A',
+            'door_id' => $doorA->door_id,
         ])->assertOk();
 
         $this->assertSame(1, DoorAssignment::count());
@@ -89,13 +104,5 @@ class SecurityHardeningTest extends TestCase
         ]);
     }
 
-    private function door(string $id, string $location): Door
-    {
-        return Door::create([
-            'door_id' => $id,
-            'door_name' => $id,
-            'location' => $location,
-            'device_ip' => $id === 'DOOR-B' ? '192.168.90.15' : '192.168.90.11',
-        ]);
-    }
+    // door() helper removed - create doors directly in tests with unique IDs
 }

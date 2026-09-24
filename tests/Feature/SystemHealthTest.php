@@ -151,10 +151,10 @@ class SystemHealthTest extends TestCase
         $employee = Employee::create(['employee_id' => 'EMP-A', 'nik' => 'NIK-A', 'name' => 'Admin A', 'department' => 'Ops', 'building_id' => $buildingA->id]);
         $admin = $this->admin('building_admin');
         $admin->update(['employee_id' => $employee->id, 'assigned_building' => 'Gedung A']);
-        $this->door(['door_id' => 'DOOR-B', 'building_id' => $buildingA->id, 'location' => 'Renamed Location', 'connection_status' => 'online', 'last_checked_at' => now()]);
-        $this->door(['door_id' => 'LEGACY-A', 'building_id' => null, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
-        $this->door(['door_id' => 'WRONG-CANONICAL', 'building_id' => $buildingB->id, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
-        $this->door(['door_id' => 'LEGACY-B', 'building_id' => null, 'location' => 'Gedung B', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['building_id' => $buildingA->id, 'location' => 'Renamed Location', 'connection_status' => 'online', 'last_checked_at' => now()]);
+        $this->door(['building_id' => null, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['building_id' => $buildingB->id, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
+        $this->door(['building_id' => null, 'location' => 'Gedung B', 'connection_status' => 'offline', 'last_checked_at' => now()]);
 
         $response = $this->actingAs($admin)->getJson('/api/v1/admin/system-health')
             ->assertOk()
@@ -178,7 +178,7 @@ class SystemHealthTest extends TestCase
     private function door(array $overrides = []): Door
     {
         return Door::create(array_merge([
-            'door_id' => 'DOOR-B', 'name' => 'Door B', 'location' => 'Gedung B',
+            'door_id' => $overrides['door_id'] ?? 'DOOR-'.uniqid(), 'name' => 'Door B', 'location' => 'Gedung B',
             'device_ip' => '192.168.90.15', 'status' => 'offline', 'connection_status' => 'offline',
         ], $overrides));
     }
