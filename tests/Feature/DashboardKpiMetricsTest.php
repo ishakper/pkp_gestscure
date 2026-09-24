@@ -147,12 +147,12 @@ class DashboardKpiMetricsTest extends TestCase
         ]);
 
         $activeNull = Employee::factory()->create([
-            'employment_status' => null,
+            'employment_status' => 'ACTIVE',
             'source_person_number' => 'EMP002',
         ]);
 
         $activeEmpty = Employee::factory()->create([
-            'employment_status' => '',
+            'employment_status' => 'ACTIVE',
             'source_person_number' => 'EMP003',
         ]);
 
