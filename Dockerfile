@@ -63,7 +63,6 @@ RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interactio
 
 # 5. Copy Application Source Code
 COPY . .
-RUN rm -rf tests
 
 # 6. Copy Configurations (Nginx, Supervisor, PHP, Entrypoint)
 COPY docker/nginx.conf /etc/nginx/http.d/default.conf
