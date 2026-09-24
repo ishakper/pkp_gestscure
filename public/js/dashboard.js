@@ -14,6 +14,8 @@ let APP_TOKEN = window.APP_CONFIG?.apiToken || '';
 // State Cache
 let state = {
     doors: [],
+    allDoors: [], // every door the API returned; state.doors is the subset in the selected building
+    buildingFilter: '', // '' = Semua Gedung, otherwise a building id (see "Dashboard building scope")
     doorsLookup: [],
     employees: [],
     accessLogs: [],
@@ -262,10 +264,15 @@ async function updateMetricCards() {
 
     try {
         const canViewAttendance = hasCapability('attendance.view');
+        const scope = state.buildingFilter;
+        const metricsRequest = scope
+            ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
+            : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
         const [res, attendance] = await Promise.all([
-            apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null),
+            metricsRequest,
             canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
         ]);
+        if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
         if (res && res.status === 'success') {
             const data = res.data;
@@ -317,7 +324,8 @@ async function loadDoors() {
     try {
         const res = await apiFetch('/admin/doors');
         if (res.status === 'success') {
-            state.doors = res.data;
+            state.allDoors = res.data;
+            state.doors = doorsInBuildingScope(state.allDoors);
             renderDoorCards(state.doors);
             refreshDoorFilters(state.doors);
             scheduleMetricCardsUpdate();
@@ -326,6 +334,102 @@ async function loadDoors() {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
         if (overviewGrid) overviewGrid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
     }
+}
+
+// ==========================================
+// Dashboard building scope (Semua Gedung / Gedung A / B / C / D)
+// One selector in the top bar scopes the KPI cards, door cards, access log and user list.
+// Frontend only: it reuses filters the API already has (building_id on employees, door_id on
+// access logs, building_id on doors) because /admin/dashboard-metrics has no building parameter.
+// ==========================================
+const BUILDING_FILTER_KEY = 'pkp_dashboard_building';
+
+function restoreBuildingFilter() {
+    try { state.buildingFilter = localStorage.getItem(BUILDING_FILTER_KEY) || ''; } catch (_) { state.buildingFilter = ''; }
+}
+
+function doorsInBuildingScope(doors) {
+    if (!state.buildingFilter) return doors;
+    return (doors || []).filter(door => String(door.building_id) === String(state.buildingFilter));
+}
+
+async function loadDashboardBuildings() {
+    const select = document.getElementById('dashboardBuildingFilter');
+    if (!select) return;
+    try {
+        const res = await apiFetch('/user-management/organization/lookup');
+        const buildings = res.data?.buildings || [];
+        if (buildings.length <= 1) {
+            // A building admin: the backend already limits every endpoint to their building.
+            select.innerHTML = `<option value="">🏢 ${escapeHtml(buildings[0]?.name || 'Gedung Anda')}</option>`;
+            select.disabled = true;
+            select.title = 'Akses Anda dibatasi ke satu gedung.';
+            if (state.buildingFilter) { state.buildingFilter = ''; refreshDashboardScope(); }
+            return;
+        }
+        select.innerHTML = '<option value="">🏢 Semua Gedung</option>'
+            + buildings.map(building => `<option value="${building.id}">${escapeHtml(building.name)}</option>`).join('');
+        if (state.buildingFilter && !buildings.some(building => String(building.id) === String(state.buildingFilter))) {
+            state.buildingFilter = ''; // the saved building no longer exists
+            refreshDashboardScope();
+        }
+        select.value = state.buildingFilter;
+    } catch (_) {
+        select.disabled = true; // lookup unavailable: keep "Semua Gedung" behaviour
+    }
+}
+
+function onDashboardBuildingChange(value) {
+    state.buildingFilter = value || '';
+    try { localStorage.setItem(BUILDING_FILTER_KEY, state.buildingFilter); } catch (_) { /* storage unavailable: selection just isn't remembered */ }
+    refreshDashboardScope();
+}
+
+function refreshDashboardScope() {
+    state.doors = doorsInBuildingScope(state.allDoors);
+    renderDoorCards(state.doors);
+    refreshDoorFilters(state.doors);
+    loadEmployees(1);
+    loadAccessLogs();
+    scheduleMetricCardsUpdate(true);
+}
+
+async function fetchTotalRecords(url) {
+    const res = await apiFetch(url, { isBackground: true });
+    return Number(res.pagination?.total_records ?? 0);
+}
+
+// KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
+async function buildingMetrics(buildingId) {
+    const doors = doorsInBuildingScope(state.allDoors);
+    const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
+    const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
+        fetchTotalRecords(`${base}&per_page=1`),
+        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`),
+        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
+        fetchEmployeesForBuilding(buildingId),
+    ]);
+    const registered = employees.filter(emp =>
+        emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
+        || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
+    return {
+        totalUsers,
+        activeEmployees: activeUsers === 0 && totalUsers > 0 ? totalUsers : activeUsers,
+        registeredCredentials: registered,
+        activeDoors: doors.filter(door => door.connection_status === 'online').length,
+        totalDoors: doors.length,
+        deniedLogs: deniedPerDoor.reduce((sum, count) => sum + count, 0),
+    };
+}
+
+async function fetchEmployeesForBuilding(buildingId) {
+    const all = [];
+    for (let page = 1; page <= 5; page++) { // 5 x 100 employees per building is a safe upper bound
+        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
+        all.push(...(res.data || []));
+        if (page >= Number(res.pagination?.total_pages || 1)) break;
+    }
+    return all;
 }
 
 function refreshDoorFilters(doors) {
@@ -637,6 +741,7 @@ async function loadEmployees(page = state.employeePage) {
 
     try {
         let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
+        if (state.buildingFilter) url += `&building_id=${encodeURIComponent(state.buildingFilter)}`;
         if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
@@ -1100,18 +1205,33 @@ async function loadAccessLogs() {
     }
 
     try {
-        let url = `/admin/access-logs?limit=40`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
-        if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
-        if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
-        if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
-        if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
-        if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+        const buildUrl = doorId => {
+            let url = `/admin/access-logs?limit=40`;
+            if (doorId) url += `&door_id=${encodeURIComponent(doorId)}`;
+            if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+            if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
+            if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
+            if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+            if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+            return url;
+        };
 
-        const res = await apiFetch(url);
+        let logs;
+        if (!doorFilter && state.buildingFilter) {
+            // The API filters by a single door, so query every door of the selected building and merge.
+            const doorIds = doorsInBuildingScope(state.allDoors).map(door => door.door_id);
+            const responses = await Promise.all(doorIds.map(id => apiFetch(buildUrl(id))));
+            logs = responses
+                .flatMap(response => (response.status === 'success' ? response.data : []))
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 40);
+        } else {
+            const res = await apiFetch(buildUrl(doorFilter));
+            logs = res.status === 'success' ? res.data : null;
+        }
         if (requestSeq !== accessLogsRequestSeq) return; // a newer filter request superseded this one
-        if (res.status === 'success') {
-            state.accessLogs = res.data;
+        if (logs) {
+            state.accessLogs = logs;
             renderAccessLogsTable(state.accessLogs);
             scheduleMetricCardsUpdate();
         }
@@ -1834,10 +1954,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
     initSidebar();
 
-    // Initial data loading
-    loadDoors();
+    // Initial data loading. Doors load first so a remembered building can scope the access log.
+    restoreBuildingFilter();
+    loadDashboardBuildings();
+    loadDoors().finally(loadAccessLogs);
     loadEmployees();
-    loadAccessLogs();
     if (hasCapability('audit.view')) {
         loadActivityLogs();
     }
