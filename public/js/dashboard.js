@@ -561,9 +561,8 @@ function onRemoteUnlockDoorChange(doorId) {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
     if (codeEl) codeEl.textContent = door.door_id;
@@ -583,9 +582,8 @@ function openRemoteUnlockModal(doorId) {
     const select = document.getElementById('remoteUnlockDoorSelect');
     if (select) {
         select.innerHTML = doors.map(d => {
-            const isPrimary = d.door_id === 'DOOR-B';
             const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
-            const online = isPrimary && health === 'online';
+            const online = health === 'online';
             return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
         }).join('');
         if (doorId) select.value = doorId;
@@ -621,9 +619,8 @@ async function confirmRemoteUnlock() {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (!isOnline) {
         showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
