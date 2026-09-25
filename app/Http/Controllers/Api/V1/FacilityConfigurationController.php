@@ -255,6 +255,84 @@ class FacilityConfigurationController extends Controller
     }
 
     #[OA\Post(
+        path: '/admin/doors/{door_id}/test-manual',
+        summary: 'Test Manual Connection Configuration',
+        description: 'Test door connection with custom per-door parameters (read-only, no save). SSRF-protected against loopback, link-local, multicast, broadcast, and cloud metadata endpoints.',
+        tags: ['Facility Configuration'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Door ID or UUID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['device_ip', 'device_port', 'connect_timeout'],
+                properties: [
+                    new OA\Property(property: 'device_ip', type: 'string', format: 'ipv4', example: '192.168.90.16'),
+                    new OA\Property(property: 'device_port', type: 'integer', example: 8200, description: '1-65535'),
+                    new OA\Property(property: 'connection_scheme', type: 'string', enum: ['http', 'https'], example: 'http'),
+                    new OA\Property(property: 'connect_timeout', type: 'integer', example: 10, description: '1-30 seconds'),
+                    new OA\Property(property: 'read_timeout', type: 'integer', example: 10, description: '1-30 seconds'),
+                    new OA\Property(property: 'verify_tls', type: 'boolean', example: true),
+                    new OA\Property(property: 'isapi_username', type: 'string', example: 'admin'),
+                    new OA\Property(property: 'isapi_password', type: 'string', example: 'Secret123')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Connection test successful'),
+            new OA\Response(response: 422, description: 'Validation or connection failed'),
+            new OA\Response(response: 403, description: 'Permission denied')
+        ]
+    )]
+    public function testManualConnection(Request $request, string $doorId, HikvisionIsapiService $isapiService): JsonResponse
+    {
+        $this->authorizePermission($request, 'device.manage');
+        
+        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->firstOrFail();
+
+        $data = $request->validate([
+            'device_ip' => ['required', 'ip'],
+            'device_port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'connection_scheme' => ['nullable', 'string', 'in:http,https'],
+            'connect_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'read_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'verify_tls' => ['nullable', 'boolean'],
+            'isapi_username' => ['nullable', 'string', 'max:100'],
+            'isapi_password' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $result = $isapiService->testManualDeviceConnection(
+            $data['device_ip'],
+            $data['device_port'],
+            $data['connection_scheme'] ?? 'http',
+            $data['connect_timeout'] ?? 10,
+            $data['isapi_username'] ?? null,
+            $data['isapi_password'] ?? null,
+            $data['verify_tls'] ?? true
+        );
+
+        // Log test attempt (no credential in log)
+        $this->audit($request, 'manual_connection_test', 'Door', $door->id, 
+            "Manual connection test from {$data['device_ip']}:{$data['device_port']} - " . 
+            ($result['status'] ? 'SUCCESS' : 'FAILED: ' . substr($result['error'] ?? 'Unknown error', 0, 50)));
+
+        if ($result['status']) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Manual connection test successful.',
+                'data' => $result['data'],
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => $result['error'] ?? 'Connection test failed.',
+            'statusCode' => $result['statusCode'] ?? 500,
+        ], 422);
+    }
+
+    #[OA\Post(
         path: '/admin/doors/onboard',
         summary: 'Wizard Onboard Terminal Pintu Baru',
         description: 'Mendaftarkan terminal pintu baru dengan verifikasi otomatis koneksi ISAPI dan enkripsi kredensial.',
@@ -371,6 +449,15 @@ class FacilityConfigurationController extends Controller
             'device_ip' => ['required', 'ip', Rule::unique('doors', 'device_ip')->ignore($door?->id)],
             'gateway' => ['nullable', 'ip'],
             'device_model' => ['required', 'string', 'max:120'],
+            // Manual connection configuration (optional)
+            'connection_mode' => ['nullable', 'string', 'in:auto,manual'],
+            'connection_scheme' => ['nullable', 'string', 'in:http,https'],
+            'device_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
+            'connect_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'read_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'verify_tls' => ['nullable', 'boolean'],
+            'isapi_username' => ['nullable', 'string', 'max:100'],
+            'isapi_password' => ['nullable', 'string', 'max:255'],
         ]);
     }
 
@@ -381,6 +468,15 @@ class FacilityConfigurationController extends Controller
             'building_id' => $building->id, 'zone_id' => $data['zone_id'] ?? null,
             'location' => $building->name, 'device_ip' => $data['device_ip'],
             'gateway' => $data['gateway'] ?? null, 'device_model' => $data['device_model'],
+            // Manual connection configuration
+            'connection_mode' => $data['connection_mode'] ?? 'auto',
+            'connection_scheme' => $data['connection_scheme'] ?? 'http',
+            'device_port' => $data['device_port'] ?? 8200,
+            'connect_timeout' => $data['connect_timeout'] ?? 10,
+            'read_timeout' => $data['read_timeout'] ?? 10,
+            'verify_tls' => $data['verify_tls'] ?? true,
+            'isapi_username' => $data['isapi_username'] ?? null,
+            'isapi_password' => $data['isapi_password'] ?? null,
         ];
     }
 

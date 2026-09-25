@@ -31,6 +31,14 @@ class Door extends Model
         'health_status',
         'is_manual_override',
         'last_checked_at',
+        'connection_mode',
+        'connection_scheme',
+        'device_port',
+        'connect_timeout',
+        'read_timeout',
+        'verify_tls',
+        'last_connection_test_at',
+        'last_connection_status',
     ];
 
     protected $hidden = [
@@ -41,6 +49,11 @@ class Door extends Model
         'is_manual_override' => 'boolean',
         'last_checked_at' => 'datetime',
         'isapi_password' => 'encrypted',
+        'device_port' => 'integer',
+        'connect_timeout' => 'integer',
+        'read_timeout' => 'integer',
+        'verify_tls' => 'boolean',
+        'last_connection_test_at' => 'datetime',
     ];
 
     public function getNameAttribute()
@@ -125,6 +138,25 @@ class Door extends Model
         return $this->attributes['connection_status'] ?? $this->attributes['status'] ?? 'online';
     }
 
+    // Manual connection config accessors - enforce valid ranges
+    public function getDevicePortAttribute($val)
+    {
+        $port = (int) ($val ?? 8200);
+        return max(1, min(65535, $port));
+    }
+
+    public function getConnectTimeoutAttribute($val)
+    {
+        $timeout = (int) ($val ?? 10);
+        return max(1, min(30, $timeout));
+    }
+
+    public function getReadTimeoutAttribute($val)
+    {
+        $timeout = (int) ($val ?? 10);
+        return max(1, min(30, $timeout));
+    }
+
     public function remoteUnlockAllowed(): bool
     {
         $health = strtolower((string) ($this->attributes['health_status'] ?? $this->attributes['connection_status'] ?? $this->attributes['status'] ?? 'offline'));
@@ -135,6 +167,23 @@ class Door extends Model
     {
         $this->attributes['connection_status'] = $val;
         $this->attributes['status'] = $val;
+    }
+
+    /**
+     * Test manual connection configuration (read-only)
+     * Uses manually specified connection parameters instead of global config
+     */
+    public function testConnection(\App\Services\HikvisionIsapiService $service): array
+    {
+        return $service->testManualDeviceConnection(
+            $this->device_ip,
+            $this->device_port,
+            $this->connection_scheme,
+            $this->connect_timeout,
+            $this->isapi_username,
+            $this->isapi_password,
+            $this->verify_tls
+        );
     }
 
     public function building() { return $this->belongsTo(Building::class); }

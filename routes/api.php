@@ -78,6 +78,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/doors', [AdminDoorController::class, 'index']);
             Route::post('/doors', [FacilityConfigurationController::class, 'storeDoor']);
             Route::post('/doors/test-connection', [FacilityConfigurationController::class, 'testDoorConnection']);
+            Route::post('/doors/{door_id}/test-manual', [FacilityConfigurationController::class, 'testManualConnection']);
             Route::post('/doors/onboard', [FacilityConfigurationController::class, 'onboardDoor']);
             Route::put('/doors/{door_id}', [FacilityConfigurationController::class, 'updateDoor']);
             Route::get('/buildings', [FacilityConfigurationController::class, 'buildings']);
