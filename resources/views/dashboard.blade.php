@@ -1747,12 +1747,6 @@
                     <div class="search-box">
                         👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
-                    </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logEndDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
-                    </div>
                     <!-- Tanggal mulai/sampai sengaja tidak ada di sini: sudah tersedia dan berfungsi
                          di tab Log Akses (logStartDateTab/logEndDateTab), jadi tidak diduplikasi
                          di ringkasan Dashboard ini. -->
