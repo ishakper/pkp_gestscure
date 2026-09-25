@@ -14,15 +14,16 @@ class AuthTest extends TestCase
 
     public function test_admin_can_login_with_valid_credentials(): void
     {
+        $email = 'test_'.uniqid().'@accesscontrol.local';
         $admin = Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => Hash::make('password'),
             'role' => 'super_admin',
         ]);
 
         $response = $this->postJson('/api/v1/auth/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => 'password',
         ]);
 
@@ -40,15 +41,16 @@ class AuthTest extends TestCase
 
     public function test_login_fails_with_invalid_credentials(): void
     {
+        $email = 'test_'.uniqid().'@accesscontrol.local';
         Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => Hash::make('password'),
             'role' => 'super_admin',
         ]);
 
         $response = $this->postJson('/api/v1/auth/login', [
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => 'wrongpassword',
         ]);
 
@@ -61,9 +63,10 @@ class AuthTest extends TestCase
 
     public function test_web_logout_revokes_web_session_tokens(): void
     {
+        $email = 'test_'.uniqid().'@accesscontrol.local';
         $admin = Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $email,
             'password' => Hash::make('password'),
             'role' => 'super_admin',
         ]);

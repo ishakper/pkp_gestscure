@@ -16,6 +16,7 @@ class AuthServiceProvider extends ServiceProvider
         \App\Models\AttendanceRequest::class => \App\Policies\AttendanceRequestPolicy::class,
         \App\Models\AttendanceCorrectionRequest::class => \App\Policies\AttendanceCorrectionRequestPolicy::class,
         \App\Models\OvertimeRequest::class => \App\Policies\OvertimeRequestPolicy::class,
+        \App\Models\Door::class => \App\Policies\DoorPolicy::class,
     ];
 
     /**

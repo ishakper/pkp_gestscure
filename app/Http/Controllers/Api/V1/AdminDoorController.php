@@ -71,15 +71,65 @@ class AdminDoorController extends Controller
                 ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhereHas('doors', fn ($doors) => $doors->where('location', $admin->assigned_building))));
         }
         $totalUsers = (clone $employees)->count();
-        $activeEmployees = (clone $employees)->where('employment_status', 'ACTIVE')->count();
-        if ($activeEmployees === 0 && $totalUsers > 0) {
-            $activeEmployees = $totalUsers;
-        }
+        $activeEmployeesQuery = (clone $employees)->where(function ($query) {
+            $query->where('employment_status', 'ACTIVE')
+                ->orWhereNull('employment_status')
+                ->orWhere('employment_status', '');
+        });
+        $activeEmployees = (clone $activeEmployeesQuery)->count();
 
-        $registeredCredentials = (clone $employees)->where(function ($query) {
-            $query->where(fn ($q) => $q->whereNotNull('card_no')->where('card_no', '!=', ''))
-                ->orWhereHas('biometricStatus', fn ($q) => $q->where('has_fingerprint', true)->orWhere('card_enrolled', true));
-        })->count();
+        // Registered means an active employee has a device/person identifier and
+        // either a source-backed credential classification or legacy verified
+        // card/biometric evidence. Door assignment is deliberately irrelevant.
+        $registeredCredentials = (clone $activeEmployeesQuery)
+            ->whereNotNull('hikvision_employee_no')
+            ->where('hikvision_employee_no', '!=', '')
+            ->where(function ($query) {
+                $query->where(function ($classified) {
+                    $classified->whereIn('credential_method', ['card', 'fingerprint'])
+                        ->whereIn('credential_status', [
+                            'confirmed_from_backup',
+                            'expected_from_backup',
+                            'verified',
+                        ]);
+                })->orWhere(fn ($legacy) => $legacy
+                    ->whereNotNull('card_no')
+                    ->where('card_no', '!=', '')
+                )->orWhereHas('biometricStatus', fn ($biometric) => $biometric
+                    ->where('has_fingerprint', true)
+                    ->orWhere('card_enrolled', true)
+                );
+            })
+            ->count();
+
+        $fingerprintVerified = (clone $activeEmployeesQuery)
+            ->where(fn ($query) => $query
+                ->where('fingerprint_verified', true)
+                ->orWhere('credential_status', 'verified'))
+            ->count();
+        $cardConfirmed = (clone $activeEmployeesQuery)
+            ->where('credential_method', 'card')
+            ->where('credential_status', 'confirmed_from_backup')
+            ->where('fingerprint_verified', false)
+            ->count();
+        $fingerprintExpected = (clone $activeEmployeesQuery)
+            ->where('credential_method', 'fingerprint')
+            ->where('credential_status', 'expected_from_backup')
+            ->where('fingerprint_verified', false)
+            ->count();
+        $reviewCredentials = (clone $activeEmployeesQuery)
+            ->where(fn ($query) => $query
+                ->where('credential_method', 'review')
+                ->orWhere('credential_status', 'conflict'))
+            ->count();
+        $unknownCredentials = max(
+            0,
+            $activeEmployees
+                - $cardConfirmed
+                - $fingerprintExpected
+                - $fingerprintVerified
+                - $reviewCredentials
+        );
 
         return response()->json([
             'status' => 'success',
@@ -87,6 +137,13 @@ class AdminDoorController extends Controller
                 'totalUsers' => $totalUsers,
                 'activeEmployees' => $activeEmployees,
                 'registeredCredentials' => $registeredCredentials,
+                'credentialSummary' => [
+                    'card' => $cardConfirmed,
+                    'fingerprint_expected' => $fingerprintExpected,
+                    'fingerprint_verified' => $fingerprintVerified,
+                    'review' => $reviewCredentials,
+                    'unknown' => $unknownCredentials,
+                ],
                 'activeDoors' => $scopedDoors->where('connection_status', 'online')->count(),
                 'totalDoors' => $scopedDoors->count(),
                 'grantedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Granted')->count(),
@@ -213,7 +270,7 @@ class AdminDoorController extends Controller
     )]
     public function overrideStatus(Request $request, $door_id)
     {
-        $door = Door::where('door_id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
 
         $this->authorize('overrideStatus', $door);
 
@@ -269,16 +326,46 @@ class AdminDoorController extends Controller
     {
         $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
 
-        if ($request->user() && method_exists($this, 'authorize')) {
-            $this->authorize('open', $door);
+        // Enforce fail-closed authorization: must have explicit permission, always
+        $this->authorize('open', $door);
+
+        $request->validate([
+            'reason' => 'required|string|max:500',
+        ], [
+            'reason.required' => 'Alasan pembukaan pintu remote wajib diisi.',
+            'reason.max' => 'Alasan pembukaan maksimal 500 karakter.',
+        ]);
+
+        // Normalize and validate reason: trim whitespace, reject whitespace-only
+        $reason = trim($request->input('reason', ''));
+        if (empty($reason)) {
+            return response()->json([
+                'status' => 'error',
+                'code' => 422,
+                'message' => 'Alasan pembukaan tidak boleh kosong atau hanya spasi.',
+            ], 422);
         }
+
+        $request->validate([
+            'reason' => 'nullable|string|max:255',
+        ]);
 
         if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
             return response()->json([
                 'status' => 'error',
                 'code' => 409,
-                'message' => 'Remote unlock diblokir: terminal belum terverifikasi online.',
+                'message' => 'Remote unlock diblokir: terminal belum terverifikasi online atau tidak aktif.',
             ], 409);
+        }
+
+        $idempotencyKey = trim((string) $request->header('X-Idempotency-Key'));
+        if ($idempotencyKey !== '') {
+            $existing = ActivityLog::where('action', 'remote_door_opened')
+                ->where('description', 'like', "%Idempotency-Key: {$idempotencyKey}%")
+                ->latest('id')->first();
+            if ($existing) {
+                return response()->json(['status' => 'success', 'message' => 'Remote unlock request already processed.'], 200);
+            }
         }
 
         $result = $isapiService->remoteControlDoor($door, 'open');
@@ -292,13 +379,15 @@ class AdminDoorController extends Controller
         }
 
         $doorName = $door->door_name ?? $door->name;
+        $reason = $request->input('reason');
+        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard." . ($reason ? " Alasan: {$reason}" : '');
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
             'action' => 'remote_door_opened',
             'subject_type' => 'Door',
             'subject_id' => $door->id,
-            'description' => "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard.",
+            'description' => $desc,
             'timestamp' => now(),
         ]);
 

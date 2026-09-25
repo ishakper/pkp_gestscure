@@ -35,14 +35,14 @@ class DashboardMetricsTest extends TestCase
             'department' => 'IT',
         ]);
         $this->offlineDoor = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
             'connection_status' => 'offline',
         ]);
         $this->onlineDoor = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',

@@ -20,6 +20,7 @@ class RemoteUnlockDoorTest extends TestCase
     protected Admin $superAdmin;
     protected Admin $buildingAdmin;
     protected HikvisionIsapiService $service;
+    protected string $superAdminEmail;
 
     protected function setUp(): void
     {
@@ -28,7 +29,7 @@ class RemoteUnlockDoorTest extends TestCase
         $this->service = app(HikvisionIsapiService::class);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Kantor Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -36,16 +37,17 @@ class RemoteUnlockDoorTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Restricted Server Room',
             'location' => 'Gedung B (IT & Infra)',
             'device_ip' => '192.168.90.15',
             'connection_status' => 'online',
         ]);
 
+        $this->superAdminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->superAdmin = Admin::create([
             'name' => 'Super Administrator',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->superAdminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
@@ -155,12 +157,21 @@ XML;
     /**
      * Test API endpoint POST /api/v1/admin/doors/{door_id}/open successfully unlocks door and logs activity.
      */
+    public function test_dashboard_uses_delegated_remote_unlock_button_contract(): void
+    {
+        $source = file_get_contents(public_path('js/dashboard.js'));
+        $this->assertStringContainsString('data-action="remote-unlock"', $source);
+        $this->assertStringContainsString('event.target.closest', $source);
+        $this->assertStringContainsString("X-Idempotency-Key", $source);
+        $this->assertStringNotContainsString('onclick="openRemoteUnlockModal', $source);
+    }
+
     public function test_admin_can_remote_unlock_door(): void
     {
         Config::set('services.hikvision.use_mock', true);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open");
+            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Authorized maintenance access']);
 
         $response->assertStatus(200)
             ->assertJson([
@@ -192,7 +203,7 @@ XML;
         ]);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open");
+            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Testing failure scenario']);
 
         $response->assertStatus(500)
             ->assertJson([
@@ -206,9 +217,9 @@ XML;
         $this->doorB->update(['connection_status' => 'offline', 'health_status' => 'offline']);
 
         $this->actingAs($this->superAdmin)
-            ->postJson('/api/v1/admin/doors/DOOR-B/open')
+            ->postJson('/api/v1/admin/doors/DOOR-B/open', ['reason' => 'Test offline device'])
             ->assertStatus(409)
-            ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online.');
+            ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online atau tidak aktif.');
     }
 
     /**
@@ -230,7 +241,7 @@ XML;
         Config::set('services.hikvision.use_mock', true);
 
         $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/doors/DOOR-B/unlock");
+            ->postJson("/api/v1/admin/doors/DOOR-A/unlock", ['reason' => 'Direct unlock test']);
 
         $response->assertStatus(200)
             ->assertJson([

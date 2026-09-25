@@ -16,7 +16,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('attendance_evidences', function (Blueprint $table) {
-            $table->dropForeign(['attendance_id']);
+            // SQLite doesn't support dropping foreign keys directly
+            if (\DB::getDriverName() !== 'sqlite') {
+                $table->dropForeign(['attendance_id']);
+            }
             $table->dropColumn('attendance_id');
         });
     }

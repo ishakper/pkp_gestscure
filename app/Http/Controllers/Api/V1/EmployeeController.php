@@ -62,15 +62,46 @@ class EmployeeController extends Controller
     public function index(Request $request)
     {
         $admin = $request->user();
-        $query = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position', 'supervisor']);
-        if ($request->filled('search')) { $search = $request->input('search'); $query->where(fn ($q) => $q->where('name','like',"%{$search}%")->orWhere('nik','like',"%{$search}%")->orWhere('employee_id','like',"%{$search}%")); }
-        foreach (['building_id','division_id','position_id','employment_status'] as $filter) { if ($request->filled($filter)) $query->where($filter, $request->input($filter)); }
-        if ($request->filled('door_id')) { $doorId=$request->input('door_id'); $query->whereHas('doors', fn($q) => $q->where('doors.door_id',$doorId)->orWhere('doors.id',$doorId)); }
+        $baseQuery = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position', 'supervisor']);
+        
+        // Apply authorization scope
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $query->where(fn($q) => $q->whereHas('building', fn($b) => $b->where('name',$admin->assigned_building))->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building)));
+            $baseQuery->where(fn($q) => $q->whereHas('building', fn($b) => $b->where('name',$admin->assigned_building))->orWhereHas('doors', fn($d) => $d->where('location',$admin->assigned_building)));
         }
-        $employees=$query->paginate(min(max((int)$request->get('per_page',10),1),100));
-        return response()->json(['status'=>'success','pagination'=>['current_page'=>$employees->currentPage(),'per_page'=>$employees->perPage(),'total_records'=>$employees->total(),'total_pages'=>$employees->lastPage()],'data'=>EmployeeResource::collection($employees)]);
+        
+        // Get total_all before applying search/filters
+        $totalAll = (clone $baseQuery)->count();
+        
+        // Apply search
+        if ($request->filled('search')) { 
+            $search = $request->input('search'); 
+            $baseQuery->where(fn ($q) => $q->where('name','like',"%{$search}%")->orWhere('nik','like',"%{$search}%")->orWhere('employee_id','like',"%{$search}%")); 
+        }
+        
+        // Apply filters
+        foreach (['building_id','division_id','position_id','employment_status'] as $filter) { 
+            if ($request->filled($filter)) $baseQuery->where($filter, $request->input($filter)); 
+        }
+        if ($request->filled('door_id')) { 
+            $doorId=$request->input('door_id'); 
+            $baseQuery->whereHas('doors', fn($q) => $q->where('doors.door_id',$doorId)->orWhere('doors.id',$doorId)); 
+        }
+        
+        $employees = $baseQuery->paginate(min(max((int)$request->get('per_page',20),1),100));
+        
+        return response()->json([
+            'status'=>'success',
+            'pagination'=>[
+                'current_page'=>$employees->currentPage(),
+                'per_page'=>$employees->perPage(),
+                'from'=>$employees->firstItem() ?? 0,
+                'to'=>$employees->lastItem() ?? 0,
+                'total_records'=>$employees->total(),
+                'total_all'=>$totalAll,
+                'total_pages'=>$employees->lastPage()
+            ],
+            'data'=>EmployeeResource::collection($employees)
+        ]);
     }
 
     #[OA\Post(

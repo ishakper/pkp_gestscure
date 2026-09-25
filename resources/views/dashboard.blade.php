@@ -132,7 +132,13 @@
             gap: 0.85rem;
             padding: 0.35rem 0.65rem 0.35rem 0.35rem;
             border-radius: 0.85rem;
-            border: 1px solid transparent;
+            border: 1px solid var(--border-color);
+            /* Bug fix: this fixed logo has no opaque backdrop, so scrolled page content
+               (which is otherwise normal document flow) shows through/behind it and looks
+               like it "tertimpa" the logo. Give it a solid background matching the sidebar
+               so it reads as a docked header chip instead of a transparent overlay. */
+            background: var(--sidebar-bg);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
             user-select: none;
             cursor: pointer;
             white-space: nowrap;
@@ -165,6 +171,11 @@
 
         .floating-logo:active {
             transform: scale(0.88);
+        }
+
+        .floating-logo:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 4px;
         }
 
         /* Sidebar Open State: Logo glides smoothly into the Sidebar header */
@@ -748,6 +759,13 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
+        .status-warning, .status-maintenance {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fcd34d;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.15);
+        }
+
         .status-dot {
             width: 7px;
             height: 7px;
@@ -827,6 +845,13 @@
 
         .btn-secondary:hover {
             background: rgba(255, 255, 255, 0.12);
+        }
+
+        .btn-secondary:disabled,
+        .btn-secondary[disabled] {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
         }
 
         .btn-sm {
@@ -916,7 +941,8 @@
             padding-bottom: 0.85rem;
             flex-wrap: wrap;
         }
-        .ats-nav-pill {
+        .ats-nav-pill,
+        .ats-subnav .subnav-btn {
             background: transparent;
             border: 1px solid var(--border-color);
             color: var(--text-muted);
@@ -927,11 +953,13 @@
             cursor: pointer;
             transition: all 0.2s ease;
         }
-        .ats-nav-pill:hover {
+        .ats-nav-pill:hover,
+        .ats-subnav .subnav-btn:hover {
             background: rgba(255, 255, 255, 0.05);
             color: #ffffff;
         }
-        .ats-nav-pill.active {
+        .ats-nav-pill.active,
+        .ats-subnav .subnav-btn.active {
             background: rgba(56, 189, 248, 0.15);
             border-color: var(--primary);
             color: var(--primary);
@@ -1325,6 +1353,78 @@
         .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
         .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
+        .table-container:has(> .employee-pagination) {
+            min-height: 680px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .table-container:has(> .employee-pagination) > table {
+            flex: 1 0 auto;
+            transition: opacity 180ms ease;
+        }
+
+        .table-container.employee-table-loading > table {
+            opacity: 0.55;
+        }
+
+        .employee-pagination {
+            position: sticky;
+            bottom: 0;
+            z-index: 3;
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            background: rgba(15, 23, 42, 0.98);
+        }
+
+        .badge-fingerprint-expected {
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.35);
+        }
+
+        /* === PAGINATION RESPONSIVE & ACCESSIBILITY === */
+        .pagination-container {
+            display: block;
+            padding: 1rem;
+        }
+
+        .pagination-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            max-width: 100%;
+        }
+
+        .pagination-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 0.5rem 0.75rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .pagination-btn:disabled {
+            pointer-events: none;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 2px;
+        }
+
+        .pagination-status {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            padding: 0.5rem 0.25rem;
+            min-width: 120px;
+            text-align: center;
+        }
+
         /* Responsive Breakpoints (< 768px Mobile & Tablet) */
         @media (max-width: 768px) {
             .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1351,6 +1451,7 @@
                 max-width: 100vw !important;
                 width: 100% !important;
                 padding: 1.25rem 1rem !important;
+                padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)) !important;
             }
 
             body.sidebar-open .main-content,
@@ -1380,6 +1481,39 @@
 
             .table-container {
                 overflow-x: auto;
+            }
+
+            .pagination-wrapper {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .pagination-status {
+                order: -1;
+                width: 100%;
+                margin-bottom: 0.5rem;
+            }
+
+            .pagination-btn {
+                flex: 1;
+                min-width: 120px;
+            }
+        }
+
+        /* Extra small screens (< 400px) */
+        @media (max-width: 400px) {
+            .pagination-wrapper {
+                gap: 0.5rem;
+            }
+
+            .pagination-btn {
+                font-size: 0.85rem;
+                padding: 0.5rem 0.5rem;
+                min-width: 100px;
+            }
+
+            .pagination-status {
+                font-size: 0.75rem;
             }
         }
     </style>
@@ -1512,6 +1646,9 @@
             <div class="top-bar-logo-placeholder" aria-hidden="true"></div>
         </div>
         <div class="top-bar-actions">
+            <select id="dashboardBuildingFilter" class="form-control" style="min-width:12rem;" onchange="onDashboardBuildingChange(this.value)" aria-label="Filter dashboard per gedung" title="Tampilkan data Dashboard untuk satu gedung">
+                <option value="">🏢 Semua Gedung</option>
+            </select>
             <button class="btn-secondary" onclick="refreshOperationalData(this)">
                 🔄 Refresh Live Data
             </button>
@@ -1534,7 +1671,7 @@
         <div class="metric-card">
             <div class="metric-icon-box icon-indigo">💳</div>
             <div>
-                <div class="metric-label">Terdaftar</div>
+                <div class="metric-label">Terdaftar di Perangkat</div>
                 <div class="metric-value" id="metricRegisteredCredentials">-</div>
             </div>
         </div>
@@ -1608,7 +1745,7 @@
                         </select>
                     </div>
                     <div class="search-box">
-                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                        👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
                     <div class="search-box">
                         📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
@@ -1616,6 +1753,9 @@
                     <div class="search-box">
                         📅 <input type="date" id="logEndDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
                     </div>
+                    <!-- Tanggal mulai/sampai sengaja tidak ada di sini: sudah tersedia dan berfungsi
+                         di tab Log Akses (logStartDateTab/logEndDateTab), jadi tidak diduplikasi
+                         di ringkasan Dashboard ini. -->
                 </div>
             </div>
             <table>
@@ -1674,7 +1814,7 @@
                     </div>
                 </div>
                 <div class="toolbar-right">
-                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText">Total: - Karyawan</span>
+                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText" aria-live="polite">Menampilkan - pengguna</span>
                 </div>
             </div>
             <table>
@@ -1722,6 +1862,7 @@
             <div>
                 <h2 class="section-title">👥 Manajemen Pengguna</h2>
                 <p class="section-desc">Daftar lengkap pengguna terdaftar, status biometrik, dan distribusi izin pintu</p>
+                <span style="display: block; margin-top: 0.75rem; font-size: 0.95rem; font-weight: 500;" id="employeeTotalSummary" aria-live="polite">Total Pengguna: <strong>—</strong></span>
             </div>
             <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
         </div>
@@ -1773,7 +1914,7 @@
                 <thead><tr><th>Task</th><th>Employee</th><th>Project</th><th>Priority</th><th>Status</th><th>Progress</th><th>Due Date</th><th>Action</th></tr></thead>
                 <tbody id="tasksTableBody"><tr><td colspan="8" class="loading-td"><div class="spinner"></div> Memuat tasks...</td></tr></tbody>
             </table>
-            <div class="employee-pagination" id="taskPagination" aria-live="polite"></div>
+            <div class="task-pagination" id="taskPagination" aria-live="polite"></div>
         </div>
     </section>
 
@@ -1824,7 +1965,7 @@
                         </select>
                     </div>
                     <div class="search-box">
-                        👤 <input type="text" id="logUserSearchTab" placeholder="Cari NIK / Nama..." onchange="syncLogFilters(this); loadAccessLogs()">
+                        👤 <input type="text" id="logUserSearchTab" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
                     <div class="search-box">
                         📅 <input type="date" id="logStartDateTab" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
@@ -2711,7 +2852,7 @@
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn-secondary" onclick="loadAccessData(); showToast('Data Hak Akses & Kredensial disinkronkan', 'info');">
+                <button class="btn-secondary" onclick="refreshAccessData(this)">
                     🔄 Refresh
                 </button>
                 <button class="btn-primary" onclick="openAddAccessRequestModal()">
@@ -2768,7 +2909,7 @@
         </div>
 
         <!-- SUB-TAB 1: PERMINTAAN HAK AKSES -->
-        <div id="accessSubRequests" class="ats-sub-content">
+        <div id="accessSubRequests" class="ats-sub-content" style="display: block;">
             <div class="table-container">
                 <div class="table-toolbar">
                     <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
@@ -3210,7 +3351,8 @@
                 <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
                     <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
                     <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
-                    <button class="btn-secondary" onclick="exportAttendanceReport()">⬇ Export CSV</button>
+                    <button class="btn-secondary" onclick="exportAttendanceReport(this)">⬇ Export CSV</button>
+                    <button class="btn-secondary" onclick="printAttendanceReport()" title="Buka dialog cetak, lalu pilih 'Simpan sebagai PDF'">🖨 Cetak / PDF</button>
                 </div>
             </div>
             <div class="stats-grid" id="attendanceReportMetrics" style="margin-bottom:1rem;"></div>
@@ -3225,8 +3367,8 @@
                         <th>Tgl Kehadiran</th>
                         <th>Karyawan</th>
                         <th>Kalender</th>
-                        <th>Jam Masuk</th>
-                        <th>Jam Keluar</th>
+                        <th title="Waktu tap pertama, ditampilkan dalam WIB (Asia/Jakarta)">Jam Masuk (WIB)</th>
+                        <th title="Waktu tap terakhir, ditampilkan dalam WIB (Asia/Jakarta)">Jam Keluar (WIB)</th>
                         <th>Pintu</th>
                         <th>Kredensial</th>
                         <th>Status Proses</th>
@@ -5709,15 +5851,26 @@
             <button type="button" class="modal-close-btn" onclick="cancelRemoteUnlock()" aria-label="Tutup">✖</button>
         </div>
         <div class="physical-warning">Perintah ini mengaktifkan relay pintu fisik. Pastikan identitas pintu dan kondisi area sudah diverifikasi sebelum melanjutkan.</div>
-        <dl class="door-specs">
-            <div class="spec-item"><dt class="spec-label">Terminal</dt><dd class="spec-val" id="remoteUnlockDoorCode">-</dd></div>
-            <div class="spec-item"><dt class="spec-label">Lokasi</dt><dd class="spec-val" id="remoteUnlockDoorLocation">-</dd></div>
-            <div class="spec-item"><dt class="spec-label">Status</dt><dd class="spec-val" id="remoteUnlockDoorStatus">-</dd></div>
-        </dl>
-        <div style="display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem;">
-            <button type="button" class="btn-secondary" onclick="cancelRemoteUnlock()">Batal</button>
-            <button type="button" class="btn-primary" id="confirmRemoteUnlockButton" onclick="confirmRemoteUnlock()">Konfirmasi & Buka Pintu</button>
-        </div>
+        <form id="remoteUnlockForm" onsubmit="event.preventDefault(); confirmRemoteUnlock();" style="margin-top:1rem;">
+            <div class="form-row" style="margin-bottom:1rem;">
+                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;">Pilih Terminal Pintu *</label>
+                <select id="remoteUnlockDoorSelect" class="form-control" required onchange="onRemoteUnlockDoorChange(this.value)" style="width:100%;padding:0.5rem;background:var(--card-bg);border:1px solid var(--border-color);color:#fff;border-radius:0.5rem;">
+                </select>
+            </div>
+            <dl class="door-specs" style="margin-bottom:1rem;">
+                <div class="spec-item"><dt class="spec-label">Terminal</dt><dd class="spec-val" id="remoteUnlockDoorCode">-</dd></div>
+                <div class="spec-item"><dt class="spec-label">Lokasi</dt><dd class="spec-val" id="remoteUnlockDoorLocation">-</dd></div>
+                <div class="spec-item"><dt class="spec-label">Status</dt><dd class="spec-val" id="remoteUnlockDoorStatus">-</dd></div>
+            </dl>
+            <div class="form-row" style="margin-bottom:1rem;">
+                <label style="display:block;font-size:0.85rem;color:var(--text-muted);margin-bottom:0.35rem;">Alasan Pembukaan Remote *</label>
+                <textarea id="remoteUnlockReason" class="form-control" rows="3" required placeholder="Contoh: Kunjungan VIP Tamu, Pemeliharaan Darurat, Kartu Akses Tertinggal..." style="width:100%;padding:0.5rem;background:var(--card-bg);border:1px solid var(--border-color);color:#fff;border-radius:0.5rem;box-sizing:border-box;"></textarea>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:.75rem;margin-top:1.25rem;">
+                <button type="button" class="btn-secondary" onclick="cancelRemoteUnlock()">Batal</button>
+                <button type="submit" class="btn-primary" id="confirmRemoteUnlockButton">Konfirmasi & Buka Pintu</button>
+            </div>
+        </form>
     </div>
 </div>
 

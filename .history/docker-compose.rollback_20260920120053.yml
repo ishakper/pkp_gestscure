@@ -1,5 +1,0 @@
-version: '3.8'
-services:
-  app:
-    image: pkp-securegate:50d808b585cf97107d54bc2b7e62c03fe01d76e0
-    build: !reset null

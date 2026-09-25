@@ -8,7 +8,7 @@ return new class extends Migration
 {
     /**
      * Proposed Migration Schema — Setup Gedung Floor Hierarchy Extension (UNEXECUTED)
-     * 
+     *
      * Impact Analysis:
      * - Adds 'floors' table to bridge Building and Zone/Device level in hierarchy (Building -> Floor -> Zone -> Device).
      * - Adds nullable 'floor_id' foreign key to 'zones' table.
@@ -43,12 +43,18 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('doors', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
+            // SQLite doesn't support dropping foreign keys directly
+            if (\DB::getDriverName() !== 'sqlite') {
+                $table->dropForeign(['floor_id']);
+            }
             $table->dropColumn('floor_id');
         });
 
         Schema::table('zones', function (Blueprint $table) {
-            $table->dropForeign(['floor_id']);
+            // SQLite doesn't support dropping foreign keys directly
+            if (\DB::getDriverName() !== 'sqlite') {
+                $table->dropForeign(['floor_id']);
+            }
             $table->dropColumn('floor_id');
         });
 

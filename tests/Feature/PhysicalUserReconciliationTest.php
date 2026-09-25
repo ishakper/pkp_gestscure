@@ -24,7 +24,7 @@ class PhysicalUserReconciliationTest extends TestCase
     public function test_reconciliation_dry_run_identifies_matching_and_pending_users_with_zero_card_leak(): void
     {
         $door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Lab Pintu B',
             'location' => 'Building B 1st Floor',
             'ip_address' => '192.168.90.15',
@@ -105,7 +105,7 @@ class PhysicalUserReconciliationTest extends TestCase
     public function test_reconciliation_apply_is_idempotent_and_classifies_missing_business_data(): void
     {
         $door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Lab Pintu B',
             'location' => 'Building B 1st Floor',
             'ip_address' => '192.168.90.15',
@@ -169,7 +169,7 @@ class PhysicalUserReconciliationTest extends TestCase
     public function test_command_runs_without_card_exposure(): void
     {
         $door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Lab Pintu B',
             'location' => 'Building B 1st Floor',
             'ip_address' => '192.168.90.15',

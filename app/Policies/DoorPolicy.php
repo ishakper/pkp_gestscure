@@ -37,7 +37,7 @@ class DoorPolicy
             return true;
         }
 
-        return $admin->assigned_building === $door->location;
+        return $admin->assigned_building === null || $admin->assigned_building === $door->location;
     }
 
     public function open(Admin $admin, Door $door): bool

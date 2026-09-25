@@ -129,6 +129,10 @@ return new class extends Migration
 
         if (Schema::hasTable('attendances') && Schema::hasColumn('attendances', 'attendance_type')) {
             Schema::table('attendances', function (Blueprint $table) {
+                // SQLite requires dropping indexes before dropping indexed columns
+                if (\DB::getDriverName() === 'sqlite') {
+                    $table->dropIndex(['attendance_type']);
+                }
                 $table->dropColumn('attendance_type');
             });
         }

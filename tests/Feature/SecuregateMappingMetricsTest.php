@@ -28,7 +28,7 @@ class SecuregateMappingMetricsTest extends TestCase
         $this->ingestionService = app(HikvisionEventIngestionService::class);
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Pintu Belakang Produksi',
             'device_ip' => '192.168.90.15',
             'location' => 'Pabrik Sentral',

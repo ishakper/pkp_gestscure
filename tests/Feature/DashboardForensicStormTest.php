@@ -83,10 +83,33 @@ class DashboardForensicStormTest extends TestCase
 
         $this->assertStringContainsString('async function apiFetchForm(endpoint, formData)', $script);
         $this->assertStringContainsString('return apiFetch(endpoint, {', $script);
-        $formStart = strpos($script, 'async function apiFetchForm');
-        $formEnd = strpos($script, '// ==========================================', $formStart);
-        $formFunction = substr($script, $formStart, $formEnd - $formStart);
-        $this->assertStringNotContainsString('fetch(', $formFunction);
+
+        // Extract apiFetchForm body using balanced-brace logic, not comment searching
+        $funcStart = strpos($script, 'async function apiFetchForm');
+        $this->assertNotFalse($funcStart, 'apiFetchForm function not found');
+
+        // Find opening brace of the function body
+        $openBrace = strpos($script, '{', $funcStart);
+        $this->assertNotFalse($openBrace, 'Opening brace for apiFetchForm not found');
+
+        // Count braces to find matching closing brace
+        $braceCount = 0;
+        $pos = $openBrace;
+        while ($pos < strlen($script)) {
+            if ($script[$pos] === '{') {
+                $braceCount++;
+            } elseif ($script[$pos] === '}') {
+                $braceCount--;
+                if ($braceCount === 0) {
+                    break;
+                }
+            }
+            $pos++;
+        }
+
+        $funcEnd = $pos;
+        $formFunction = substr($script, $openBrace, $funcEnd - $openBrace + 1);
+        $this->assertStringNotContainsString('fetch(', $formFunction, 'apiFetchForm must delegate to apiFetch, not use raw fetch()');
     }
 
     public function test_all_business_apis_use_centralized_wrapper_without_raw_fetch(): void
@@ -110,7 +133,7 @@ class DashboardForensicStormTest extends TestCase
         ]);
 
         Door::create([
-            'door_id' => 'DOOR-TEST-1',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Main Test Door',
             'location' => 'Gedung A',
             'device_ip' => '192.168.1.50',

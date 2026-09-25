@@ -29,9 +29,24 @@ class Employee extends Model
         'employment_status',
         'hire_date',
         'supervisor_id',
+        'credential_method',
+        'credential_status',
+        'credential_source',
+        'card_registered',
+        'card_count',
+        'card_type',
+        'fingerprint_verified',
+        'source_person_number',
+        'last_reconciled_at',
+        'reconciliation_batch_id',
     ];
 
-    protected $casts = ['hire_date' => 'date'];
+    protected $casts = [
+        'hire_date' => 'date',
+        'card_registered' => 'boolean',
+        'fingerprint_verified' => 'boolean',
+        'last_reconciled_at' => 'datetime',
+    ];
 
     public function getRoleAttribute()
     {

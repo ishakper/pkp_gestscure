@@ -25,7 +25,7 @@ class CredentialCenterAndEmoneyTest extends TestCase
         parent::setUp();
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'name' => 'Ruang Server Lantai 2',
             'door_name' => 'Ruang Server Lantai 2',
             'location' => 'Kantor Pusat PKP',

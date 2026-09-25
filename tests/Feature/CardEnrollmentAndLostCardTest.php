@@ -18,13 +18,15 @@ class CardEnrollmentAndLostCardTest extends TestCase
     use RefreshDatabase;
 
     protected Admin $admin;
+    protected string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
+        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         $this->admin = Admin::create([
             'name' => 'Super Admin',
-            'email' => 'admin@accesscontrol.local',
+            'email' => $this->adminEmail,
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
@@ -43,7 +45,7 @@ class CardEnrollmentAndLostCardTest extends TestCase
         ]);
 
         $door = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Ruang Server',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -149,7 +151,7 @@ class CardEnrollmentAndLostCardTest extends TestCase
         ]);
 
         $door1 = Door::create([
-            'door_id' => 'DOOR-A',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door A - Lobby',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -158,7 +160,7 @@ class CardEnrollmentAndLostCardTest extends TestCase
         ]);
 
         $door2 = Door::create([
-            'door_id' => 'DOOR-B',
+            'door_id' => 'DOOR-'.uniqid(),
             'door_name' => 'Door B - Ruang Server',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
