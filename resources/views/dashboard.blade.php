@@ -1646,6 +1646,9 @@
             <div class="top-bar-logo-placeholder" aria-hidden="true"></div>
         </div>
         <div class="top-bar-actions">
+            <select id="dashboardBuildingFilter" class="form-control" style="min-width:12rem;" onchange="onDashboardBuildingChange(this.value)" aria-label="Filter dashboard per gedung" title="Tampilkan data Dashboard untuk satu gedung">
+                <option value="">🏢 Semua Gedung</option>
+            </select>
             <button class="btn-secondary" onclick="refreshOperationalData(this)">
                 🔄 Refresh Live Data
             </button>
@@ -1743,6 +1746,12 @@
                     </div>
                     <div class="search-box">
                         👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
+                    </div>
+                    <div class="search-box">
+                        📅 <input type="date" id="logEndDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
                     </div>
                     <!-- Tanggal mulai/sampai sengaja tidak ada di sini: sudah tersedia dan berfungsi
                          di tab Log Akses (logStartDateTab/logEndDateTab), jadi tidak diduplikasi
@@ -3343,7 +3352,7 @@
                     <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
                     <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
                     <button class="btn-secondary" onclick="exportAttendanceReport(this)">⬇ Export CSV</button>
-                    <button class="btn-secondary" onclick="printAttendanceReport()">🖨️ Cetak PDF</button>
+                    <button class="btn-secondary" onclick="printAttendanceReport()" title="Buka dialog cetak, lalu pilih 'Simpan sebagai PDF'">🖨 Cetak / PDF</button>
                 </div>
             </div>
             <div class="stats-grid" id="attendanceReportMetrics" style="margin-bottom:1rem;"></div>
