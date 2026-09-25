@@ -414,7 +414,7 @@ async function buildingMetrics(buildingId) {
         || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
     return {
         totalUsers,
-        activeEmployees: activeUsers === 0 && totalUsers > 0 ? totalUsers : activeUsers,
+        activeEmployees: activeUsers, // ponytail: was fallback to totalUsers; show actual 0 when 0 active
         registeredCredentials: registered,
         activeDoors: doors.filter(door => door.connection_status === 'online').length,
         totalDoors: doors.length,
@@ -424,7 +424,7 @@ async function buildingMetrics(buildingId) {
 
 async function fetchEmployeesForBuilding(buildingId) {
     const all = [];
-    for (let page = 1; page <= 5; page++) { // 5 x 100 employees per building is a safe upper bound
+    for (let page = 1; ; page++) { // ponytail: was capped at 5; now uses total_pages from API
         const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
         all.push(...(res.data || []));
         if (page >= Number(res.pagination?.total_pages || 1)) break;
@@ -749,6 +749,11 @@ async function loadEmployees(page = state.employeePage) {
 
             if (countBadge) {
                 countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
+            }
+            const totalSummary = document.getElementById('employeeTotalSummary');
+            if (totalSummary) {
+                const allCount = res.pagination?.total_all ?? res.pagination?.total_records ?? state.employees.length;
+                totalSummary.innerHTML = `Total Pengguna: <strong>${allCount}</strong>`;
             }
 
             renderEmployeesTable(state.employees);
