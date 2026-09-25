@@ -380,6 +380,187 @@ class HikvisionIsapiService
     }
 
     /**
+     * Test manual device connection (read-only) with custom per-door parameters.
+     * SSRF-protected: rejects loopback, link-local, multicast, broadcast, cloud metadata.
+     * Validates: IP format, port range (1-65535), timeout range (1-30).
+     * 
+     * @param string $ip Device IP address
+     * @param int $port Device port (1-65535)
+     * @param string $scheme Connection scheme (http|https)
+     * @param int $timeout Connection + read timeout (1-30 seconds)
+     * @param string|null $username ISAPI username
+     * @param string|null $password ISAPI password (plain or encrypted)
+     * @param bool $verify_tls TLS certificate verification toggle
+     */
+    public function testManualDeviceConnection(
+        string $ip,
+        int $port,
+        string $scheme,
+        int $timeout,
+        ?string $username = null,
+        ?string $password = null,
+        bool $verify_tls = true
+    ): array {
+        // Input validation
+        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Invalid IP address format', 'data' => null];
+        }
+
+        // SSRF protection: reject dangerous IP ranges
+        $ipLong = ip2long($ip);
+        if ($ipLong === false) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Invalid IP address', 'data' => null];
+        }
+
+        // Reject loopback (127.0.0.0/8)
+        if (($ipLong >= ip2long('127.0.0.0') && $ipLong <= ip2long('127.255.255.255'))) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Loopback IP addresses not allowed', 'data' => null];
+        }
+
+        // Reject link-local (169.254.0.0/16)
+        if (($ipLong >= ip2long('169.254.0.0') && $ipLong <= ip2long('169.254.255.255'))) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Link-local IP addresses not allowed', 'data' => null];
+        }
+
+        // Reject multicast (224.0.0.0/4)
+        if (($ipLong >= ip2long('224.0.0.0') && $ipLong <= ip2long('239.255.255.255'))) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Multicast IP addresses not allowed', 'data' => null];
+        }
+
+        // Reject broadcast
+        if ($ip === '255.255.255.255') {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Broadcast IP address not allowed', 'data' => null];
+        }
+
+        // Reject cloud metadata endpoint
+        if ($ip === '169.254.169.254') {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Cloud metadata endpoint not allowed', 'data' => null];
+        }
+
+        // Validate port
+        if ($port < 1 || $port > 65535) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Port must be between 1 and 65535', 'data' => null];
+        }
+
+        // Validate timeout
+        if ($timeout < 1 || $timeout > 30) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Timeout must be between 1 and 30 seconds', 'data' => null];
+        }
+
+        // Validate scheme
+        $scheme = strtolower($scheme);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Scheme must be http or https', 'data' => null];
+        }
+
+        // Use provided credentials or fall back to config
+        $username = $username ?: config('services.hikvision.username');
+        $password = $password ?: config('services.hikvision.password');
+
+        // Handle encrypted password (Laravel encrypted cast)
+        if ($password && str_starts_with($password, 'eyJ')) {
+            try {
+                $password = Crypt::decryptString($password);
+            } catch (\Throwable) {
+                // If decrypt fails, use as-is (might be plaintext from test request)
+            }
+        }
+
+        // Mock mode
+        if ($this->isMockMode()) {
+            if (str_ends_with($ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Simulated Device Offline ({$ip}:{$port})",
+                    'data' => null,
+                ];
+            }
+
+            try {
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->deviceStatus();
+                $data = $jsonResponse->getData(true) ?? [];
+
+                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'UNKNOWN');
+                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.0.0');
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => 200,
+                    'error' => null,
+                    'data' => $data,
+                ];
+            } catch (\Throwable $e) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Mock Error: " . $e->getMessage(),
+                    'data' => null,
+                ];
+            }
+        }
+
+        // Real device connection with manual parameters
+        $portSuffix = ($port && $port !== 80) ? ":{$port}" : '';
+        $url = "{$scheme}://{$ip}{$portSuffix}/ISAPI/System/deviceInfo";
+
+        try {
+            $httpClient = Http::connectTimeout($timeout)->timeout($timeout)->acceptJson();
+
+            // TLS verification toggle
+            if (!$verify_tls) {
+                $httpClient = $httpClient->withoutVerifying();
+            }
+
+            $response = $httpClient
+                ->withDigestAuth($username, $password)
+                ->get($url);
+
+            if ($response->successful()) {
+                $xml = @simplexml_load_string($response->body());
+                $data = $xml ? json_decode(json_encode($xml), true) : $response->json();
+
+                return [
+                    'status' => true,
+                    'statusCode' => $response->status(),
+                    'error' => null,
+                    'data' => [
+                        'model' => $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'),
+                        'serialNumber' => $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'UNKNOWN'),
+                        'firmware' => $data['firmwareVersion'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.0.0'),
+                        'online' => true,
+                    ],
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'error' => "HTTP {$response->status()}: " . substr($response->body(), 0, 200),
+                'data' => null,
+            ];
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return [
+                'status' => false,
+                'statusCode' => 504,
+                'error' => 'Connection timeout or device unreachable',
+                'data' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning("Manual device connection test failed for {$ip}:{$port}: {$e->getMessage()}");
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'error' => 'Connection failed: ' . substr($e->getMessage(), 0, 100),
+                'data' => null,
+            ];
+        }
+    }
+
+    /**
      * Trigger remote control command on physical terminal (e.g. 'open' to unlock door).
      * Uses ISAPI PUT /AccessControl/RemoteControl/door/{channel} with Digest Auth and XML payload.
      * Channel derived from trusted Door configuration, never arbitrary frontend input.
