@@ -14,6 +14,8 @@ let APP_TOKEN = window.APP_CONFIG?.apiToken || '';
 // State Cache
 let state = {
     doors: [],
+    allDoors: [], // every door the API returned; state.doors is the subset in the selected building
+    buildingFilter: '', // '' = Semua Gedung, otherwise a building id (see "Dashboard building scope")
     doorsLookup: [],
     employees: [],
     accessLogs: [],
@@ -94,9 +96,9 @@ function showToast(message, type = 'success', duration = 3500) {
     }, duration);
 }
 
-// = = = = =
+// ==========================================
 // Modal Window Utility (Universal Modal Control)
-// = = = = =
+// ==========================================
 function openModal(modalId) {
     const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
     if (!modal) return;
@@ -115,7 +117,7 @@ function closeModal(modalId) {
 window.openModal = openModal;
 window.closeModal = closeModal;
 
-// = = = = =
+// ==========================================
 // Centralized API Client (Fetch with Auth & Storm Guard)
 // = = = = =
 let isRedirectingToLogin = false;
@@ -262,10 +264,15 @@ async function updateMetricCards() {
 
     try {
         const canViewAttendance = hasCapability('attendance.view');
+        const scope = state.buildingFilter;
+        const metricsRequest = scope
+            ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
+            : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
         const [res, attendance] = await Promise.all([
-            apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null),
+            metricsRequest,
             canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
         ]);
+        if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
         if (res && res.status === 'success') {
             const data = res.data;
@@ -317,7 +324,8 @@ async function loadDoors() {
     try {
         const res = await apiFetch('/admin/doors');
         if (res.status === 'success') {
-            state.doors = res.data;
+            state.allDoors = res.data;
+            state.doors = doorsInBuildingScope(state.allDoors);
             renderDoorCards(state.doors);
             refreshDoorFilters(state.doors);
             scheduleMetricCardsUpdate();
@@ -326,6 +334,102 @@ async function loadDoors() {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
         if (overviewGrid) overviewGrid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
     }
+}
+
+// ==========================================
+// Dashboard building scope (Semua Gedung / Gedung A / B / C / D)
+// One selector in the top bar scopes the KPI cards, door cards, access log and user list.
+// Frontend only: it reuses filters the API already has (building_id on employees, door_id on
+// access logs, building_id on doors) because /admin/dashboard-metrics has no building parameter.
+// ==========================================
+const BUILDING_FILTER_KEY = 'pkp_dashboard_building';
+
+function restoreBuildingFilter() {
+    try { state.buildingFilter = localStorage.getItem(BUILDING_FILTER_KEY) || ''; } catch (_) { state.buildingFilter = ''; }
+}
+
+function doorsInBuildingScope(doors) {
+    if (!state.buildingFilter) return doors;
+    return (doors || []).filter(door => String(door.building_id) === String(state.buildingFilter));
+}
+
+async function loadDashboardBuildings() {
+    const select = document.getElementById('dashboardBuildingFilter');
+    if (!select) return;
+    try {
+        const res = await apiFetch('/user-management/organization/lookup');
+        const buildings = res.data?.buildings || [];
+        if (buildings.length <= 1) {
+            // A building admin: the backend already limits every endpoint to their building.
+            select.innerHTML = `<option value="">🏢 ${escapeHtml(buildings[0]?.name || 'Gedung Anda')}</option>`;
+            select.disabled = true;
+            select.title = 'Akses Anda dibatasi ke satu gedung.';
+            if (state.buildingFilter) { state.buildingFilter = ''; refreshDashboardScope(); }
+            return;
+        }
+        select.innerHTML = '<option value="">🏢 Semua Gedung</option>'
+            + buildings.map(building => `<option value="${building.id}">${escapeHtml(building.name)}</option>`).join('');
+        if (state.buildingFilter && !buildings.some(building => String(building.id) === String(state.buildingFilter))) {
+            state.buildingFilter = ''; // the saved building no longer exists
+            refreshDashboardScope();
+        }
+        select.value = state.buildingFilter;
+    } catch (_) {
+        select.disabled = true; // lookup unavailable: keep "Semua Gedung" behaviour
+    }
+}
+
+function onDashboardBuildingChange(value) {
+    state.buildingFilter = value || '';
+    try { localStorage.setItem(BUILDING_FILTER_KEY, state.buildingFilter); } catch (_) { /* storage unavailable: selection just isn't remembered */ }
+    refreshDashboardScope();
+}
+
+function refreshDashboardScope() {
+    state.doors = doorsInBuildingScope(state.allDoors);
+    renderDoorCards(state.doors);
+    refreshDoorFilters(state.doors);
+    loadEmployees(1);
+    loadAccessLogs();
+    scheduleMetricCardsUpdate(true);
+}
+
+async function fetchTotalRecords(url) {
+    const res = await apiFetch(url, { isBackground: true });
+    return Number(res.pagination?.total_records ?? 0);
+}
+
+// KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
+async function buildingMetrics(buildingId) {
+    const doors = doorsInBuildingScope(state.allDoors);
+    const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
+    const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
+        fetchTotalRecords(`${base}&per_page=1`),
+        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`),
+        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
+        fetchEmployeesForBuilding(buildingId),
+    ]);
+    const registered = employees.filter(emp =>
+        emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
+        || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
+    return {
+        totalUsers,
+        activeEmployees: activeUsers === 0 && totalUsers > 0 ? totalUsers : activeUsers,
+        registeredCredentials: registered,
+        activeDoors: doors.filter(door => door.connection_status === 'online').length,
+        totalDoors: doors.length,
+        deniedLogs: deniedPerDoor.reduce((sum, count) => sum + count, 0),
+    };
+}
+
+async function fetchEmployeesForBuilding(buildingId) {
+    const all = [];
+    for (let page = 1; page <= 5; page++) { // 5 x 100 employees per building is a safe upper bound
+        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
+        all.push(...(res.data || []));
+        if (page >= Number(res.pagination?.total_pages || 1)) break;
+    }
+    return all;
 }
 
 function refreshDoorFilters(doors) {
@@ -391,7 +495,6 @@ function renderDoorCards(doors) {
                     <span class="status-badge ${badgeClass}"><span class="status-dot"></span> ${statusLabel}</span>
                 </div>
                 <div class="card-value door-name-title">${safeDoorName}</div>
-                ${!isPrimaryDeploymentDoor ? '<div class="maintenance-note">Gedung B deployment target hanya. Terminal ini planned / not active.</div>' : ''}
                 ${isMaintenance ? '<div class="maintenance-note">⚠ Maintenance override aktif — status koneksi tetap berasal dari terminal.</div>' : ''}
                 <div class="door-specs">
                     <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
@@ -467,7 +570,9 @@ function onRemoteUnlockDoorChange(doorId) {
         return;
     }
 
-    const isOnline = remoteUnlockAllowed(door);
+    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
+    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
+    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
 
     if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
     if (codeEl) codeEl.textContent = door.door_id;
@@ -487,7 +592,9 @@ function openRemoteUnlockModal(doorId) {
     const select = document.getElementById('remoteUnlockDoorSelect');
     if (select) {
         select.innerHTML = doors.map(d => {
-            const online = remoteUnlockAllowed(d);
+            const isPrimary = d.door_id === 'DOOR-B';
+            const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
+            const online = isPrimary && health === 'online';
             return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
         }).join('');
         if (doorId) select.value = doorId;
@@ -523,7 +630,11 @@ async function confirmRemoteUnlock() {
         return;
     }
 
-    if (!remoteUnlockAllowed(door)) {
+    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
+    const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
+    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+
+    if (!isOnline) {
         showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
         return;
     }
@@ -681,26 +792,15 @@ async function loadEmployees(page = state.employeePage, options = {}) {
     const previousScrollY = options.previousScrollY ?? window.scrollY;
     const requestSequence = ++employeeRequestSequence;
 
-    if (employeeRequestController) employeeRequestController.abort();
-    employeeRequestController = new AbortController();
-
-    const tableContainers = [tbody, fullTbody].filter(Boolean)
-        .map(element => element.closest('.table-container')).filter(Boolean);
-    tableContainers.forEach(container => {
-        container.classList.add('employee-table-loading');
-        container.setAttribute('aria-busy', 'true');
-    });
-
-    const loadingHtml = '<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>';
-    if (!options.preserveScroll) {
-        if (tbody) tbody.innerHTML = loadingHtml;
-        if (fullTbody) fullTbody.innerHTML = loadingHtml;
-    }
+    const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
+    if (tbody) tbody.innerHTML = loadingHtml;
+    if (fullTbody) fullTbody.innerHTML = loadingHtml;
 
     try {
-        const params = new URLSearchParams({ per_page: '20', page: String(requestedPage) });
-        if (searchVal) params.set('search', searchVal);
-        if (doorFilter) params.set('door_id', doorFilter);
+        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
+        if (state.buildingFilter) url += `&building_id=${encodeURIComponent(state.buildingFilter)}`;
+        if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
+        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
         const res = await apiFetch(`/user-management/employees?${params.toString()}`, {
             signal: employeeRequestController.signal,
@@ -727,45 +827,10 @@ async function loadEmployees(page = state.employeePage, options = {}) {
                 countBadge.innerText = `Menampilkan ${from}–${to} dari ${formattedTotal} pengguna`;
             }
         }
-
-        const totalSummary = document.getElementById('employeeTotalSummary');
-        if (totalSummary && res.pagination?.total_all !== undefined) {
-            totalSummary.innerHTML = `Total Pengguna: <strong>${new Intl.NumberFormat('id-ID').format(res.pagination.total_all)}</strong>`;
-        }
-
-        renderEmployeesTable(state.employees);
-        renderEmployeePagination();
-
-        if (options.updateHistory !== false) {
-            const browserUrl = new URL(window.location.href);
-            browserUrl.searchParams.set('employee_page', String(requestedPage));
-            searchVal ? browserUrl.searchParams.set('employee_search', searchVal) : browserUrl.searchParams.delete('employee_search');
-            doorFilter ? browserUrl.searchParams.set('employee_door', doorFilter) : browserUrl.searchParams.delete('employee_door');
-            window.history.replaceState(window.history.state, '', browserUrl);
-        }
-
-        if (options.preserveScroll) {
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    window.scrollTo(0, previousScrollY);
-                    document.querySelector(
-                        `.employee-pagination [data-pagination-action="${options.action || 'next'}"]:not(:disabled)`
-                    )?.focus({ preventScroll: true });
-                });
-            });
-        }
-    } catch (error) {
-        if (error.name === 'AbortError' || requestSequence !== employeeRequestSequence) return;
-        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${escapeHtml(error.message)}</td></tr>`;
+    } catch (err) {
+        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
-    } finally {
-        if (requestSequence === employeeRequestSequence) {
-            tableContainers.forEach(container => {
-                container.classList.remove('employee-table-loading');
-                container.setAttribute('aria-busy', 'false');
-            });
-        }
     }
 }
 
@@ -1239,18 +1304,33 @@ async function loadAccessLogs() {
     }
 
     try {
-        let url = `/admin/access-logs?limit=40`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
-        if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
-        if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
-        if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
-        if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
-        if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+        const buildUrl = doorId => {
+            let url = `/admin/access-logs?limit=40`;
+            if (doorId) url += `&door_id=${encodeURIComponent(doorId)}`;
+            if (statusFilter) url += `&status=${encodeURIComponent(statusFilter)}`;
+            if (attendanceStateFilter) url += `&attendance_state=${encodeURIComponent(attendanceStateFilter)}`;
+            if (userSearch) url += `&user=${encodeURIComponent(userSearch)}`;
+            if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+            if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+            return url;
+        };
 
-        const res = await apiFetch(url);
+        let logs;
+        if (!doorFilter && state.buildingFilter) {
+            // The API filters by a single door, so query every door of the selected building and merge.
+            const doorIds = doorsInBuildingScope(state.allDoors).map(door => door.door_id);
+            const responses = await Promise.all(doorIds.map(id => apiFetch(buildUrl(id))));
+            logs = responses
+                .flatMap(response => (response.status === 'success' ? response.data : []))
+                .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+                .slice(0, 40);
+        } else {
+            const res = await apiFetch(buildUrl(doorFilter));
+            logs = res.status === 'success' ? res.data : null;
+        }
         if (requestSeq !== accessLogsRequestSeq) return; // a newer filter request superseded this one
-        if (res.status === 'success') {
-            state.accessLogs = res.data;
+        if (logs) {
+            state.accessLogs = logs;
             renderAccessLogsTable(state.accessLogs);
             scheduleMetricCardsUpdate();
         }
@@ -1674,9 +1754,9 @@ async function runEventSimulation(e) {
     }
 }
 
-// = = = = =
+// ==========================================
 // Modal Utilities (openModal/closeModal live in the "Modal Window Utility" block near the top)
-// = = = = =
+// ==========================================
 
 // Close modals when clicking outside modal card
 window.addEventListener('click', (e) => {
@@ -1984,10 +2064,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
     initSidebar();
 
-    // Initial data loading
-    loadDoors();
+    // Initial data loading. Doors load first so a remembered building can scope the access log.
+    restoreBuildingFilter();
+    loadDashboardBuildings();
+    loadDoors().finally(loadAccessLogs);
     loadEmployees();
-    loadAccessLogs();
     if (hasCapability('audit.view')) {
         loadActivityLogs();
     }
@@ -4241,7 +4322,7 @@ function loadAccessData() {
 
 async function refreshAccessData(button) {
     const original = button?.innerHTML || '';
-    if (button) { button.disabled = true; button.innerHTML = 'ΓÅ│ Memuat...'; }
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Memuat...'; }
     try {
         const results = await loadAccessData();
         const failed = results.filter(ok => ok === false).length;
@@ -4603,16 +4684,6 @@ async function populateAccessEmployees() {
     } catch (e) {
         console.error('Failed to populate employees for access modules', e);
         return false;
-    }
-}
-
-function onAccessProfileSelected() {
-    const profileSelect = document.getElementById('accessReqProfileId');
-    const buildingInput = document.getElementById('accessReqBuilding');
-    const selectedBuilding = profileSelect?.selectedOptions?.[0]?.dataset?.building;
-
-    if (buildingInput && selectedBuilding) {
-        buildingInput.value = selectedBuilding;
     }
 }
 
@@ -5755,6 +5826,38 @@ function formatAttendanceDate(value) {
     return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
 }
 
+const ATTENDANCE_TIMEZONE = 'Asia/Jakarta';
+
+// The API serialises Attendance dates/times as ISO-8601 in UTC (e.g. 2026-09-20T17:00:00.000000Z, which is
+// 21 Sep 00:00 WIB). Reading the string directly shows UTC (7 hours behind WIB), so convert explicitly.
+// Values without a timezone marker ("2026-09-21 09:55:00" / "2026-09-21") are already local and are used as-is.
+function hasTimezoneMarker(value) {
+    return /(?:Z|[+-]\d{2}:?\d{2})$/.test(String(value));
+}
+
+function formatAttendanceTime(value) {
+    if (!value) return '-';
+    const text = String(value);
+    if (!hasTimezoneMarker(text)) return /\d{2}:\d{2}/.test(text) ? text.substring(11, 16) : '-';
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return '-';
+    return new Intl.DateTimeFormat('en-GB', { timeZone: ATTENDANCE_TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+}
+
+function formatAttendanceDate(value) {
+    if (!value) return '-';
+    const text = String(value);
+    const options = { day: '2-digit', month: 'short', year: 'numeric' };
+    if (!hasTimezoneMarker(text)) {
+        const [year, month, day] = text.substring(0, 10).split('-').map(Number);
+        if (!year || !month || !day) return text;
+        return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, day)));
+    }
+    const date = new Date(text);
+    if (Number.isNaN(date.getTime())) return text;
+    return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
+}
+
 async function loadAttendanceData() {
     loadAttendanceMetrics();
     loadAttendanceReport();
@@ -5906,6 +6009,44 @@ async function loadAttendanceMetrics() {
     }
 }
 
+let attendanceReportSeq = 0;
+let attendanceBuildingLookupWarned = false;
+const attendanceReportState = { data: null, buildingLabel: '' };
+
+// Local (browser) year-month; toISOString() is UTC and returns the previous month in early-morning WIB on the 1st.
+function currentMonthValue() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function attendanceReportBuildingLabel() {
+    const select = document.getElementById('attendanceReportBuilding');
+    return select && select.value ? (select.options[select.selectedIndex]?.text || '') : '';
+}
+
+// Fills the "Semua Gedung" dropdown once. Returns false when the lookup failed so the caller can keep retrying later.
+async function ensureAttendanceReportBuildings() {
+    const building = document.getElementById('attendanceReportBuilding');
+    if (!building || building.options.length > 1) return true;
+    try {
+        const lookup = await apiFetch('/user-management/organization/lookup');
+        const previous = building.value;
+        (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
+        if (previous) building.value = previous;
+        return true;
+    } catch (error) {
+        if (!error.suppressed && !attendanceBuildingLookupWarned) {
+            attendanceBuildingLookupWarned = true;
+            showToast(`Daftar gedung gagal dimuat: ${error.message}. Laporan tetap tampil untuk semua gedung.`, 'warning');
+        }
+        return false;
+    }
+}
+
+function renderAttendanceReportMetrics(totals) {
+    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
+}
+
 async function loadAttendanceReport() {
     const tbody = document.getElementById('attendanceReportBody');
     if (!tbody) return;
@@ -5921,110 +6062,24 @@ async function loadAttendanceReport() {
     const query = new URLSearchParams({ month: month.value });
     if (building.value) query.set('building_id', building.value);
     const buildingLabel = attendanceReportBuildingLabel();
-    if (seq !== attendanceReportSeq) return;
     try {
         const res = await apiFetch(`/attendance/reports/monthly?${query}`);
         if (seq !== attendanceReportSeq) return;
-        if (seq !== attendanceReportSeq) return;
-        attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows, buildingLabel };
+        attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows };
         attendanceReportState.buildingLabel = buildingLabel;
         renderAttendanceReportMetrics(res.data.totals);
-        const emptyMsg = buildingLabel ? `Tidak ada data kehadiran untuk ${escapeHtml(buildingLabel)} di bulan ini.` : 'Tidak ada data kehadiran untuk bulan ini.';
-        tbody.innerHTML = res.data.rows.length ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('') : `<tr><td colspan="7" class="empty-td">${emptyMsg}</td></tr>`;
+        const emptyMessage = buildingLabel
+            ? `Tidak ada data kehadiran untuk ${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}.`
+            : 'Tidak ada data kehadiran untuk periode ini.';
+        tbody.innerHTML = res.data.rows.length
+            ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
+            : `<tr><td colspan="7" class="empty-td">${emptyMessage}</td></tr>`;
     } catch (error) {
-        if (seq === attendanceReportSeq) tbody.innerHTML = `<tr><td colspan="7" class="error-td">${escapeHtml(error.message)}</td></tr>`;
+        if (seq !== attendanceReportSeq) return;
+        attendanceReportState.data = null;
+        document.getElementById('attendanceReportMetrics').innerHTML = '';
+        tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat laporan: ${escapeHtml(error.message)}</td></tr>`;
     }
-}
-
-async function exportAttendanceReport(btn) {
-    const query = new URLSearchParams({ month: document.getElementById('attendanceReportMonth').value });
-    const building = document.getElementById('attendanceReportBuilding').value;
-    if (building) query.set('building_id', building);
-    if (btn) { btn.disabled = true; btn.innerHTML = '⬇ Mempersiapkan export...'; }
-    try {
-        const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, { headers: { Accept: 'text/csv', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) } });
-        if (!response.ok) {
-            const errBody = await response.text();
-            return showToast(`Export gagal (${response.status}): ${escapeHtml(errBody || response.statusText)}`, 'error');
-        }
-        const contentType = response.headers.get('content-type') || '';
-        if (!contentType.includes('text/csv') && !contentType.includes('application/csv')) {
-            return showToast('Server mengembalikan format bukan CSV. Cek respon di console.', 'error');
-        }
-        const blob = await response.blob();
-        if (!blob.type.includes('csv') && !blob.type.includes('plain')) {
-            return showToast('Blob type bukan CSV, pembatalan download.', 'error');
-        }
-        downloadBlobAsFile(blob, `attendance-report-${query.get('month')}.csv`);
-        showToast('Laporan kehadiran berhasil diunduh.', 'success');
-    } catch (error) {
-        showToast(`Export error: ${escapeHtml(error.message)}`, 'error');
-    } finally {
-        if (btn) { btn.disabled = false; btn.innerHTML = '⬇ Download CSV'; }
-    }
-}
-
-function printAttendanceReport() {
-    const state = attendanceReportState;
-    if (!state.data || !state.data.rows || !state.data.rows.length) {
-        showToast('Tidak ada data untuk dicetak.', 'warning');
-        return;
-    }
-    const { month, totals, rows, buildingLabel: scope } = state.data;
-    const printWindow = window.open('', '_blank');
-    const monthLabel = new Date(`${month}-01`).toLocaleDateString('id-ID', { year: 'numeric', month: 'long' });
-    const buildingName = scope ? ` — ${escapeHtml(scope)}` : '';
-    const rowsHtml = rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}</td><td>${escapeHtml(row.employee_code)}</td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('');
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Laporan Kehadiran ${monthLabel}${buildingName}</title>
-            <style>
-                body { font-family: Arial, sans-serif; margin: 1cm; }
-                h1 { text-align: center; font-size: 1.5em; margin-bottom: 0.5em; }
-                .subtitle { text-align: center; color: #666; margin-bottom: 1em; }
-                table { width: 100%; border-collapse: collapse; margin-top: 1em; }
-                th, td { border: 1px solid #333; padding: 0.5em; text-align: left; }
-                th { background: #f0f0f0; font-weight: bold; }
-                .stats { margin: 1em 0; display: flex; gap: 2em; }
-                .stat { flex: 1; }
-                .stat-label { font-weight: bold; }
-                .stat-value { font-size: 1.2em; color: #0066cc; }
-                @media print { body { margin: 0; } }
-            </style>
-        </head>
-        <body>
-            <h1>Laporan Kehadiran Karyawan</h1>
-            <p class="subtitle">${monthLabel}${buildingName}</p>
-            <div class="stats">
-                <div class="stat"><div class="stat-label">Total Karyawan</div><div class="stat-value">${totals.employees}</div></div>
-                <div class="stat"><div class="stat-label">Hadir</div><div class="stat-value">${totals.present}</div></div>
-                <div class="stat"><div class="stat-label">Terlambat</div><div class="stat-value">${totals.late}</div></div>
-                <div class="stat"><div class="stat-label">Absen</div><div class="stat-value">${totals.absent}</div></div>
-                <div class="stat"><div class="stat-label">Persentase Kehadiran</div><div class="stat-value">${totals.attendance_rate}%</div></div>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Nama</th>
-                        <th>Kode</th>
-                        <th>Gedung</th>
-                        <th>Hadir</th>
-                        <th>Terlambat</th>
-                        <th>Absen</th>
-                        <th>%</th>
-                        <th>Menit Terlambat</th>
-                    </tr>
-                </thead>
-                <tbody>${rowsHtml}</tbody>
-            </table>
-            <p style="text-align: right; color: #999; margin-top: 2em; font-size: 0.9em;">Dicetak pada ${new Date().toLocaleString('id-ID')}</p>
-            <script>window.print();</script>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
 }
 
 function downloadBlobAsFile(blob, filename) {
@@ -6032,10 +6087,98 @@ function downloadBlobAsFile(blob, filename) {
     const link = document.createElement('a');
     link.href = url;
     link.download = filename;
-    document.body.appendChild(link);
+    document.body.appendChild(link); // Firefox ignores clicks on detached anchors
     link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 100);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000); // revoking immediately can cancel the download
+}
+
+async function exportAttendanceReport(button) {
+    const month = document.getElementById('attendanceReportMonth')?.value || currentMonthValue();
+    const buildingSelect = document.getElementById('attendanceReportBuilding');
+    const query = new URLSearchParams({ month });
+    if (buildingSelect?.value) query.set('building_id', buildingSelect.value);
+    const buildingLabel = attendanceReportBuildingLabel();
+
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Menyiapkan CSV...'; }
+    try {
+        // Failures (403/422) come back as JSON; success is the CSV stream. Anything that is not CSV is never saved as the report.
+        const response = await fetch(`${API_BASE}/attendance/reports/monthly/export?${query}`, {
+            headers: { Accept: 'application/json, text/csv;q=0.9', ...(APP_TOKEN ? { Authorization: `Bearer ${APP_TOKEN}` } : {}) },
+        });
+        if (response.status === 401) {
+            showToast('Sesi autentikasi telah berakhir. Silakan login ulang.', 'error');
+            return;
+        }
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok || !contentType.includes('csv')) {
+            let message = response.status === 403
+                ? 'Anda tidak memiliki izin mengekspor laporan kehadiran.'
+                : `Server menjawab status ${response.status}.`;
+            if (contentType.includes('json')) {
+                const body = await response.json().catch(() => ({}));
+                if (body.message) message = body.message;
+            }
+            showToast(`Export CSV gagal: ${message}`, 'error');
+            return;
+        }
+        const suffix = buildingLabel ? `-${buildingLabel.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}` : '';
+        downloadBlobAsFile(await response.blob(), `attendance-report-${month}${suffix}.csv`);
+        showToast('Export CSV berhasil diunduh.', 'success');
+    } catch (error) {
+        showToast(`Export CSV gagal: ${error.message}`, 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
+    }
+}
+
+// PDF without a backend or library: prints the report currently on screen; choose "Save as PDF" in the print dialog.
+function printAttendanceReport() {
+    const report = attendanceReportState.data;
+    if (!report) {
+        showToast('Muat laporan terlebih dahulu sebelum mencetak atau menyimpan PDF.', 'warning');
+        return;
+    }
+    const scope = attendanceReportState.buildingLabel || 'Semua Gedung';
+    const rows = report.rows.length
+        ? report.rows.map(row => `<tr><td>${escapeHtml(row.employee_name)}<br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
+        : '<tr><td colspan="7" style="text-align:center;color:#666;">Tidak ada data kehadiran untuk periode ini.</td></tr>';
+    const t = report.totals;
+    const html = `<!DOCTYPE html><html lang="id"><head><meta charset="utf-8"><title>Laporan Kehadiran ${escapeHtml(report.month)} - ${escapeHtml(scope)}</title><style>
+        body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:24px;font-size:12px}
+        h1{font-size:18px;margin:0 0 4px}
+        .meta{color:#555;margin-bottom:14px}
+        .summary{display:flex;gap:18px;margin-bottom:14px;flex-wrap:wrap}
+        .summary div{border:1px solid #ccc;border-radius:4px;padding:6px 12px}
+        .summary b{display:block;font-size:15px}
+        table{width:100%;border-collapse:collapse}
+        th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;vertical-align:top}
+        th{background:#f1f5f9}
+        small{color:#666}
+        tr{page-break-inside:avoid}
+    </style></head><body>
+        <h1>Laporan Kehadiran Bulanan</h1>
+        <div class="meta">Periode: ${escapeHtml(report.month)} &middot; Gedung: ${escapeHtml(scope)} &middot; Dicetak: ${escapeHtml(new Date().toLocaleString('id-ID'))}</div>
+        <div class="summary">
+            <div>Karyawan<b>${t.employees}</b></div><div>Hadir<b>${t.present}</b></div><div>Terlambat<b>${t.late}</b></div><div>Absen<b>${t.absent}</b></div><div>Attendance Rate<b>${t.attendance_rate}%</b></div>
+        </div>
+        <table><thead><tr><th>Karyawan</th><th>Gedung</th><th>Hadir</th><th>Terlambat</th><th>Absen</th><th>Attendance Rate</th><th>Menit Terlambat</th></tr></thead><tbody>${rows}</tbody></table>
+    </body></html>`;
+
+    const frame = document.createElement('iframe');
+    frame.setAttribute('aria-hidden', 'true');
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(frame);
+    const doc = frame.contentWindow.document;
+    doc.open();
+    doc.write(html);
+    doc.close();
+    setTimeout(() => {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        setTimeout(() => frame.remove(), 1500);
+    }, 250);
 }
 
 async function openFacilityModal(doorId = null) {

@@ -346,7 +346,11 @@ class AdminDoorController extends Controller
             ], 422);
         }
 
-        if (! $door->remoteUnlockAllowed()) {
+        $request->validate([
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        if ($door->connection_status !== 'online' || $door->health_status === 'auth_error') {
             return response()->json([
                 'status' => 'error',
                 'code' => 409,
@@ -375,8 +379,8 @@ class AdminDoorController extends Controller
         }
 
         $doorName = $door->door_name ?? $door->name;
-        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard. Alasan: {$reason}";
-        if ($idempotencyKey !== '') $desc .= " Idempotency-Key: {$idempotencyKey}";
+        $reason = $request->input('reason');
+        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard." . ($reason ? " Alasan: {$reason}" : '');
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,

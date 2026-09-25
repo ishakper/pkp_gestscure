@@ -23,29 +23,27 @@ class AccessLogFilterTest extends TestCase
 
     private Door $doorA;
     private Door $doorB;
-    private string $adminEmail;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->adminEmail = 'test_'.uniqid().'@accesscontrol.local';
         Sanctum::actingAs(Admin::create([
             'name' => 'Super Administrator',
-            'email' => $this->adminEmail,
+            'email' => 'admin@accesscontrol.local',
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]));
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-A',
             'name' => 'Door A',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
             'connection_status' => 'online',
         ]);
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -127,8 +125,8 @@ class AccessLogFilterTest extends TestCase
 
     public function test_door_filter(): void
     {
-        $this->assertSame(['L2', 'L3', 'L4'], $this->ids(['door_id' => $this->doorB->door_id]));
-        $this->assertSame(['L1', 'L5'], $this->ids(['door_id' => $this->doorA->door_id]));
+        $this->assertSame(['L2', 'L3', 'L4'], $this->ids(['door_id' => 'DOOR-B']));
+        $this->assertSame(['L1', 'L5'], $this->ids(['door_id' => 'DOOR-A']));
     }
 
     public function test_status_and_alarm_filter(): void
@@ -175,8 +173,8 @@ class AccessLogFilterTest extends TestCase
 
     public function test_filters_combine_with_and_logic(): void
     {
-        $this->assertSame(['L3'], $this->ids(['door_id' => $this->doorB->door_id, 'status' => 'Denied']));
-        $this->assertSame(['L2'], $this->ids(['door_id' => $this->doorB->door_id, 'attendance_state' => 'LATE', 'user' => 'siti']));
-        $this->assertSame([], $this->ids(['door_id' => $this->doorA->door_id, 'status' => 'Denied']));
+        $this->assertSame(['L3'], $this->ids(['door_id' => 'DOOR-B', 'status' => 'Denied']));
+        $this->assertSame(['L2'], $this->ids(['door_id' => 'DOOR-B', 'attendance_state' => 'LATE', 'user' => 'siti']));
+        $this->assertSame([], $this->ids(['door_id' => 'DOOR-A', 'status' => 'Denied']));
     }
 }
