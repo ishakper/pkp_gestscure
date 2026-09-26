@@ -54,9 +54,19 @@ class AdminDoorController extends Controller
         if ($admin && $admin->isBuildingAdmin()) {
             $buildingId = $admin->employee?->building_id;
             abort_unless($buildingId || $admin->assigned_building, 403);
-            $doors->where(fn ($query) => $query
-                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
-                ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhere('location', $admin->assigned_building)));
+            $doors->where(function ($query) use ($buildingId, $admin) {
+                if ($buildingId) {
+                    $query->where('building_id', $buildingId);
+                    if ($admin->assigned_building) {
+                        // Fallback to legacy location ONLY for doors without building_id
+                        $query->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
+                    }
+                } else {
+                    // No building_id in employee: match via building.name OR legacy location for doors without building_id
+                    $query->whereHas('building', fn ($b) => $b->where('name', $admin->assigned_building))
+                          ->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
+                }
+            });
         }
 
         $scopedDoors = $doors->get();
@@ -66,9 +76,18 @@ class AdminDoorController extends Controller
         if ($admin && $admin->isBuildingAdmin()) {
             $buildingId = $admin->employee?->building_id;
             abort_unless($buildingId || $admin->assigned_building, 403);
-            $employees->where(fn ($query) => $query
-                ->when($buildingId, fn ($scoped) => $scoped->where('building_id', $buildingId))
-                ->when($admin->assigned_building, fn ($scoped) => $scoped->orWhereHas('doors', fn ($doors) => $doors->where('location', $admin->assigned_building))));
+            $employees->where(function ($query) use ($buildingId, $admin) {
+                if ($buildingId) {
+                    $query->where('building_id', $buildingId);
+                    if ($admin->assigned_building) {
+                        // Fallback: employees assigned to doors without building_id but with matching location
+                        $query->orWhereHas('doors', fn ($doors) => $doors->whereNull('building_id')->where('location', $admin->assigned_building));
+                    }
+                } else {
+                    // No building_id: only employees with doors without building_id matching location
+                    $query->whereHas('doors', fn ($doors) => $doors->whereNull('building_id')->where('location', $admin->assigned_building));
+                }
+            });
         }
         $totalUsers = (clone $employees)->count();
         $activeEmployeesQuery = (clone $employees)->where(function ($query) {
@@ -186,7 +205,12 @@ class AdminDoorController extends Controller
         $query = Door::with('building:id,name')->withCount(['employees', 'doorAssignments', 'accessLogs']);
 
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $query->where('location', $admin->assigned_building);
+            $query->where(function ($q) use ($admin) {
+                // Match doors with building_id via building.name relation
+                $q->whereHas('building', fn ($b) => $b->where('name', $admin->assigned_building))
+                  // OR fallback to legacy location field
+                  ->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
+            });
         }
 
         $doors = $query->get();
@@ -225,7 +249,12 @@ class AdminDoorController extends Controller
         $query = Door::query();
 
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
-            $query->where('location', $admin->assigned_building);
+            $query->where(function ($q) use ($admin) {
+                // Match doors with building_id via building.name relation
+                $q->whereHas('building', fn ($b) => $b->where('name', $admin->assigned_building))
+                  // OR fallback to legacy location field
+                  ->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
+            });
         }
 
         $doors = $query->get()->map(function ($door) {
@@ -594,7 +623,9 @@ class AdminDoorController extends Controller
                         $query->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
                     }
                 } else {
-                    $query->whereNull('building_id')->where('location', $admin->assigned_building);
+                    // No building_id in employee: match via building.name OR legacy location for doors without building_id
+                    $query->whereHas('building', fn ($b) => $b->where('name', $admin->assigned_building))
+                          ->orWhere(fn ($legacy) => $legacy->whereNull('building_id')->where('location', $admin->assigned_building));
                 }
             });
         }

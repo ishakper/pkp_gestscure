@@ -764,6 +764,8 @@ async function loadEmployees(page = state.employeePage) {
     }
 }
 
+window.loadEmployees = loadEmployees;
+
 function renderEmployeesTable(employees) {
     const targets = [
         document.getElementById('employeesTableBody'),
@@ -7358,6 +7360,7 @@ async function loadBuildingHierarchy() {
         const buildings = (bldRes.status === 'success' && Array.isArray(bldRes.data)) ? bldRes.data : [];
         const doors = (doorRes.status === 'success' && Array.isArray(doorRes.data)) ? doorRes.data : [];
 
+        // Handle case: no buildings AND no doors
         if (buildings.length === 0 && doors.length === 0) {
             const canManageOrganization = (window.APP_CONFIG?.permissions || []).includes('organization.manage');
             container.innerHTML = `
@@ -7368,6 +7371,55 @@ async function loadBuildingHierarchy() {
                     ${canManageOrganization ? '<button class="btn-primary" onclick="openAddBuildingModal()">+ Tambah Gedung Pertama</button>' : ''}
                 </div>
             `;
+            return;
+        }
+
+        // Handle case: no buildings but doors exist (unassigned)
+        if (buildings.length === 0 && doors.length > 0) {
+            const canManageOrganization = (window.APP_CONFIG?.permissions || []).includes('organization.manage');
+            let html = `
+                <div style="background: var(--card-bg); border: 1px solid rgba(239,68,68,0.3); border-radius: 1rem; padding: 2rem; margin-bottom: 2rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="font-size: 1.75rem;">⚠️</div>
+                        <div>
+                            <h3 style="color: #fca5a5; margin: 0 0 0.25rem 0; font-weight: 700;">Setup Gedung Belum Lengkap</h3>
+                            <p style="color: var(--text-muted); margin: 0; font-size: 0.875rem;">Hierarki gedung belum dikonfigurasi, tetapi sudah ada ${doors.length} terminal pintu yang belum dialokasikan ke gedung manapun.</p>
+                        </div>
+                    </div>
+                    <div style="background: rgba(239,68,68,0.1); border-left: 3px solid #ef4444; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1.5rem;">
+                        <p style="color: #f8fafc; margin: 0; font-size: 0.875rem;"><strong>Langkah selanjutnya:</strong></p>
+                        <ol style="margin: 0.5rem 0 0 1.25rem; color: var(--text-muted); font-size: 0.85rem;">
+                            <li>Buat master gedung terlebih dahulu</li>
+                            <li>Alokasikan setiap terminal pintu ke gedung yang sesuai</li>
+                            <li>Refresh halaman setelah setup selesai</li>
+                        </ol>
+                    </div>
+                    ${canManageOrganization ? '<button class="btn-primary" onclick="openAddBuildingModal()">+ Setup Gedung Pertama</button>' : '<p style="color: var(--text-muted); font-size: 0.85rem; margin: 0; font-style: italic;">Hubungi administrator untuk mengkonfigurasi gedung.</p>'}
+                </div>
+                <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.5rem;">
+                    <h4 style="color: #f8fafc; margin: 0 0 1rem 0; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>🔌</span> Terminal Pintu Belum Dialokasikan (${doors.length})
+                    </h4>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+                        ${doors.map(d => `
+                            <div style="background: rgba(15,23,42,0.6); border: 1px solid var(--border-color); border-radius: 0.75rem; padding: 1rem;">
+                                <div style="font-weight: 600; color: #f8fafc; margin-bottom: 0.5rem;">${escapeHtml(d.name || d.door_id)}</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                    <span style="display: inline-block; width: 80px;">ID:</span> <code style="color: var(--primary);">${escapeHtml(d.door_id)}</code>
+                                </div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                                    <span style="display: inline-block; width: 80px;">Lokasi:</span> ${escapeHtml(d.location || '—')}
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem;">
+                                    <span style="width: 6px; height: 6px; border-radius: 50%; background: ${d.status === 'online' ? '#10b981' : '#ef4444'};"></span>
+                                    <span style="color: ${d.status === 'online' ? '#6ee7b7' : '#fca5a5'};">${d.status === 'online' ? 'Online' : 'Offline'}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+            container.innerHTML = html;
             return;
         }
 
@@ -7415,6 +7467,36 @@ async function loadBuildingHierarchy() {
                 </div>
             `;
         });
+
+        // Add section for unassigned doors
+        const unassignedDoors = doors.filter(d => !d.building_id);
+        if (unassignedDoors.length > 0) {
+            html += `
+                <div style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.3); border-radius: 1rem; padding: 1.5rem;">
+                    <h4 style="color: #fbbf24; margin: 0 0 1rem 0; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;">
+                        <span>🔌</span> Terminal Pintu Belum Dialokasikan (${unassignedDoors.length})
+                    </h4>
+                    <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Terminal di bawah ini belum terhubung ke mana pun. Hubungkan ke gedung yang sesuai melalui konfigurasi pintu.</p>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+                        ${unassignedDoors.map(d => `
+                            <div style="background: rgba(15,23,42,0.6); border: 1px solid rgba(245,158,11,0.3); border-radius: 0.75rem; padding: 1rem;">
+                                <div style="font-weight: 600; color: #f8fafc; margin-bottom: 0.5rem;">${escapeHtml(d.name || d.door_id)}</div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">
+                                    <span style="display: inline-block; width: 80px;">ID:</span> <code style="color: var(--primary);">${escapeHtml(d.door_id)}</code>
+                                </div>
+                                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                                    <span style="display: inline-block; width: 80px;">Lokasi:</span> ${escapeHtml(d.location || '—')}
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem;">
+                                    <span style="width: 6px; height: 6px; border-radius: 50%; background: ${d.status === 'online' ? '#10b981' : '#ef4444'};"></span>
+                                    <span style="color: ${d.status === 'online' ? '#6ee7b7' : '#fca5a5'};">${d.status === 'online' ? 'Online' : 'Offline'}</span>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
 
         container.innerHTML = html;
     } catch (err) {
