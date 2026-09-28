@@ -21,3 +21,16 @@ docker-compose*.yml
 *.md
 setup_lan_firewall.*
 composer.phar
+
+# SQLite databases - exclude all except empty placeholder created at build
+*.sqlite
+*.sqlite3
+database-backup-*.sqlite
+database-server-*.sqlite
+db-*.sqlite
+RECOVERED_DB_BACKUP*.sqlite
+test-volumes/
+db-test-fresh.sqlite/
+securegate-deploy-candidate/
+access-door-management/database/*.sqlite
+access-door-management/database/*.sqlite3
