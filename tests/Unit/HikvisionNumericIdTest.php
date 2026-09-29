@@ -77,7 +77,7 @@ class HikvisionNumericIdTest extends TestCase
         $id2 = "L261071";
         $fold1 = mb_strtolower($id1, 'UTF-8');
         $fold2 = mb_strtolower($id2, 'UTF-8');
-        $this->assertNotIdentical($fold1, $fold2);
+        $this->assertNotSame($fold1, $fold2);
     }
 
     /**

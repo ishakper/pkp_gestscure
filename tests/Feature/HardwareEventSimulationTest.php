@@ -31,6 +31,11 @@ class HardwareEventSimulationTest extends TestCase
             'connection_status' => 'online',
         ]);
 
+        // Configure webhook secret for this test door
+        config([
+            "services.doors.{$this->door->door_id}.webhook_secret" => "secret_simulator_key_2026",
+        ]);
+
         $this->employee = Employee::create([
             'employee_id' => 'USR-1001',
             'nik' => 'NIK-882101',

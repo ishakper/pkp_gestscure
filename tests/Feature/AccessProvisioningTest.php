@@ -31,7 +31,7 @@ class AccessProvisioningTest extends TestCase
         parent::setUp();
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-A',
             'name' => 'Pintu Lobby Utama',
             'door_name' => 'Pintu Lobby Utama',
             'location' => 'Kantor Pusat PKP',
@@ -41,7 +41,7 @@ class AccessProvisioningTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'name' => 'Pintu Server Room',
             'door_name' => 'Pintu Server Room',
             'location' => 'Kantor Pusat PKP',
@@ -51,7 +51,7 @@ class AccessProvisioningTest extends TestCase
         ]);
 
         $this->doorC = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-C',
             'name' => 'Pintu Cabang Surabaya',
             'door_name' => 'Pintu Cabang Surabaya',
             'location' => 'Gedung Cabang Surabaya',

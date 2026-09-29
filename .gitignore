@@ -21,3 +21,9 @@ yarn-error.log
 
 composer.phar
 
+# SQLite database files (backups, dev databases)
+database-backup-*.sqlite
+*-backup-*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+

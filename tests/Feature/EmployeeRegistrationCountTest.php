@@ -12,7 +12,7 @@ class EmployeeRegistrationCountTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_registered_count_requires_active_mapping_and_credential_evidence_not_door_access(): void
+    public function test_registered_count_requires_active_source_mapping_not_door_access(): void
     {
         Sanctum::actingAs(Admin::create([
             'name' => 'Count Admin',
@@ -22,22 +22,26 @@ class EmployeeRegistrationCountTest extends TestCase
         ]));
 
         $this->employee('CARD', [
+            'source_person_number' => 'SRC-CARD',
             'credential_method' => 'card',
             'credential_status' => 'confirmed_from_backup',
         ]);
         $this->employee('FP', [
+            'source_person_number' => 'SRC-FP',
             'credential_method' => 'fingerprint',
             'credential_status' => 'expected_from_backup',
         ]);
-        $this->employee('LEGACY', ['card_no' => 'LEGACY-CARD']);
-        $this->employee('UNKNOWN');
+        $this->employee('LEGACY', ['source_person_number' => 'SRC-LEGACY', 'card_no' => 'LEGACY-CARD']);
+        $this->employee('UNKNOWN', ['source_person_number' => null]);
         $this->employee('INACTIVE', [
             'employment_status' => 'INACTIVE',
+            'source_person_number' => 'SRC-INACTIVE',
             'credential_method' => 'card',
             'credential_status' => 'confirmed_from_backup',
         ]);
         $this->employee('NO-MAPPING', [
             'hikvision_employee_no' => null,
+            'source_person_number' => null,
             'credential_method' => 'card',
             'credential_status' => 'confirmed_from_backup',
         ]);

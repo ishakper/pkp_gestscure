@@ -65,7 +65,7 @@ class DeviceOnboardingTest extends TestCase
     {
         $admin = $this->createAdmin('super_admin');
         $building = Building::create(['code' => 'BLD-TEST', 'name' => 'Gedung Test R&D', 'is_active' => true]);
-        $uniqueDoorId = 'DOOR-'.uniqid();
+        $uniqueDoorId = strtoupper('DOOR-'.uniqid());
 
         $response = $this->actingAs($admin)->postJson('/api/v1/admin/doors/onboard', [
             'door_id' => $uniqueDoorId,

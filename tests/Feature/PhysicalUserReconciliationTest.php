@@ -202,7 +202,9 @@ class PhysicalUserReconciliationTest extends TestCase
             ], 200),
         ]);
 
-        $this->artisan('door:reconcile-users DOOR-B')
+        $this->artisan('door:reconcile-users', [
+            'door' => $door->door_id,
+        ])
             ->assertExitCode(0)
             ->expectsOutputToContain('Starting reconciliation for Lab Pintu B')
             ->expectsOutputToContain('DRY-RUN')
@@ -213,7 +215,10 @@ class PhysicalUserReconciliationTest extends TestCase
 
         $this->assertSame(0, Employee::where('employee_id', '2001')->count());
 
-        $this->artisan('door:reconcile-users DOOR-B --apply')
+        $this->artisan('door:reconcile-users', [
+            'door' => $door->door_id,
+            '--apply' => true,
+        ])
             ->assertExitCode(0)
             ->expectsOutputToContain('CREATED: 1');
 

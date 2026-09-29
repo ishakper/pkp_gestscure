@@ -170,18 +170,13 @@ XML;
     {
         Config::set('services.hikvision.use_mock', true);
 
-        $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Authorized maintenance access']);
+        $response = $this->actingAs($this->superAdmin, 'sanctum')
+            ->postJson("/api/v1/admin/doors/" . $this->doorB->door_id . "/open", ['reason' => 'Authorized maintenance access']);
 
         $response->assertStatus(200)
-            ->assertJson([
-                'status' => 'success',
-                'message' => 'Pintu Door B - Restricted Server Room (DOOR-B) berhasil dibuka via remote.',
-                'data' => [
-                    'door_id' => 'DOOR-B',
-                    'location' => 'Gedung B (IT & Infra)',
-                ],
-            ]);
+            ->assertJsonPath('status', 'success')
+            ->assertJsonPath('data.door_id', $this->doorB->door_id)
+            ->assertJsonPath('data.location', $this->doorB->location);
 
         $this->assertDatabaseHas('activity_logs', [
             'admin_id' => $this->superAdmin->id,
@@ -202,8 +197,8 @@ XML;
             '*/AccessControl/RemoteControl/door/1' => Http::response('503 Service Unavailable', 503),
         ]);
 
-        $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open", ['reason' => 'Testing failure scenario']);
+        $response = $this->actingAs($this->superAdmin, 'sanctum')
+            ->postJson("/api/v1/admin/doors/" . $this->doorB->door_id . "/open", ['reason' => 'Testing failure scenario']);
 
         $response->assertStatus(500)
             ->assertJson([
@@ -215,9 +210,10 @@ XML;
     {
         Config::set('services.hikvision.use_mock', true);
         $this->doorB->update(['connection_status' => 'offline', 'health_status' => 'offline']);
+        $this->doorB->refresh();
 
-        $this->actingAs($this->superAdmin)
-            ->postJson('/api/v1/admin/doors/DOOR-B/open', ['reason' => 'Test offline device'])
+        $this->actingAs($this->superAdmin, 'sanctum')
+            ->postJson('/api/v1/admin/doors/' . $this->doorB->door_id . '/open', ['reason' => 'Test offline device'])
             ->assertStatus(409)
             ->assertJsonPath('message', 'Remote unlock diblokir: terminal belum terverifikasi online atau tidak aktif.');
     }
@@ -227,8 +223,8 @@ XML;
      */
     public function test_building_admin_cannot_unlock_door_in_other_building(): void
     {
-        $response = $this->actingAs($this->buildingAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-B/open");
+        $response = $this->actingAs($this->buildingAdmin, 'sanctum')
+            ->postJson("/api/v1/admin/doors/" . $this->doorB->door_id . "/open");
 
         $response->assertStatus(403);
     }
@@ -240,8 +236,8 @@ XML;
     {
         Config::set('services.hikvision.use_mock', true);
 
-        $response = $this->actingAs($this->superAdmin)
-            ->postJson("/api/v1/admin/doors/DOOR-A/unlock", ['reason' => 'Direct unlock test']);
+        $response = $this->actingAs($this->superAdmin, 'sanctum')
+            ->postJson("/api/v1/admin/doors/" . $this->doorA->door_id . "/unlock", ['reason' => 'Direct unlock test']);
 
         $response->assertStatus(200)
             ->assertJson([

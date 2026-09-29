@@ -1112,7 +1112,7 @@ XML;
     {
         config([
             'services.hikvision.allowed_device_ips' => $this->door->device_ip,
-            'services.hikvision.device_secret' => 'test-secret',
+            "services.doors.{$this->door->door_id}.webhook_secret" => 'test-secret',
         ]);
 
         $xmlPayload = <<<XML

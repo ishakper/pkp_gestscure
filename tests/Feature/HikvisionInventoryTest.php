@@ -184,7 +184,7 @@ class HikvisionInventoryTest extends TestCase
             'error' => null,
         ]);
 
-        $this->artisan('door:inventory DOOR-B --real')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true])
             ->expectsOutputToContain('MATCH: EMP-LOCAL')
             ->expectsOutputToContain('NEW CANDIDATE')
             ->expectsOutputToContain('DRY RUN ONLY')
@@ -228,7 +228,7 @@ class HikvisionInventoryTest extends TestCase
             'error' => null,
         ]);
 
-        $this->artisan('door:inventory DOOR-B --real --limit=1')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true, '--limit' => 1])
             ->expectsOutputToContain('CONFLICT')
             ->expectsOutputToContain('5')
             ->expectsOutputToContain('Inventory partial')
@@ -277,7 +277,7 @@ class HikvisionInventoryTest extends TestCase
             'error' => null,
         ]);
 
-        $this->artisan('door:inventory DOOR-B --real --limit=5')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true, '--limit' => 5])
             ->expectsOutputToContain('USER DIRECTORY: UNSUPPORTED')
             ->expectsOutputToContain('MODE: EVENT-DERIVED INVENTORY')
             ->expectsOutputToContain('NOT a full device user directory')
@@ -411,7 +411,7 @@ class HikvisionInventoryTest extends TestCase
     {
         Config::set('services.hikvision.use_mock', false);
         $door = $this->door();
-        $otherDoor = Door::create(['door_id' => 'DOOR-'.uniqid(), 'door_name' => 'Door A', 'location' => 'Gedung A', 'device_ip' => '192.168.90.11']);
+        $otherDoor = Door::create(['door_id' => strtoupper('DOOR-'.uniqid()), 'door_name' => 'Door A', 'location' => 'Gedung A', 'device_ip' => '192.168.90.11']);
         $employee = Employee::create(['employee_id' => 'EMP-LOCAL', 'hikvision_employee_no' => 'DEVICE-001', 'nik' => 'NIK-1', 'name' => 'Known Employee', 'department' => 'Operations']);
         $this->accessLog($door, 'LOG-1', $employee, 'DEVICE-001', now(), 'Card');
         $this->accessLog($door, 'LOG-2', $employee, 'DEVICE-001', now()->subMinute(), 'Fingerprint');
@@ -424,7 +424,7 @@ class HikvisionInventoryTest extends TestCase
         $service->shouldReceive('fetchUsers')->once()->andReturn(['status' => false, 'unsupported' => true, 'error' => 'User directory unsupported.']);
         $service->shouldReceive('fetchEvents')->once()->andReturn(['status' => false, 'unsupported' => true, 'error' => 'Device event search unsupported.']);
 
-        $this->artisan('door:inventory DOOR-B --real --limit=3')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true, '--limit' => 3])
             ->expectsOutputToContain('USER DIRECTORY: UNSUPPORTED')
             ->expectsOutputToContain('DEVICE EVENT SEARCH: UNSUPPORTED')
             ->expectsOutputToContain('MODE: ACCESSLOG-DERIVED INVENTORY')
@@ -458,7 +458,7 @@ class HikvisionInventoryTest extends TestCase
             '*/AccessControl/AcsEvent' => Http::response(['errorCode' => '0x60000001'], 400),
         ]);
 
-        $this->artisan('door:inventory DOOR-B --real --limit=20')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true, '--limit' => 20])
             ->expectsOutputToContain('USER DIRECTORY: UNSUPPORTED')
             ->expectsOutputToContain('DEVICE EVENT SEARCH: UNSUPPORTED')
             ->expectsOutputToContain('MODE: ACCESSLOG-DERIVED INVENTORY')
@@ -476,13 +476,13 @@ class HikvisionInventoryTest extends TestCase
     public function test_accesslog_fallback_handles_empty_selected_door_gracefully(): void
     {
         Config::set('services.hikvision.use_mock', false);
-        $this->door();
+        $door = $this->door();
         $service = $this->mock(HikvisionIsapiService::class);
         $service->shouldReceive('isMockMode')->once()->andReturnFalse();
         $service->shouldReceive('fetchUsers')->once()->andReturn(['status' => false, 'unsupported' => true, 'error' => 'unsupported']);
         $service->shouldReceive('fetchEvents')->once()->andReturn(['status' => false, 'unsupported' => true, 'error' => 'unsupported']);
 
-        $this->artisan('door:inventory DOOR-B --real --limit=10')
+        $this->artisan('door:inventory', ['door_id' => $door->door_id, '--real' => true, '--limit' => 10])
             ->expectsOutputToContain('MODE: ACCESSLOG-DERIVED INVENTORY')
             ->expectsOutputToContain('DRY RUN ONLY')
             ->assertSuccessful();
@@ -529,7 +529,7 @@ class HikvisionInventoryTest extends TestCase
     private function door(): Door
     {
         return Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => strtoupper('DOOR-'.uniqid()),
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',

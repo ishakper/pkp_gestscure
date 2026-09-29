@@ -6,6 +6,7 @@ use App\Models\Employee;
 use App\Models\Admin;
 use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 
 /**
  * PAGINATION TEST: AJAX Page Navigation, Scroll Position, Stale Response Prevention
@@ -31,6 +32,8 @@ class PaginationAjaxRegressionTest extends TestCase
             'email' => 'test@example.com',
             'name' => 'Test Admin',
         ]);
+
+        Sanctum::actingAs($this->admin);
     }
 
     public function test_pagination_page_1_to_page_2_navigation()
@@ -66,7 +69,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Page 1
         $page1 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=1&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=1&per_page=10');
 
         $page1->assertStatus(200);
         $data1 = $page1->json('data');
@@ -77,7 +80,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Page 2
         $page2 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=2&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=2&per_page=10');
 
         $page2->assertStatus(200);
         $data2 = $page2->json('data');
@@ -95,12 +98,12 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Request page 2
         $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=2&per_page=10')
+            ->getJson('/api/v1/user-management/employees?page=2&per_page=10')
             ->assertStatus(200);
 
         // Then go back to page 1
         $backToPage1 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=1&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=1&per_page=10');
 
         $backToPage1->assertStatus(200);
         $this->assertEquals(1, $backToPage1->json('pagination.current_page'));
@@ -114,14 +117,14 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Search for "Alice" on page 1
         $search1 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?search=Alice&page=1&per_page=10');
+            ->getJson('/api/v1/user-management/employees?search=Alice&page=1&per_page=10');
 
         $search1->assertStatus(200);
         $this->assertCount(1, $search1->json('data'));
 
         // Verify search result persists (pagination doesn't reset search)
         $search2 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?search=Alice&page=2&per_page=10');
+            ->getJson('/api/v1/user-management/employees?search=Alice&page=2&per_page=10');
 
         $search2->assertStatus(200);
         // Page 2 should exist but have 0 results (all Alice are on page 1)
@@ -135,7 +138,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Request last page
         $lastPage = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=3&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=3&per_page=10');
 
         $lastPage->assertStatus(200);
         $this->assertEquals(3, $lastPage->json('pagination.current_page'));
@@ -149,7 +152,7 @@ class PaginationAjaxRegressionTest extends TestCase
         Employee::factory()->count(10)->create();
 
         $page1 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=1&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=1&per_page=10');
 
         $page1->assertStatus(200);
         $pagination = $page1->json('pagination');
@@ -168,7 +171,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // First successful request
         $page1 = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=1&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=1&per_page=10');
 
         $page1->assertStatus(200);
         $oldData = $page1->json('data');
@@ -176,7 +179,7 @@ class PaginationAjaxRegressionTest extends TestCase
         // Simulate request failure by requesting invalid page (out of bounds)
         // Server should still return valid data or error, client caches old table
         $invalidPage = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=999&per_page=10');
+            ->getJson('/api/v1/user-management/employees?page=999&per_page=10');
 
         // Server returns empty or 404, but JavaScript should keep old table visible
         // (This is client-side behavior, verified in browser test)
@@ -191,7 +194,7 @@ class PaginationAjaxRegressionTest extends TestCase
 
         // Request with very high per_page (should be capped)
         $response = $this->actingAs($this->admin, 'admin')
-            ->getJson('/user-management/employees?page=1&per_page=1000');
+            ->getJson('/api/v1/user-management/employees?page=1&per_page=1000');
 
         $response->assertStatus(200);
         $perPage = $response->json('pagination.per_page');

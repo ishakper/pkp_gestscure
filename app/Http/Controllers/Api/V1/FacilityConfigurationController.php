@@ -11,6 +11,7 @@ use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use OpenApi\Attributes as OA;
 
@@ -312,10 +313,11 @@ class FacilityConfigurationController extends Controller
             $data['verify_tls'] ?? true
         );
 
-        // Log test attempt (no credential in log)
-        $this->audit($request, 'manual_connection_test', 'Door', $door->id, 
-            "Manual connection test from {$data['device_ip']}:{$data['device_port']} - " . 
-            ($result['status'] ? 'SUCCESS' : 'FAILED: ' . substr($result['error'] ?? 'Unknown error', 0, 50)));
+        // Test connection is read-only; never persist credentials or test results.
+        Log::info('manual_connection_test', [
+            'door_id' => $door->id,
+            'result' => !empty($result['status']) ? 'success' : 'failed',
+        ]);
 
         if ($result['status']) {
             return response()->json([

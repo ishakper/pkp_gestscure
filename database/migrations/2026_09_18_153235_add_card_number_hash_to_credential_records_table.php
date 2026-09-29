@@ -16,8 +16,11 @@ return new class extends Migration
     {
         Schema::table('credential_records', function (Blueprint $table) {
             // HMAC-SHA256 of normalized card identifier — deterministic, no PII
-            $table->string('card_number_hash', 64)->nullable()->after('card_number');
-            $table->index('card_number_hash');
+            // Skip if already exists (idempotent for partial-migrated databases)
+            if (!Schema::hasColumn('credential_records', 'card_number_hash')) {
+                $table->string('card_number_hash', 64)->nullable()->after('card_number');
+                $table->index('card_number_hash');
+            }
         });
     }
 

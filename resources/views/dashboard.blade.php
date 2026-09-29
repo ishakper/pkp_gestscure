@@ -5874,7 +5874,44 @@
         <div class="modal-header"><div><h3 class="modal-title">Facility & Door Configuration</h3><div class="section-desc">Register a building or terminal without changing existing hardware records.</div></div><button class="modal-close-btn" onclick="closeModal('facilityModal')">✖</button></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;">
             <form id="buildingConfigForm" onsubmit="submitBuildingConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New Building</h4><div class="form-row"><label>Code *</label><input id="facilityBuildingCode" required maxlength="100" placeholder="BLD-C"></div><div class="form-row"><label>Name *</label><input id="facilityBuildingName" required maxlength="255" placeholder="Gedung C"></div><div class="form-row"><label>Description</label><textarea id="facilityBuildingDescription" maxlength="1000"></textarea></div><button class="btn-secondary" type="submit">Save Building</button></form>
-            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
+            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div>
+<!-- MANUAL CONNECTION CONFIGURATION -->
+<div style="border-top:1px solid var(--border-color);padding-top:1rem;margin-top:1rem;">
+<h5 style="color:#fff;margin:0 0 0.75rem;font-size:0.9rem;">Connection Mode</h5>
+<div style="display:flex;gap:1rem;margin-bottom:1rem;">
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+<input type="radio" name="connection_mode" value="auto" id="mode_auto" checked onchange="toggleManualFields()">
+<span style="font-size:0.85rem;">Automatic (Global Config)</span>
+</label>
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+<input type="radio" name="connection_mode" value="manual" id="mode_manual" onchange="toggleManualFields()">
+<span style="font-size:0.85rem;">Manual (Per-Device)</span>
+</label>
+</div>
+<div id="manualFieldsContainer" style="display:none;padding:0.75rem;background:rgba(56,189,248,0.05);border:1px solid var(--border-focus);border-radius:0.5rem;">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">Protocol</label><select id="connection_scheme" name="connection_scheme" style="padding:0.4rem;"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
+<div class="form-row"><label style="font-size:0.8rem;">Port</label><input type="number" id="device_port" name="device_port" value="8200" min="1" max="65535" style="padding:0.4rem;"></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">Connect Timeout (sec)</label><input type="number" id="connect_timeout" name="connect_timeout" value="10" min="1" max="30" style="padding:0.4rem;"></div>
+<div class="form-row"><label style="font-size:0.8rem;">Read Timeout (sec)</label><input type="number" id="read_timeout" name="read_timeout" value="10" min="1" max="30" style="padding:0.4rem;"></div>
+</div>
+<div style="margin-bottom:0.75rem;">
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.8rem;">
+<input type="checkbox" id="verify_tls" name="verify_tls" value="1" checked>
+<span>Verify TLS Certificate</span>
+</label>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">ISAPI Username</label><input type="text" id="isapi_username" name="isapi_username" placeholder="admin" style="padding:0.4rem;"></div>
+<div class="form-row"><label style="font-size:0.8rem;">ISAPI Password</label><input type="password" id="isapi_password" name="isapi_password" placeholder="(leave empty to keep)" style="padding:0.4rem;"></div>
+</div>
+<button type="button" id="testConnectionBtn" onclick="testManualConnection()" style="width:100%;padding:0.5rem;background:var(--accent);color:#fff;border:none;border-radius:0.4rem;cursor:pointer;font-size:0.8rem;font-weight:500;margin-bottom:0.75rem;">Test Connection</button>
+<div id="testResultContainer" style="display:none;padding:0.5rem;border-radius:0.3rem;font-size:0.75rem;" aria-live="polite" role="status"><span id="testResultIcon"></span> <span id="testResultText"></span></div>
+</div>
+</div>
+<button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
         </div>
     </div>
 </div>

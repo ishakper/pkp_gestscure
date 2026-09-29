@@ -69,7 +69,6 @@ class VerifyDeviceWebhook
         }
         $validSecrets = array_filter([
             config("services.doors.{$claimedDoor->door_id}.webhook_secret"),
-            config('services.hikvision.device_secret'),
         ]);
 
         $isSecretValid = ($secretHeader && in_array($secretHeader, $validSecrets, true));

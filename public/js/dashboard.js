@@ -497,7 +497,7 @@ function renderDoorCards(doors) {
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action btn-unlock" data-action="remote-unlock" data-door-id="${safeDoorId}" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
                     <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
                     <button class="btn-action" onclick="openDoorUsers('${safeDoorId}')">Sync Users</button>
@@ -630,8 +630,16 @@ async function confirmRemoteUnlock() {
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
     try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, {
-            method: 'POST',
+        const idempotencyKey =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `remote-unlock-${door.door_id}-${Date.now()}`;
+
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`,            {
+                method: 'POST',
+                headers: {
+                    'X-Idempotency-Key': idempotencyKey
+                },
             isBackground: false,
             body: JSON.stringify({ reason })
         });
@@ -722,47 +730,134 @@ async function loadOrganizationLookup() {
     } catch (err) { console.warn('Organization lookup unavailable', err); }
 }
 
-async function loadEmployees(page = state.employeePage) {
+let employeeRequestController = null;
+let employeeRequestSequence = 0;
+
+async function loadEmployees(page = state.employeePage, event = null, control = null) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    if (control && (
+        control.disabled ||
+        control.getAttribute('aria-disabled') === 'true'
+    )) {
+        return;
+    }
+
+    const previousScrollY = window.scrollY;
+
     const tbody = document.getElementById('employeesTableBody');
     const fullTbody = document.getElementById('fullEmployeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
+
     state.employeePage = Math.max(1, Number(page) || 1);
 
-    const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
-    if (tbody) tbody.innerHTML = loadingHtml;
-    if (fullTbody) fullTbody.innerHTML = loadingHtml;
+    if (employeeRequestController) {
+        employeeRequestController.abort();
+    }
+
+    employeeRequestController = new AbortController();
+    const requestSequence = ++employeeRequestSequence;
+
+    const targets = [tbody, fullTbody].filter(Boolean);
+    targets.forEach(target => target.classList.add('employee-table-loading'));
+
+    const params = new URLSearchParams();
+    params.set('per_page', '20');
+    params.set('page', String(state.employeePage));
+
+    if (state.buildingFilter) {
+        params.set('building_id', state.buildingFilter);
+    }
+
+    if (searchVal) {
+        params.set('search', searchVal);
+    }
+
+    if (doorFilter) {
+        params.set('door_id', doorFilter);
+    }
+
+    const url = `/user-management/employees?${params.toString()}`;
 
     try {
-        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
-        if (state.buildingFilter) url += `&building_id=${encodeURIComponent(state.buildingFilter)}`;
-        if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
+        const res = await apiFetch(url, {
+            signal: employeeRequestController.signal
+        });
 
-        const res = await apiFetch(url);
+        if (requestSequence !== employeeRequestSequence) {
+            return;
+        }
+
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
-            state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
+            state.metrics.totalUsers =
+                res.pagination?.total_records ?? state.employees.length;
+
             scheduleMetricCardsUpdate();
 
             if (countBadge) {
-                countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
+                countBadge.innerText =
+                    `Total: ${state.metrics.totalUsers} Karyawan`;
             }
-            const totalSummary = document.getElementById('employeeTotalSummary');
+
+            const totalSummary =
+                document.getElementById('employeeTotalSummary');
+
             if (totalSummary) {
-                const allCount = res.pagination?.total_all ?? res.pagination?.total_records ?? state.employees.length;
-                totalSummary.innerHTML = `Total Pengguna: <strong>${allCount}</strong>`;
+                const allCount =
+                    res.pagination?.total_all ??
+                    res.pagination?.total_records ??
+                    state.employees.length;
+
+                totalSummary.innerHTML =
+                    `Total Pengguna: <strong>${allCount}</strong>`;
             }
 
             renderEmployeesTable(state.employees);
             renderEmployeePagination();
+
+            requestAnimationFrame(() => {
+                window.scrollTo(0, previousScrollY);
+            });
+
+            const browserUrl = new URL(window.location.href);
+            browserUrl.searchParams.set(
+                'employee_page',
+                String(state.employeePage)
+            );
+
+            window.history.replaceState(
+                null,
+                '',
+                `${browserUrl.pathname}${browserUrl.search}${browserUrl.hash}`
+            );
         }
     } catch (err) {
-        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
+        if (err?.name === 'AbortError') {
+            return;
+        }
+
+        if (requestSequence !== employeeRequestSequence) {
+            return;
+        }
+
+        const errorHtml =
+            `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${escapeHtml(err.message)}</td></tr>`;
+
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
+    } finally {
+        if (requestSequence === employeeRequestSequence) {
+            targets.forEach(target =>
+                target.classList.remove('employee-table-loading')
+            );
+        }
     }
 }
 
@@ -895,18 +990,44 @@ function handleEmployeeSearch() {
 
 function renderEmployeePagination() {
     const pagination = state.employeePagination;
+
     document.querySelectorAll('.employee-pagination').forEach(container => {
         if (!pagination || Number(pagination.total_pages || 1) <= 1) {
             container.innerHTML = '';
             return;
         }
+
         const current = Number(pagination.current_page || 1);
         const total = Number(pagination.total_pages || 1);
+        const previousPage = Math.max(1, current - 1);
+        const nextPage = Math.min(total, current + 1);
+
         container.innerHTML = `
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:.75rem;padding:1rem;">
-                <button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
-                <span style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
-                <button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+                <button
+                    class="btn-secondary"
+                    ${current <= 1 ? 'disabled' : ''}
+                    aria-disabled="${current <= 1 ? 'true' : 'false'}"
+                    onclick="loadEmployees(${previousPage}, event, this)"
+                >
+                    ← Sebelumnya
+                </button>
+
+                <span
+                    aria-current="page"
+                    style="color:var(--text-muted);font-size:.82rem;"
+                >
+                    Halaman ${current} dari ${total}
+                </span>
+
+                <button
+                    class="btn-secondary"
+                    ${current >= total ? 'disabled' : ''}
+                    aria-disabled="${current >= total ? 'true' : 'false'}"
+                    onclick="loadEmployees(${nextPage}, event, this)"
+                >
+                    Berikutnya →
+                </button>
             </div>`;
     });
 }
@@ -1808,6 +1929,16 @@ function toggleSidebar(forceState) {
 // Expose globally
 window.toggleSidebar = toggleSidebar;
 window.pingSingleDoor = pingSingleDoor;
+window.addEventListener('load', () => {
+    if (window.__secureGateInitialized) return;
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-action="remote-unlock"]');
+        if (!trigger) return;
+        const doorId = trigger.dataset.doorId;
+        if (!doorId) return;
+        openRemoteUnlockModal(doorId);
+    });
+});
 window.openRemoteUnlockModal = openRemoteUnlockModal;
 window.cancelRemoteUnlock = cancelRemoteUnlock;
 window.confirmRemoteUnlock = confirmRemoteUnlock;
@@ -6050,14 +6181,26 @@ async function submitBuildingConfig(event) {
 async function submitDoorConfig(event) {
     event.preventDefault();
     const original = document.getElementById('facilityOriginalDoorId').value;
+    const connMode = document.querySelector('input[name="connection_mode"]:checked')?.value || 'auto';
     const payload = {
         door_id: document.getElementById('facilityDoorId').value,
         name: document.getElementById('facilityDoorName').value,
         building_id: Number(document.getElementById('facilityDoorBuilding').value),
         device_ip: document.getElementById('facilityDoorIp').value,
         gateway: document.getElementById('facilityDoorGateway').value || null,
-        device_model: document.getElementById('facilityDoorModel').value
+        device_model: document.getElementById('facilityDoorModel').value,
+        connection_mode: connMode
     };
+    if (connMode === 'manual') {
+        payload.connection_scheme = document.getElementById('connection_scheme')?.value || 'http';
+        payload.device_port = parseInt(document.getElementById('device_port')?.value || 8200);
+        payload.connect_timeout = parseInt(document.getElementById('connect_timeout')?.value || 10);
+        payload.read_timeout = parseInt(document.getElementById('read_timeout')?.value || 10);
+        payload.verify_tls = document.getElementById('verify_tls')?.checked ? true : false;
+        payload.isapi_username = document.getElementById('isapi_username')?.value || null;
+        const pwd = document.getElementById('isapi_password')?.value;
+        if (pwd) payload.isapi_password = pwd;
+    }
     try {
         const res = await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', {
             method: original ? 'PUT' : 'POST',
@@ -6071,6 +6214,62 @@ async function submitDoorConfig(event) {
         showToast(error.message, 'error');
     }
 }
+
+function toggleManualFields() {
+    const mode = document.querySelector('input[name="connection_mode"]:checked')?.value;
+    const container = document.getElementById('manualFieldsContainer');
+    if (container) container.style.display = mode === 'manual' ? 'block' : 'none';
+}
+
+async function testManualConnection() {
+    const doorId = document.getElementById('facilityOriginalDoorId').value || 'temp';
+    const payload = {
+        device_ip: document.getElementById('facilityDoorIp').value,
+        device_port: parseInt(document.getElementById('device_port')?.value || 8200),
+        connection_scheme: document.getElementById('connection_scheme')?.value || 'http',
+        connect_timeout: parseInt(document.getElementById('connect_timeout')?.value || 10),
+        read_timeout: parseInt(document.getElementById('read_timeout')?.value || 10),
+        verify_tls: document.getElementById('verify_tls')?.checked ? true : false,
+        isapi_username: document.getElementById('isapi_username')?.value || null,
+        isapi_password: document.getElementById('isapi_password')?.value || null
+    };
+    const btn = document.getElementById('testConnectionBtn');
+    const resultContainer = document.getElementById('testResultContainer');
+    if (btn) btn.disabled = true;
+    if (resultContainer) {
+        resultContainer.style.display = 'block';
+        resultContainer.className = 'loading';
+        document.getElementById('testResultIcon').textContent = '⏳';
+        document.getElementById('testResultText').textContent = 'Testing connection...';
+    }
+    try {
+        const response = await apiFetch(`/admin/doors/${doorId}/test-manual`, {method: 'POST', body: JSON.stringify(payload)});
+        if (response.status === 'success' || response.statusCode === 200) {
+            if (resultContainer) {
+                resultContainer.className = 'success';
+                document.getElementById('testResultIcon').textContent = '✓';
+                document.getElementById('testResultText').textContent = 'Connection successful!';
+            }
+        } else {
+            if (resultContainer) {
+                resultContainer.className = 'error';
+                document.getElementById('testResultIcon').textContent = '✕';
+                document.getElementById('testResultText').textContent = response.message || 'Connection failed';
+            }
+        }
+    } catch (error) {
+        if (resultContainer) {
+            resultContainer.className = 'error';
+            document.getElementById('testResultIcon').textContent = '✕';
+            document.getElementById('testResultText').textContent = error.message || 'Connection error';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+window.toggleManualFields = toggleManualFields;
+window.testManualConnection = testManualConnection;
 
 // ==========================================
 // SPRINT 10: FIELD ATTENDANCE + GPS + PHOTO

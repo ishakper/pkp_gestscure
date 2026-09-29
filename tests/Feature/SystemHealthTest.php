@@ -42,7 +42,7 @@ class SystemHealthTest extends TestCase
 
     public function test_door_health_distinguishes_stale_and_fresh_offline(): void
     {
-        $door = $this->door(['connection_status' => 'online', 'last_checked_at' => now()->subMinutes(16)]);
+        $door = $this->door(["door_id" => "DOOR-B", 'connection_status' => 'online', 'last_checked_at' => now()->subMinutes(16)]);
         $this->actingAs($this->admin('super_admin'))->getJson('/api/v1/admin/system-health')
             ->assertJsonPath('data.primary_door.status', 'STALE')
             ->assertJsonPath('data.primary_door.stale', true)
@@ -74,7 +74,7 @@ class SystemHealthTest extends TestCase
     public function test_only_fresh_physical_webhook_evidence_activates_health(): void
     {
         config(['queue.default' => 'database']);
-        $door = $this->door(['connection_status' => 'online', 'last_checked_at' => now()]);
+        $door = $this->door(['door_id' => 'DOOR-B', 'connection_status' => 'online', 'last_checked_at' => now()]);
         foreach (['HIKVISION', 'SIMULATOR'] as $index => $source) {
             AccessLog::create([
                 'log_id' => 'NON-WEBHOOK-'.$index, 'door_id' => $door->id, 'event_type' => 'AccessGranted',
@@ -125,7 +125,7 @@ class SystemHealthTest extends TestCase
     {
         Carbon::setTestNow('2026-09-15 12:00:00');
         config(['queue.default' => 'database', 'securegate_health.door_fresh_minutes' => 15]);
-        $primary = $this->door(['connection_status' => 'online', 'last_checked_at' => now()]);
+        $primary = $this->door(["door_id" => "DOOR-B", 'connection_status' => 'online', 'last_checked_at' => now()]);
         $this->door(['door_id' => 'DOOR-OFF', 'connection_status' => 'offline', 'last_checked_at' => now()]);
         $this->door(['door_id' => 'DOOR-STALE', 'connection_status' => 'online', 'last_checked_at' => now()->subSeconds(901)]);
         $this->door(['door_id' => 'DOOR-UNKNOWN', 'connection_status' => 'online', 'last_checked_at' => null]);
@@ -151,7 +151,7 @@ class SystemHealthTest extends TestCase
         $employee = Employee::create(['employee_id' => 'EMP-A', 'nik' => 'NIK-A', 'name' => 'Admin A', 'department' => 'Ops', 'building_id' => $buildingA->id]);
         $admin = $this->admin('building_admin');
         $admin->update(['employee_id' => $employee->id, 'assigned_building' => 'Gedung A']);
-        $this->door(['building_id' => $buildingA->id, 'location' => 'Renamed Location', 'connection_status' => 'online', 'last_checked_at' => now()]);
+        $this->door(['door_id' => 'DOOR-B', 'building_id' => $buildingA->id, 'location' => 'Renamed Location', 'connection_status' => 'online', 'last_checked_at' => now()]);
         $this->door(['building_id' => null, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
         $this->door(['building_id' => $buildingB->id, 'location' => 'Gedung A', 'connection_status' => 'offline', 'last_checked_at' => now()]);
         $this->door(['building_id' => null, 'location' => 'Gedung B', 'connection_status' => 'offline', 'last_checked_at' => now()]);
