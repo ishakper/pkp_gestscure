@@ -46,12 +46,16 @@ class HikvisionIsapiService
         if ($door) {
             if (!empty($door->isapi_username) && !empty($door->isapi_password)) {
                 $password = $door->isapi_password;
-                // If model attribute was accessed uncast or has an encrypted payload, attempt fallback decrypt
+                // Fail closed if a legacy encrypted payload cannot be decrypted.
                 if (is_string($password) && str_starts_with($password, 'eyJ')) {
                     try {
                         $password = Crypt::decryptString($password);
-                    } catch (\Throwable) {
-                        // Raw string fallback
+                    } catch (\Throwable $exception) {
+                        Log::warning('Door credential decryption failed', [
+                            'door_id' => $door->id,
+                            'exception' => $exception::class,
+                        ]);
+                        throw new \RuntimeException('Device credentials could not be decrypted.');
                     }
                 }
                 return ['username' => $door->isapi_username, 'password' => $password];
@@ -61,8 +65,8 @@ class HikvisionIsapiService
                 $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
                 $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
 
-                $username = $doorConfig['username'] ?: config('services.hikvision.username');
-                $password = $doorConfig['password'] ?: config('services.hikvision.password');
+                $username = ($doorConfig['username'] ?? null) ?: config('services.hikvision.username');
+                $password = ($doorConfig['password'] ?? null) ?: config('services.hikvision.password');
             } else {
                 $username = config('services.hikvision.username');
                 $password = config('services.hikvision.password');
@@ -1168,5 +1172,157 @@ class HikvisionIsapiService
                 'access_right' => $rightRes,
             ],
         ];
+    }
+
+    /**
+     * Test manual device connection with arbitrary IP/port/scheme/timeout.
+     * Used for admin "Test Connection" button without storing credentials.
+     *
+     * Security:
+     * - SSRF protection: reject loopback, link-local, multicast, broadcast, cloud metadata
+     * - Input validation: IP format, port range, timeout, scheme
+     * - No credential persistence
+     * - Timeout enforcement
+     *
+     * @param string $ip Device IP address
+     * @param int $port Device port (1-65535)
+     * @param string $scheme http|https
+     * @param int $timeout Connect timeout (1-30s)
+     * @param string|null $username ISAPI username (optional override)
+     * @param string|null $password ISAPI password (optional override)
+     * @param bool $verify_tls TLS verification (default true)
+     * @return array ['status', 'statusCode', 'error', 'data']
+     */
+    public function testManualDeviceConnection(
+        string $ip,
+        int $port,
+        string $scheme,
+        int $connectTimeout,
+        int $readTimeout,
+        ?string $username = null,
+        ?string $password = null,
+        bool $verifyTls = true,
+        array $doorAddresses = []
+    ): array {
+        $ipValidation = IpCidrValidator::validateManualDeviceIp($ip, $doorAddresses);
+        if (!$ipValidation['allowed']) {
+            return ['status' => false, 'statusCode' => 422, 'error' => $ipValidation['reason'], 'data' => null];
+        }
+
+        // Validate port
+        if ($port < 1 || $port > 65535) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Port must be between 1 and 65535', 'data' => null];
+        }
+
+        // Validate timeout
+        if ($connectTimeout < 1 || $connectTimeout > 30 || $readTimeout < 1 || $readTimeout > 30) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Timeouts must be between 1 and 30 seconds', 'data' => null];
+        }
+
+        // Validate scheme
+        $scheme = strtolower($scheme);
+        if (!in_array($scheme, ['http', 'https'], true)) {
+            return ['status' => false, 'statusCode' => 422, 'error' => 'Scheme must be http or https', 'data' => null];
+        }
+
+        // Use provided credentials or fall back to config
+        $username = $username ?: config('services.hikvision.username');
+        $password = $password ?: config('services.hikvision.password');
+
+        // Mock mode
+        if ($this->isMockMode()) {
+            if (str_ends_with($ip, '.99')) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Simulated Device Offline ({$ip}:{$port})",
+                    'data' => null,
+                ];
+            }
+
+            try {
+                $mockController = app(HikvisionMockController::class);
+                $jsonResponse = $mockController->deviceStatus();
+                $data = $jsonResponse->getData(true) ?? [];
+
+                $data['model'] = $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF');
+                $data['serialNumber'] = $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'UNKNOWN');
+                $data['firmware'] = $data['firmware'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.0.0');
+                $data['online'] = true;
+
+                return [
+                    'status' => true,
+                    'statusCode' => 200,
+                    'error' => null,
+                    'data' => $data,
+                ];
+            } catch (\Throwable $e) {
+                return [
+                    'status' => false,
+                    'statusCode' => 500,
+                    'error' => "Mock Error: " . $e->getMessage(),
+                    'data' => null,
+                ];
+            }
+        }
+
+        // Real device connection with manual parameters
+        $portSuffix = ($port && $port !== 80) ? ":{$port}" : '';
+        $url = "{$scheme}://{$ip}{$portSuffix}/ISAPI/System/deviceInfo";
+
+        try {
+            // Real device traffic always verifies TLS and never follows redirects.
+            // verifyTls is accepted for the mock UI contract only.
+            $httpClient = Http::connectTimeout($connectTimeout)
+                ->timeout($readTimeout)
+                ->acceptJson()
+                ->withoutRedirecting();
+
+            $response = $httpClient
+                ->withDigestAuth($username, $password)
+                ->get($url);
+
+            if ($response->successful()) {
+                $xml = @simplexml_load_string($response->body());
+                $data = $xml ? json_decode(json_encode($xml), true) : $response->json();
+
+                return [
+                    'status' => true,
+                    'statusCode' => $response->status(),
+                    'error' => null,
+                    'data' => [
+                        'model' => $data['model'] ?? ($data['DeviceInfo']['model'] ?? 'DS-K1T804AMF'),
+                        'serialNumber' => $data['serialNumber'] ?? ($data['DeviceInfo']['serialNumber'] ?? 'UNKNOWN'),
+                        'firmware' => $data['firmwareVersion'] ?? ($data['DeviceInfo']['firmwareVersion'] ?? 'V1.0.0'),
+                        'online' => true,
+                    ],
+                ];
+            }
+
+            return [
+                'status' => false,
+                'statusCode' => $response->status(),
+                'error' => "Device returned HTTP {$response->status()}",
+                'data' => null,
+            ];
+        } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            return [
+                'status' => false,
+                'statusCode' => 504,
+                'error' => 'Connection timeout or device unreachable',
+                'data' => null,
+            ];
+        } catch (\Throwable $e) {
+            Log::warning('Manual device connection test failed', [
+                'exception' => $e::class,
+                'door_target_authorized' => true,
+            ]);
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'error' => 'Connection failed',
+                'data' => null,
+            ];
+        }
     }
 }

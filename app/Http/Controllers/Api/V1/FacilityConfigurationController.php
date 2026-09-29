@@ -8,9 +8,11 @@ use App\Models\Building;
 use App\Models\Door;
 use App\Models\Zone;
 use App\Services\HikvisionIsapiService;
+use App\Services\IpCidrValidator;
 use App\Services\PortalAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use OpenApi\Attributes as OA;
 
@@ -196,7 +198,7 @@ class FacilityConfigurationController extends Controller
         $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->firstOrFail();
         $data = $this->validateDoor($request, $door);
         $building = Building::findOrFail($data['building_id']);
-        $door->update($this->doorPayload($data, $building));
+        $door->update($this->doorPayload($data, $building, $door));
         $this->audit($request, 'door_updated', 'Door', $door->id, "Door {$door->door_id} configuration updated for {$building->name}");
         return response()->json(['status' => 'success', 'data' => $this->doorData($door->fresh())]);
     }
@@ -233,6 +235,14 @@ class FacilityConfigurationController extends Controller
             'isapi_password' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $ipValidation = IpCidrValidator::validateManualDeviceIp(
+            $data['device_ip'],
+            $isapiService->isMockMode() ? [$data['device_ip']] : []
+        );
+        if (!$ipValidation['allowed']) {
+            return response()->json(['status' => 'error', 'message' => $ipValidation['reason']], 422);
+        }
+
         $result = $isapiService->testDeviceConnection(
             $data['device_ip'],
             $data['isapi_username'] ?? null,
@@ -250,6 +260,90 @@ class FacilityConfigurationController extends Controller
         return response()->json([
             'status' => 'error',
             'message' => $result['error'] ?? 'Gagal terhubung ke terminal pintu fisik.',
+            'statusCode' => $result['statusCode'] ?? 500,
+        ], 422);
+    }
+
+    #[OA\Post(
+        path: '/admin/doors/{door_id}/test-manual',
+        summary: 'Test Manual Connection Configuration',
+        description: 'Test door connection with custom per-door parameters (read-only, no save). SSRF-protected against loopback, link-local, multicast, broadcast, and cloud metadata endpoints.',
+        tags: ['Facility Configuration'],
+        security: [['sanctum' => []]],
+        parameters: [
+            new OA\Parameter(name: 'door_id', in: 'path', description: 'Door ID or UUID', required: true, schema: new OA\Schema(type: 'string'))
+        ],
+        requestBody: new OA\RequestBody(
+            required: true,
+            content: new OA\JsonContent(
+                required: ['device_ip', 'device_port', 'connect_timeout'],
+                properties: [
+                    new OA\Property(property: 'device_ip', type: 'string', format: 'ipv4', example: '192.168.90.16'),
+                    new OA\Property(property: 'device_port', type: 'integer', example: 8200, description: '1-65535'),
+                    new OA\Property(property: 'connection_scheme', type: 'string', enum: ['http', 'https'], example: 'http'),
+                    new OA\Property(property: 'connect_timeout', type: 'integer', example: 10, description: '1-30 seconds'),
+                    new OA\Property(property: 'read_timeout', type: 'integer', example: 10, description: '1-30 seconds'),
+                    new OA\Property(property: 'verify_tls', type: 'boolean', example: true),
+                    new OA\Property(property: 'isapi_username', type: 'string', example: 'admin'),
+                    new OA\Property(property: 'isapi_password', type: 'string', example: 'Secret123')
+                ]
+            )
+        ),
+        responses: [
+            new OA\Response(response: 200, description: 'Connection test successful'),
+            new OA\Response(response: 422, description: 'Validation or connection failed'),
+            new OA\Response(response: 403, description: 'Permission denied')
+        ]
+    )]
+    public function testManualConnection(Request $request, string $doorId, HikvisionIsapiService $isapiService): JsonResponse
+    {
+        $this->authorizePermission($request, 'device.manage');
+
+        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->firstOrFail();
+
+        $data = $request->validate([
+            'device_ip' => ['required', 'ip'],
+            'device_port' => ['required', 'integer', 'min:1', 'max:65535'],
+            'connection_scheme' => ['nullable', 'string', 'in:http,https'],
+            'connect_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'read_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'verify_tls' => ['nullable', 'boolean'],
+            'isapi_username' => ['nullable', 'string', 'max:100'],
+            'isapi_password' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $result = $isapiService->testManualDeviceConnection(
+            $data['device_ip'],
+            $data['device_port'],
+            $data['connection_scheme'] ?? 'http',
+            $data['connect_timeout'] ?? 10,
+            $data['read_timeout'] ?? 10,
+            $data['isapi_username'] ?? null,
+            $data['isapi_password'] ?? null,
+            $data['verify_tls'] ?? true,
+            array_filter([
+                $door->device_ip,
+                config('services.doors.'.strtoupper($door->door_id).'.ip'),
+            ])
+        );
+
+        // Test connection is read-only; never persist credentials or test results.
+        Log::info('manual_connection_test', [
+            'door_id' => $door->id,
+            'result' => !empty($result['status']) ? 'success' : 'failed',
+        ]);
+
+        if ($result['status']) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Manual connection test successful.',
+                'data' => $result['data'],
+            ]);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => $result['error'] ?? 'Connection test failed.',
             'statusCode' => $result['statusCode'] ?? 500,
         ], 422);
     }
@@ -301,6 +395,14 @@ class FacilityConfigurationController extends Controller
         ]);
 
         $building = Building::findOrFail($data['building_id']);
+
+        $ipValidation = IpCidrValidator::validateManualDeviceIp(
+            $data['device_ip'],
+            $isapiService->isMockMode() ? [$data['device_ip']] : []
+        );
+        if (!$ipValidation['allowed']) {
+            return response()->json(['status' => 'error', 'message' => $ipValidation['reason']], 422);
+        }
 
         // 1. Run read-only SystemDeviceInfo connection test
         $testResult = $isapiService->testDeviceConnection(
@@ -371,17 +473,43 @@ class FacilityConfigurationController extends Controller
             'device_ip' => ['required', 'ip', Rule::unique('doors', 'device_ip')->ignore($door?->id)],
             'gateway' => ['nullable', 'ip'],
             'device_model' => ['required', 'string', 'max:120'],
+            // Manual connection configuration (optional)
+            'connection_mode' => ['nullable', 'string', 'in:auto,manual'],
+            'connection_scheme' => ['nullable', 'string', 'in:http,https'],
+            'device_port' => ['nullable', 'integer', 'min:1', 'max:65535'],
+            'connect_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'read_timeout' => ['nullable', 'integer', 'min:1', 'max:30'],
+            'verify_tls' => ['nullable', 'boolean'],
+            'isapi_username' => ['nullable', 'string', 'max:100'],
+            'isapi_password' => ['nullable', 'string', 'max:255'],
         ]);
     }
 
-    private function doorPayload(array $data, Building $building): array
+    private function doorPayload(array $data, Building $building, ?Door $door = null): array
     {
-        return [
+        $payload = [
             'door_id' => strtoupper($data['door_id']), 'name' => $data['name'],
             'building_id' => $building->id, 'zone_id' => $data['zone_id'] ?? null,
             'location' => $building->name, 'device_ip' => $data['device_ip'],
             'gateway' => $data['gateway'] ?? null, 'device_model' => $data['device_model'],
+            // Manual connection configuration
+            'connection_mode' => $data['connection_mode'] ?? 'auto',
+            'connection_scheme' => $data['connection_scheme'] ?? 'http',
+            'device_port' => $data['device_port'] ?? 8200,
+            'connect_timeout' => $data['connect_timeout'] ?? 10,
+            'read_timeout' => $data['read_timeout'] ?? 10,
+            'verify_tls' => $data['verify_tls'] ?? true,
+            'isapi_username' => $data['isapi_username'] ?? null,
         ];
+
+        // An omitted/blank password means "keep the current encrypted value" on edit.
+        if (isset($data['isapi_password']) && $data['isapi_password'] !== '') {
+            $payload['isapi_password'] = $data['isapi_password'];
+        } elseif ($door === null) {
+            $payload['isapi_password'] = null;
+        }
+
+        return $payload;
     }
 
     private function doorData(Door $door): array
@@ -393,6 +521,13 @@ class FacilityConfigurationController extends Controller
             'location' => $door->location, 'device_ip' => $door->device_ip,
             'gateway' => $door->gateway, 'device_model' => $door->device_model,
             'connection_status' => $door->connection_status,
+            'connection_mode' => $door->connection_mode,
+            'connection_scheme' => $door->connection_scheme,
+            'device_port' => $door->device_port,
+            'connect_timeout' => $door->connect_timeout,
+            'read_timeout' => $door->read_timeout,
+            'verify_tls' => $door->verify_tls,
+            'isapi_username' => $door->isapi_username,
         ];
     }
 

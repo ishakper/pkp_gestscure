@@ -31,6 +31,14 @@ class Door extends Model
         'health_status',
         'is_manual_override',
         'last_checked_at',
+        'connection_mode',
+        'connection_scheme',
+        'device_port',
+        'connect_timeout',
+        'read_timeout',
+        'verify_tls',
+        'last_connection_test_at',
+        'last_connection_status',
     ];
 
     protected $hidden = [
@@ -41,7 +49,17 @@ class Door extends Model
         'is_manual_override' => 'boolean',
         'last_checked_at' => 'datetime',
         'isapi_password' => 'encrypted',
+        'device_port' => 'integer',
+        'connect_timeout' => 'integer',
+        'read_timeout' => 'integer',
+        'verify_tls' => 'boolean',
+        'last_connection_test_at' => 'datetime',
     ];
+
+    public function setDoorIdAttribute($value): void
+    {
+        $this->attributes['door_id'] = strtoupper((string) $value);
+    }
 
     public function getNameAttribute()
     {

@@ -21,7 +21,7 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_door_channel_derived_from_door_config()
     {
-        $doorId = 'DOOR-'.uniqid();
+        $doorId = strtoupper('DOOR-'.uniqid());
         config(['services.doors.'.$doorId.'.channel' => 2]);
 
         $door = Door::factory()->state(['door_id' => $doorId])->create();
@@ -53,7 +53,7 @@ class HikvisionDynamicDoorChannelTest extends TestCase
 
     public function test_remote_control_uses_derived_channel_in_url()
     {
-        $doorId = 'DOOR-'.uniqid();
+        $doorId = strtoupper('DOOR-'.uniqid());
         config([
             'services.hikvision.use_mock' => true,
             'services.doors.'.$doorId.'.channel' => 4,

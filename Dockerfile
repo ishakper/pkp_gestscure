@@ -58,7 +58,7 @@ CMD ["artisan", "--version"]
 FROM base AS production
 
 # 4. Copy Composer Manifests & Install Dependencies First (Layer Caching)
-COPY composer.json ./
+COPY composer.json composer.lock ./
 RUN composer install --no-dev --optimize-autoloader --no-scripts --no-interaction
 
 # 5. Copy Application Source Code
@@ -86,10 +86,9 @@ RUN mkdir -p \
     /var/www/html/database \
     /var/log/supervisor \
     /run/nginx \
-    && touch /var/www/html/database/database.sqlite \
     && chown -R www-data:www-data /var/www/html /run/nginx \
     && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache /var/www/html/database \
-    && chmod 664 /var/www/html/database/database.sqlite
+    && true
 
 # Expose Web Port
 EXPOSE 80

@@ -138,7 +138,7 @@ class SystemHealthTest extends TestCase
             ->assertJsonPath('data.doors.offline', 1)
             ->assertJsonPath('data.doors.stale', 1)
             ->assertJsonPath('data.doors.unknown', 1)
-            ->assertJsonPath('data.primary_door.door_id', 'DOOR-B')
+            ->assertJsonPath('data.primary_door.door_id', $primary->door_id)
             ->assertJsonPath('data.primary_door.status', 'HEALTHY')
             ->assertJsonPath('data.primary_door.device_ip', '192.168.90.15')
             ->assertJsonPath('data.app.status', 'DEGRADED');

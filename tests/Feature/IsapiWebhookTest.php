@@ -22,7 +22,7 @@ class IsapiWebhookTest extends TestCase
         parent::setUp();
 
         $this->door = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-A',
             'door_name' => 'Door A - Gedung Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -234,7 +234,7 @@ class IsapiWebhookTest extends TestCase
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
-        $otherDoor = Door::create(['door_id' => 'DOOR-'.uniqid(), 'door_name' => 'Door B', 'location' => 'Gedung B', 'device_ip' => '192.168.90.15']);
+        $otherDoor = Door::create(['door_id' => 'DOOR-B', 'door_name' => 'Door B', 'location' => 'Gedung B', 'device_ip' => '192.168.90.15']);
         $token = $admin->createToken('device-token-'.$otherDoor->door_id, ['device:push-log'])->plainTextToken;
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
@@ -248,7 +248,7 @@ class IsapiWebhookTest extends TestCase
     public function test_claimed_door_must_match_direct_source_ip(): void
     {
         $doorB = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',
@@ -266,7 +266,7 @@ class IsapiWebhookTest extends TestCase
     public function test_door_secret_cannot_authorize_another_door(): void
     {
         $doorB = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'door_name' => 'Door B',
             'location' => 'Gedung B',
             'device_ip' => '192.168.90.15',

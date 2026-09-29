@@ -494,7 +494,7 @@ XML;
      */
     public function test_credentials_resolved_from_config_per_door(): void
     {
-        $doorId = 'DOOR-'.uniqid();
+        $doorId = strtoupper('DOOR-'.uniqid());
         Config::set('services.doors.'.$doorId.'.username', 'admin_door_b');
         Config::set('services.doors.'.$doorId.'.password', 'CustomPassDoorB123');
 
@@ -515,7 +515,7 @@ XML;
      */
     public function test_device_host_and_port_resolved_from_config(): void
     {
-        $doorId = 'DOOR-'.uniqid();
+        $doorId = strtoupper('DOOR-'.uniqid());
         Config::set('services.doors.'.$doorId.'.ip', '192.168.90.13');
         Config::set('services.hikvision.port', 8088);
 
@@ -528,7 +528,7 @@ XML;
 
     public function test_real_mode_fails_closed_when_credentials_are_missing(): void
     {
-        $doorId = 'DOOR-'.uniqid();
+        $doorId = strtoupper('DOOR-'.uniqid());
         Config::set('services.hikvision.use_mock', false);
         Config::set('services.doors.'.$doorId.'.username', null);
         Config::set('services.doors.'.$doorId.'.password', null);

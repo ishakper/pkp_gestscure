@@ -1747,12 +1747,6 @@
                     <div class="search-box">
                         👤 <input type="text" id="logUserSearch" placeholder="Cari NIK / Nama..." oninput="onLogSearchInput(this)">
                     </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logStartDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Mulai Tanggal">
-                    </div>
-                    <div class="search-box">
-                        📅 <input type="date" id="logEndDate" onchange="syncLogFilters(this); loadAccessLogs()" title="Sampai Tanggal">
-                    </div>
                     <!-- Tanggal mulai/sampai sengaja tidak ada di sini: sudah tersedia dan berfungsi
                          di tab Log Akses (logStartDateTab/logEndDateTab), jadi tidak diduplikasi
                          di ringkasan Dashboard ini. -->
@@ -5880,7 +5874,35 @@
         <div class="modal-header"><div><h3 class="modal-title">Facility & Door Configuration</h3><div class="section-desc">Register a building or terminal without changing existing hardware records.</div></div><button class="modal-close-btn" onclick="closeModal('facilityModal')">✖</button></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;">
             <form id="buildingConfigForm" onsubmit="submitBuildingConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New Building</h4><div class="form-row"><label>Code *</label><input id="facilityBuildingCode" required maxlength="100" placeholder="BLD-C"></div><div class="form-row"><label>Name *</label><input id="facilityBuildingName" required maxlength="255" placeholder="Gedung C"></div><div class="form-row"><label>Description</label><textarea id="facilityBuildingDescription" maxlength="1000"></textarea></div><button class="btn-secondary" type="submit">Save Building</button></form>
-            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
+            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)">
+                <h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4>
+                <input type="hidden" id="facilityOriginalDoorId">
+                <div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div>
+                <div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div>
+                <div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div>
+                <div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required inputmode="decimal" placeholder="192.168.90.13"></div>
+                <div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" inputmode="decimal" placeholder="192.168.90.1"></div>
+                <div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div>
+                <fieldset style="border:1px solid var(--border-color);border-radius:.5rem;padding:.75rem;margin:.75rem 0;">
+                    <legend style="color:var(--text-muted);font-size:.8rem;padding:0 .35rem;">Connection</legend>
+                    <label style="margin-right:1rem;"><input type="radio" name="connection_mode" value="auto" checked onchange="toggleManualFields()"> Auto</label>
+                    <label><input type="radio" name="connection_mode" value="manual" onchange="toggleManualFields()"> Manual</label>
+                    <div id="manualFieldsContainer" style="display:none;margin-top:.75rem;">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;">
+                            <div class="form-row"><label>Scheme</label><select id="connection_scheme"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
+                            <div class="form-row"><label>Port</label><input type="number" id="device_port" value="8200" min="1" max="65535"></div>
+                            <div class="form-row"><label>Connect timeout</label><input type="number" id="connect_timeout" value="10" min="1" max="30"></div>
+                            <div class="form-row"><label>Read timeout</label><input type="number" id="read_timeout" value="10" min="1" max="30"></div>
+                        </div>
+                        <label style="display:flex;align-items:center;gap:.5rem;margin:.5rem 0;"><input type="checkbox" id="verify_tls" checked> Verify TLS certificate</label>
+                        <div class="form-row"><label>ISAPI username</label><input type="text" id="isapi_username" autocomplete="username" maxlength="100"></div>
+                        <div class="form-row"><label>ISAPI password</label><input type="password" id="isapi_password" autocomplete="new-password" maxlength="255" placeholder="Leave blank to keep current"></div>
+                        <button type="button" class="btn-secondary" id="testConnectionBtn" onclick="testManualConnection()">Test Connection</button>
+                        <div id="testResultContainer" style="display:none;margin-top:.5rem;" aria-live="polite" role="status"><span id="testResultIcon"></span> <span id="testResultText"></span></div>
+                    </div>
+                </fieldset>
+                <button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button>
+            </form>
         </div>
     </div>
 </div>

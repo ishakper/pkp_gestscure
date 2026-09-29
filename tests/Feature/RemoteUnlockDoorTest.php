@@ -29,7 +29,7 @@ class RemoteUnlockDoorTest extends TestCase
         $this->service = app(HikvisionIsapiService::class);
 
         $this->doorA = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-A',
             'door_name' => 'Door A - Kantor Utama',
             'location' => 'Gedung A',
             'device_ip' => '192.168.90.11',
@@ -37,7 +37,7 @@ class RemoteUnlockDoorTest extends TestCase
         ]);
 
         $this->doorB = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'door_name' => 'Door B - Restricted Server Room',
             'location' => 'Gedung B (IT & Infra)',
             'device_ip' => '192.168.90.15',
@@ -189,6 +189,28 @@ XML;
             'subject_type' => 'Door',
             'subject_id' => $this->doorB->id,
         ]);
+    }
+
+    public function test_remote_unlock_idempotency_key_prevents_duplicate_hardware_action(): void
+    {
+        Config::set('services.hikvision.use_mock', true);
+        $key = 'unlock-test-idempotency-001';
+        $payload = ['reason' => 'Authorized maintenance access'];
+
+        $this->actingAs($this->superAdmin)
+            ->withHeader('X-Idempotency-Key', $key)
+            ->postJson('/api/v1/admin/doors/DOOR-B/open', $payload)
+            ->assertOk();
+
+        $this->actingAs($this->superAdmin)
+            ->withHeader('X-Idempotency-Key', $key)
+            ->postJson('/api/v1/admin/doors/DOOR-B/open', $payload)
+            ->assertOk()
+            ->assertJsonPath('message', 'Remote unlock request already processed.');
+
+        $this->assertSame(1, ActivityLog::where('action', 'remote_door_opened')
+            ->where('description', 'like', "%Idempotency-Key: {$key}%")
+            ->count());
     }
 
     /**

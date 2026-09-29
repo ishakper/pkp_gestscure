@@ -113,7 +113,7 @@ class DashboardMetricsTest extends TestCase
         Sanctum::actingAs($this->admin, ['*']);
 
         $this->getJson('/api/v1/admin/system-health')->assertOk()
-            ->assertJsonPath('data.primary_door.door_id', 'DOOR-B')
+            ->assertJsonPath('data.primary_door.door_id', $this->onlineDoor->door_id)
             ->assertJsonPath('data.doors.total', 2)
             ->assertJsonCount(2, 'data.buildings');
     }

@@ -169,7 +169,7 @@ class PhysicalUserReconciliationTest extends TestCase
     public function test_command_runs_without_card_exposure(): void
     {
         $door = Door::create([
-            'door_id' => 'DOOR-'.uniqid(),
+            'door_id' => 'DOOR-B',
             'name' => 'Lab Pintu B',
             'location' => 'Building B 1st Floor',
             'ip_address' => '192.168.90.15',

@@ -497,7 +497,7 @@ function renderDoorCards(doors) {
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action btn-unlock" data-action="remote-unlock" data-door-id="${safeDoorId}" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
                     <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
                     <button class="btn-action" onclick="openDoorUsers('${safeDoorId}')">Sync Users</button>
@@ -507,6 +507,12 @@ function renderDoorCards(doors) {
 
     renderTargets.forEach(target => target.innerHTML = html);
 }
+
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-action="remote-unlock"]');
+    if (!button || button.disabled) return;
+    openRemoteUnlockModal(button.dataset.doorId);
+});
 
 async function toggleDoorStatus(doorId, enabled) {
     try {
@@ -561,9 +567,8 @@ function onRemoteUnlockDoorChange(doorId) {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
     if (codeEl) codeEl.textContent = door.door_id;
@@ -583,9 +588,8 @@ function openRemoteUnlockModal(doorId) {
     const select = document.getElementById('remoteUnlockDoorSelect');
     if (select) {
         select.innerHTML = doors.map(d => {
-            const isPrimary = d.door_id === 'DOOR-B';
             const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
-            const online = isPrimary && health === 'online';
+            const online = health === 'online';
             return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
         }).join('');
         if (doorId) select.value = doorId;
@@ -621,9 +625,8 @@ async function confirmRemoteUnlock() {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (!isOnline) {
         showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
@@ -632,10 +635,14 @@ async function confirmRemoteUnlock() {
 
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
+    const idempotencyKey = typeof globalThis.crypto?.randomUUID === 'function'
+        ? globalThis.crypto.randomUUID()
+        : `unlock-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     try {
         const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, {
             method: 'POST',
             isBackground: false,
+            headers: { 'X-Idempotency-Key': idempotencyKey },
             body: JSON.stringify({ reason })
         });
         if (res.status === 'success') {
@@ -725,7 +732,20 @@ async function loadOrganizationLookup() {
     } catch (err) { console.warn('Organization lookup unavailable', err); }
 }
 
-async function loadEmployees(page = state.employeePage) {
+let employeeRequestController = null;
+let employeeRequestSequence = 0;
+
+async function loadEmployees(page = state.employeePage, event = null) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+        const control = event.currentTarget;
+        if (control.disabled || control.getAttribute('aria-disabled') === 'true') return;
+    }
+    const previousScrollY = window.scrollY;
+    if (employeeRequestController) employeeRequestController.abort();
+    employeeRequestController = new AbortController();
+    const requestSequence = ++employeeRequestSequence;
     const tbody = document.getElementById('employeesTableBody');
     const fullTbody = document.getElementById('fullEmployeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
@@ -734,16 +754,19 @@ async function loadEmployees(page = state.employeePage) {
     state.employeePage = Math.max(1, Number(page) || 1);
 
     const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
+    document.querySelectorAll('.employee-table-container').forEach(container => container.classList.add('employee-table-loading'));
     if (tbody) tbody.innerHTML = loadingHtml;
     if (fullTbody) fullTbody.innerHTML = loadingHtml;
 
     try {
-        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
-        if (state.buildingFilter) url += `&building_id=${encodeURIComponent(state.buildingFilter)}`;
-        if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
+        const params = new URLSearchParams({ per_page: '20', page: String(state.employeePage) });
+        if (state.buildingFilter) params.set('building_id', state.buildingFilter);
+        if (searchVal) params.set('search', searchVal);
+        if (doorFilter) params.set('door_id', doorFilter);
+        const url = `/user-management/employees?${params.toString()}`;
 
-        const res = await apiFetch(url);
+        const res = await apiFetch(url, { signal: employeeRequestController.signal });
+        if (requestSequence !== employeeRequestSequence) return;
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
@@ -756,11 +779,20 @@ async function loadEmployees(page = state.employeePage) {
 
             renderEmployeesTable(state.employees);
             renderEmployeePagination();
+            window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+            requestAnimationFrame(() => {
+                window.scrollTo(0, previousScrollY);
+            });
         }
     } catch (err) {
+        if (err.name === 'AbortError' || requestSequence !== employeeRequestSequence) return;
         const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
+    } finally {
+        if (requestSequence === employeeRequestSequence) {
+            document.querySelectorAll('.employee-table-container').forEach(container => container.classList.remove('employee-table-loading'));
+        }
     }
 }
 
@@ -904,9 +936,9 @@ function renderEmployeePagination() {
         const total = Number(pagination.total_pages || 1);
         container.innerHTML = `
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:.75rem;padding:1rem;">
-                <button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
-                <span style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
-                <button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+                <button class="btn-secondary" ${current <= 1 ? 'disabled aria-disabled="true"' : 'aria-disabled="false"'} onclick="loadEmployees(${current - 1}, event)">← Sebelumnya</button>
+                <span aria-current="page" style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
+                <button class="btn-secondary" ${current >= total ? 'disabled aria-disabled="true"' : 'aria-disabled="false"'} onclick="loadEmployees(${current + 1}, event)">Berikutnya →</button>
             </div>`;
     });
 }
@@ -6023,6 +6055,21 @@ async function openFacilityModal(doorId = null) {
         if (modelEl) modelEl.value = door?.device_model || door?.model || 'DS-K1T804AMF';
         if (submitBtn) submitBtn.textContent = door ? 'Update Door' : 'Register Door';
 
+        const mode = door?.connection_mode || 'auto';
+        const modeInput = document.querySelector(`input[name="connection_mode"][value="${mode}"]`);
+        if (modeInput) modeInput.checked = true;
+        const setValue = (id, value) => { const el = document.getElementById(id); if (el && value !== undefined && value !== null) el.value = value; };
+        setValue('connection_scheme', door?.connection_scheme || 'http');
+        setValue('device_port', door?.device_port || 8200);
+        setValue('connect_timeout', door?.connect_timeout || 10);
+        setValue('read_timeout', door?.read_timeout || 10);
+        setValue('isapi_username', door?.isapi_username || '');
+        const verifyTls = document.getElementById('verify_tls');
+        if (verifyTls) verifyTls.checked = door?.verify_tls !== false;
+        const password = document.getElementById('isapi_password');
+        if (password) password.value = '';
+        toggleManualFields();
+
         if (select && door) {
             if (door.building_id) {
                 select.value = String(door.building_id);
@@ -6050,14 +6097,26 @@ async function submitBuildingConfig(event) {
 async function submitDoorConfig(event) {
     event.preventDefault();
     const original = document.getElementById('facilityOriginalDoorId').value;
+    const connectionMode = document.querySelector('input[name="connection_mode"]:checked')?.value || 'auto';
     const payload = {
         door_id: document.getElementById('facilityDoorId').value,
         name: document.getElementById('facilityDoorName').value,
         building_id: Number(document.getElementById('facilityDoorBuilding').value),
         device_ip: document.getElementById('facilityDoorIp').value,
         gateway: document.getElementById('facilityDoorGateway').value || null,
-        device_model: document.getElementById('facilityDoorModel').value
+        device_model: document.getElementById('facilityDoorModel').value,
+        connection_mode: connectionMode
     };
+    if (connectionMode === 'manual') {
+        payload.connection_scheme = document.getElementById('connection_scheme').value;
+        payload.device_port = Number(document.getElementById('device_port').value);
+        payload.connect_timeout = Number(document.getElementById('connect_timeout').value);
+        payload.read_timeout = Number(document.getElementById('read_timeout').value);
+        payload.verify_tls = document.getElementById('verify_tls').checked;
+        payload.isapi_username = document.getElementById('isapi_username').value || null;
+        const password = document.getElementById('isapi_password').value;
+        if (password) payload.isapi_password = password;
+    }
     try {
         const res = await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', {
             method: original ? 'PUT' : 'POST',
@@ -6071,6 +6130,55 @@ async function submitDoorConfig(event) {
         showToast(error.message, 'error');
     }
 }
+
+function toggleManualFields() {
+    const mode = document.querySelector('input[name="connection_mode"]:checked')?.value;
+    const container = document.getElementById('manualFieldsContainer');
+    if (container) container.style.display = mode === 'manual' ? 'block' : 'none';
+}
+
+async function testManualConnection() {
+    const doorId = document.getElementById('facilityOriginalDoorId').value;
+    if (!doorId) {
+        showToast('Simpan pintu terlebih dahulu sebelum menguji koneksi.', 'warning');
+        return;
+    }
+
+    const button = document.getElementById('testConnectionBtn');
+    const result = document.getElementById('testResultContainer');
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    if (result) {
+        result.style.display = 'block';
+        document.getElementById('testResultIcon').textContent = '…';
+        document.getElementById('testResultText').textContent = 'Testing connection';
+    }
+
+    const payload = {
+        device_ip: document.getElementById('facilityDoorIp').value,
+        device_port: Number(document.getElementById('device_port').value),
+        connection_scheme: document.getElementById('connection_scheme').value,
+        connect_timeout: Number(document.getElementById('connect_timeout').value),
+        read_timeout: Number(document.getElementById('read_timeout').value),
+        verify_tls: document.getElementById('verify_tls').checked,
+        isapi_username: document.getElementById('isapi_username').value || null,
+        isapi_password: document.getElementById('isapi_password').value || null
+    };
+
+    try {
+        await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/test-manual`, { method: 'POST', body: JSON.stringify(payload) });
+        document.getElementById('testResultIcon').textContent = '✓';
+        document.getElementById('testResultText').textContent = 'Connection successful';
+    } catch (error) {
+        document.getElementById('testResultIcon').textContent = '✕';
+        document.getElementById('testResultText').textContent = error.message || 'Connection failed';
+    } finally {
+        if (button) button.disabled = false;
+    }
+}
+
+window.toggleManualFields = toggleManualFields;
+window.testManualConnection = testManualConnection;
 
 // ==========================================
 // SPRINT 10: FIELD ATTENDANCE + GPS + PHOTO

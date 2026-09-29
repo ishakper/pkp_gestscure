@@ -17,24 +17,30 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('floors', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('building_id')->constrained()->cascadeOnUpdate()->restrictOnDelete();
-            $table->string('code')->unique();
-            $table->string('name');
-            $table->string('floor_number')->default('1');
-            $table->string('description')->nullable();
-            $table->boolean('is_active')->default(true);
-            $table->timestamps();
-        });
+        if (!Schema::hasTable('floors')) {
+            Schema::create('floors', function (Blueprint $table) {
+                $table->id();
+                $table->foreignId('building_id')->constrained()->cascadeOnUpdate()->restrictOnDelete();
+                $table->string('code')->unique();
+                $table->string('name');
+                $table->string('floor_number')->default('1');
+                $table->string('description')->nullable();
+                $table->boolean('is_active')->default(true);
+                $table->timestamps();
+            });
+        }
 
-        Schema::table('zones', function (Blueprint $table) {
-            $table->foreignId('floor_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
-        });
+        if (!Schema::hasColumn('zones', 'floor_id')) {
+            Schema::table('zones', function (Blueprint $table) {
+                $table->foreignId('floor_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
+            });
+        }
 
-        Schema::table('doors', function (Blueprint $table) {
-            $table->foreignId('floor_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
-        });
+        if (!Schema::hasColumn('doors', 'floor_id')) {
+            Schema::table('doors', function (Blueprint $table) {
+                $table->foreignId('floor_id')->nullable()->after('building_id')->constrained()->nullOnDelete();
+            });
+        }
     }
 
     /**

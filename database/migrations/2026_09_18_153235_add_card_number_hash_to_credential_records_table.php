@@ -14,11 +14,17 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('credential_records', function (Blueprint $table) {
-            // HMAC-SHA256 of normalized card identifier — deterministic, no PII
-            $table->string('card_number_hash', 64)->nullable()->after('card_number');
-            $table->index('card_number_hash');
-        });
+        if (!Schema::hasColumn('credential_records', 'card_number_hash')) {
+            Schema::table('credential_records', function (Blueprint $table) {
+                $table->string('card_number_hash', 64)->nullable()->after('card_number');
+            });
+        }
+
+        if (!Schema::hasIndex('credential_records', ['card_number_hash'])) {
+            Schema::table('credential_records', function (Blueprint $table) {
+                $table->index('card_number_hash');
+            });
+        }
     }
 
     public function down(): void
@@ -29,4 +35,3 @@ return new class extends Migration
         });
     }
 };
-

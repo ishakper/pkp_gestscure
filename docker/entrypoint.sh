@@ -12,17 +12,21 @@ mkdir -p /var/www/html/database \
          /var/www/html/storage/logs \
          /var/www/html/bootstrap/cache
 
-# 2. Prepare SQLite Database File
-if [ ! -f /var/www/html/database/database.sqlite ]; then
-    echo "Creating SQLite database file at /var/www/html/database/database.sqlite..."
-    touch /var/www/html/database/database.sqlite
+# 2. Prepare the configured SQLite database file at runtime (never bake it into the image)
+SQLITE_DATABASE_PATH="${DB_DATABASE:-/var/www/html/database/database.sqlite}"
+if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ] && [ ! -f "$SQLITE_DATABASE_PATH" ]; then
+    echo "Creating configured SQLite database file..."
+    mkdir -p "$(dirname "$SQLITE_DATABASE_PATH")"
+    touch "$SQLITE_DATABASE_PATH"
 fi
 
 # 3. Fix Ownership and Permissions for SQLite & Storage
 echo "Setting storage & database permissions for www-data..."
 chown -R www-data:www-data /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod 664 /var/www/html/database/database.sqlite
+if [ "${DB_CONNECTION:-sqlite}" = "sqlite" ]; then
+    chmod 664 "$SQLITE_DATABASE_PATH"
+fi
 
 # 4. Require a stable APP_KEY in production; generate only for non-production convenience
 if [ -z "$APP_KEY" ]; then

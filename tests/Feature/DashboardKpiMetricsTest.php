@@ -8,6 +8,7 @@ use App\Models\AccessLog;
 use App\Models\Admin;
 use Tests\TestCase;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Sanctum\Sanctum;
 
 /**
  * REGRESSION TEST: KPI Query Operator Precedence and Field Mapping
@@ -33,7 +34,9 @@ class DashboardKpiMetricsTest extends TestCase
         $this->admin = Admin::factory()->create([
             'email' => 'test@example.com',
             'name' => 'Test Admin',
+            'role' => 'super_admin',
         ]);
+        Sanctum::actingAs($this->admin, ['*']);
     }
 
     public function test_dashboard_metrics_endpoint_returns_correct_kpi_totals()
@@ -115,15 +118,14 @@ class DashboardKpiMetricsTest extends TestCase
         ]);
 
         // Test the metrics endpoint
-        $response = $this->actingAs($this->admin, 'admin')
-            ->getJson('/api/v1/admin/dashboard-metrics');
+        $response = $this->getJson('/api/v1/admin/dashboard-metrics');
 
         $response->assertStatus(200)
             ->assertJson([
                 'status' => 'success',
                 'data' => [
                     'activeEmployees' => 96,
-                    'registeredCredentials' => 96, // All source employees
+                    'registeredCredentials' => 88, // Confirmed card + expected fingerprint; review is not registered
                     'credentialSummary' => [
                         'card' => 75,                    // Kartu Terkonfirmasi
                         'fingerprint_expected' => 13,    // Fingerprint Terindikasi
@@ -171,8 +173,7 @@ class DashboardKpiMetricsTest extends TestCase
                 ]);
             });
 
-        $response = $this->actingAs($this->admin, 'admin')
-            ->getJson('/api/v1/admin/dashboard-metrics');
+        $response = $this->getJson('/api/v1/admin/dashboard-metrics');
 
         $response->assertStatus(200);
         $data = $response->json('data');
@@ -199,8 +200,7 @@ class DashboardKpiMetricsTest extends TestCase
             'fingerprint_verified' => false,
         ]);
 
-        $response = $this->actingAs($this->admin, 'admin')
-            ->getJson('/api/v1/admin/dashboard-metrics');
+        $response = $this->getJson('/api/v1/admin/dashboard-metrics');
 
         $response->assertStatus(200);
         $data = $response->json('data');

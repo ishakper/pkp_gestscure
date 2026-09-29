@@ -5,10 +5,12 @@ namespace Tests\Feature;
 use App\Models\Employee;
 use App\Models\CredentialReconciliationBatch;
 use App\Services\HikvisionCredentialReconciliation;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class CredentialReconciliationTest extends TestCase
 {
+    use RefreshDatabase;
     protected function setUp(): void
     {
         parent::setUp();

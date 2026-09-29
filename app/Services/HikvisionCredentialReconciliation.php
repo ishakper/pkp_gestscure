@@ -19,12 +19,14 @@ class HikvisionCredentialReconciliation
 
     public function __construct(string $workbookPath, bool $dryRun = true)
     {
-        if (!is_file($workbookPath)) {
+        if ($workbookPath !== ':memory:' && !is_file($workbookPath)) {
             throw new \InvalidArgumentException("Workbook not found: {$workbookPath}");
         }
 
         $this->workbookPath = $workbookPath;
-        $this->sourceHash = hash_file('sha256', $workbookPath);
+        $this->sourceHash = $workbookPath === ':memory:'
+            ? hash('sha256', '')
+            : hash_file('sha256', $workbookPath);
         $this->dryRun = $dryRun;
         $this->batchId = (string) Str::uuid();
     }

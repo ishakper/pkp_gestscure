@@ -8,7 +8,8 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('credential_reconciliation_batches', function (Blueprint $table) {
+        if (!Schema::hasTable('credential_reconciliation_batches')) {
+            Schema::create('credential_reconciliation_batches', function (Blueprint $table) {
             $table->id();
             $table->string('batch_id')->unique();
             $table->string('source_filename');
@@ -52,9 +53,11 @@ return new class extends Migration
             $table->timestamps();
             $table->index('batch_id');
             $table->index('status');
-        });
+            });
+        }
 
-        Schema::create('credential_reconciliation_audits', function (Blueprint $table) {
+        if (!Schema::hasTable('credential_reconciliation_audits')) {
+            Schema::create('credential_reconciliation_audits', function (Blueprint $table) {
             $table->id();
             $table->string('batch_id');
             $table->foreignId('employee_id')->nullable()->constrained()->onDelete('set null');
@@ -80,7 +83,8 @@ return new class extends Migration
                   ->on('credential_reconciliation_batches')
                   ->onDelete('cascade');
             $table->index(['batch_id', 'action']);
-        });
+            });
+        }
     }
 
     public function down(): void

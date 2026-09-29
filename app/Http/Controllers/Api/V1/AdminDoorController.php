@@ -389,6 +389,14 @@ class AdminDoorController extends Controller
 
         $idempotencyKey = trim((string) $request->header('X-Idempotency-Key'));
         if ($idempotencyKey !== '') {
+            if (! preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $idempotencyKey)) {
+                return response()->json([
+                    'status' => 'error',
+                    'code' => 422,
+                    'message' => 'Idempotency key tidak valid.',
+                ], 422);
+            }
+
             $existing = ActivityLog::where('action', 'remote_door_opened')
                 ->where('description', 'like', "%Idempotency-Key: {$idempotencyKey}%")
                 ->latest('id')->first();
@@ -409,7 +417,9 @@ class AdminDoorController extends Controller
 
         $doorName = $door->door_name ?? $door->name;
         $reason = $request->input('reason');
-        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard." . ($reason ? " Alasan: {$reason}" : '');
+        $desc = "Remote unlock triggered for {$door->door_id} ({$doorName}) via web dashboard."
+            . ($reason ? " Alasan: {$reason}" : '')
+            . ($idempotencyKey !== '' ? " Idempotency-Key: {$idempotencyKey}" : '');
 
         ActivityLog::create([
             'admin_id' => $request->user()->id ?? null,
@@ -631,7 +641,6 @@ class AdminDoorController extends Controller
         }
         $scopedDoors = (clone $doors)->with('building:id,name')->get();
         $doorIds = $scopedDoors->pluck('id');
-        $primaryDoor = $scopedDoors->firstWhere('door_id', 'DOOR-B');
         $classifyDoor = function ($door) use ($serverTime, $doorFreshMinutes): string {
             if (!$door->last_checked_at) return 'UNKNOWN';
             if ($door->last_checked_at->diffInSeconds($serverTime) > ($doorFreshMinutes * 60)) return 'STALE';
@@ -656,6 +665,17 @@ class AdminDoorController extends Controller
             ];
         };
         $data['doors'] = $summarize($scopedDoors);
+        // Pick a representative device from the caller's scope without assuming
+        // a deployment-specific door identifier. Prefer fresh healthy evidence,
+        // then a fresh offline device, then stale/unknown records.
+        $healthPriority = ['HEALTHY' => 0, 'OFFLINE' => 1, 'STALE' => 2, 'UNKNOWN' => 3];
+        $primaryDoor = $scopedDoors
+            ->sortBy(fn ($door) => sprintf(
+                '%d-%d',
+                $healthPriority[$classifyDoor($door)] ?? 4,
+                strtolower((string) $door->connection_status) === 'online' ? 0 : 1
+            ))
+            ->first();
         $data['buildings'] = $scopedDoors->groupBy(fn ($door) => $door->building_id ?: 'legacy:' . ($door->location ?: 'unknown'))->map(function ($items) use ($summarize) {
             $door = $items->first();
             return ['building_id' => $door->building_id, 'building_name' => $door->building?->name ?? $door->location] + $summarize($items);

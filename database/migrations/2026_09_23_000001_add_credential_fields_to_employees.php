@@ -11,16 +11,21 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::table('employees', function (Blueprint $table) {
-            // Credential method field
+        $addEmployeeColumn = function (string $column, \Closure $definition): void {
+            if (!Schema::hasColumn('employees', $column)) {
+                Schema::table('employees', $definition);
+            }
+        };
+
+        $addEmployeeColumn('credential_method', function (Blueprint $table) {
             $table->enum('credential_method', [
                 'card',
                 'fingerprint',
                 'unknown',
                 'review'
             ])->default('unknown')->nullable()->after('card_no');
-
-            // Credential status from backup or app
+        });
+        $addEmployeeColumn('credential_status', function (Blueprint $table) {
             $table->enum('credential_status', [
                 'confirmed_from_backup',
                 'expected_from_backup',
@@ -29,37 +34,45 @@ return new class extends Migration
                 'needs_verification',
                 'unknown'
             ])->default('unknown')->nullable()->after('credential_method');
-
-            // Credential source
+        });
+        $addEmployeeColumn('credential_source', function (Blueprint $table) {
             $table->enum('credential_source', [
                 'hikvision_backup',
                 'application',
                 'manual_verified'
             ])->nullable()->after('credential_status');
-
-            // Card-related metadata from backup
+        });
+        $addEmployeeColumn('card_registered', function (Blueprint $table) {
             $table->boolean('card_registered')->default(false)->nullable()->after('credential_source');
+        });
+        $addEmployeeColumn('card_count', function (Blueprint $table) {
             $table->integer('card_count')->default(0)->nullable()->after('card_registered');
+        });
+        $addEmployeeColumn('card_type', function (Blueprint $table) {
             $table->enum('card_type', [
                 'normalCard',
                 'superCard',
                 'patrolCard'
             ])->nullable()->after('card_count');
-
-            // Fingerprint status (never auto-set to verified without proof)
-            $table->boolean('fingerprint_verified')->default(false)->nullable()->after('card_type');
-
-            // Source reconciliation tracking
-            $table->string('source_person_number')->nullable()->after('fingerprint_verified');
-            $table->timestamp('last_reconciled_at')->nullable()->after('source_person_number');
-            $table->string('reconciliation_batch_id')->nullable()->after('last_reconciled_at');
-
-            // Indexes
-            $table->index('credential_method');
-            $table->index('credential_status');
-            $table->index('source_person_number');
-            $table->index('reconciliation_batch_id');
         });
+        $addEmployeeColumn('fingerprint_verified', function (Blueprint $table) {
+            $table->boolean('fingerprint_verified')->default(false)->nullable()->after('card_type');
+        });
+        $addEmployeeColumn('source_person_number', function (Blueprint $table) {
+            $table->string('source_person_number')->nullable()->after('fingerprint_verified');
+        });
+        $addEmployeeColumn('last_reconciled_at', function (Blueprint $table) {
+            $table->timestamp('last_reconciled_at')->nullable()->after('source_person_number');
+        });
+        $addEmployeeColumn('reconciliation_batch_id', function (Blueprint $table) {
+            $table->string('reconciliation_batch_id')->nullable()->after('last_reconciled_at');
+        });
+
+        foreach (['credential_method', 'credential_status', 'source_person_number', 'reconciliation_batch_id'] as $column) {
+            if (!Schema::hasIndex('employees', [$column])) {
+                Schema::table('employees', fn (Blueprint $table) => $table->index($column));
+            }
+        }
     }
 
     /**
