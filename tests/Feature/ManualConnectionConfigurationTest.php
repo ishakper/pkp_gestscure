@@ -66,7 +66,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_loopback_ip_127_0_0_1()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '127.0.0.1',
@@ -82,7 +82,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_loopback_ip_range()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '127.255.255.255',
@@ -97,7 +97,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_link_local_ip()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '169.254.100.1',
@@ -113,7 +113,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_multicast_ip()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '224.0.0.1',
@@ -129,7 +129,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_broadcast_ip()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '255.255.255.255',
@@ -145,7 +145,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_cloud_metadata_endpoint()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '169.254.169.254',
@@ -163,7 +163,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_invalid_ip_address()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => 'not-an-ip',
@@ -178,7 +178,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_port_below_minimum()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -193,7 +193,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_port_above_maximum()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -208,7 +208,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_timeout_below_minimum()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -223,7 +223,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_timeout_above_maximum()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -238,7 +238,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_reject_invalid_scheme()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -256,7 +256,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_no_credential_exposure_in_response()
     {
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -277,7 +277,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_manual_connection_does_not_save_credentials_to_door()
     {
-        $this->actingAs($this->admin, 'admin')->postJson(
+        $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -301,7 +301,7 @@ class ManualConnectionConfigurationTest extends TestCase
         // Test that the endpoint is strictly read-only, not triggering unlock/open
         $this->door->update(['health_status' => 'online']);
 
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -320,7 +320,7 @@ class ManualConnectionConfigurationTest extends TestCase
     /** @test */
     public function test_manual_connection_configuration_persists_when_door_is_updated()
     {
-        $response = $this->actingAs($this->admin, 'admin')->putJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->putJson(
             '/api/v1/admin/doors/' . $this->door->door_id,
             [
                 'door_id' => $this->door->door_id,
@@ -350,7 +350,7 @@ class ManualConnectionConfigurationTest extends TestCase
     public function test_valid_port_range_1_to_65535()
     {
         // Test edge case: port 1
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',
@@ -361,7 +361,7 @@ class ManualConnectionConfigurationTest extends TestCase
         $this->assertEquals(422, $response->status(), 'Port 1 should be rejected (not loopback test but ICMP)');
 
         // Test edge case: port 65535
-        $response = $this->actingAs($this->admin, 'admin')->postJson(
+        $response = $this->actingAs($this->admin, 'sanctum')->postJson(
             '/api/v1/admin/doors/' . $this->door->door_id . '/test-manual',
             [
                 'device_ip' => '192.168.1.100',

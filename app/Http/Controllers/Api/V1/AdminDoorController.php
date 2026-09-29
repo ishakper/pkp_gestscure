@@ -82,24 +82,8 @@ class AdminDoorController extends Controller
         // either a source-backed credential classification or legacy verified
         // card/biometric evidence. Door assignment is deliberately irrelevant.
         $registeredCredentials = (clone $activeEmployeesQuery)
-            ->whereNotNull('hikvision_employee_no')
-            ->where('hikvision_employee_no', '!=', '')
-            ->where(function ($query) {
-                $query->where(function ($classified) {
-                    $classified->whereIn('credential_method', ['card', 'fingerprint'])
-                        ->whereIn('credential_status', [
-                            'confirmed_from_backup',
-                            'expected_from_backup',
-                            'verified',
-                        ]);
-                })->orWhere(fn ($legacy) => $legacy
-                    ->whereNotNull('card_no')
-                    ->where('card_no', '!=', '')
-                )->orWhereHas('biometricStatus', fn ($biometric) => $biometric
-                    ->where('has_fingerprint', true)
-                    ->orWhere('card_enrolled', true)
-                );
-            })
+            ->whereNotNull('source_person_number')
+            ->where('source_person_number', '!=', '')
             ->count();
 
         $fingerprintVerified = (clone $activeEmployeesQuery)

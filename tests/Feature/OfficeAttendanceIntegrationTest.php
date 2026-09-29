@@ -35,6 +35,11 @@ class OfficeAttendanceIntegrationTest extends TestCase
             ]);
         }
         $this->door = Door::create(['door_id' => 'DOOR-'.uniqid(), 'name' => 'Main Door', 'device_ip' => '192.168.1.100', 'location' => 'Main Entrance']);
+
+        // Configure webhook secret for this test door
+        config([
+            "services.doors.{$this->door->door_id}.webhook_secret" => "secret_simulator_key_2026",
+        ]);
     }
 
     private function employee(): Employee

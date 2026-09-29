@@ -42,6 +42,7 @@ return [
         'request_timeout' => (int) env('ISAPI_REQUEST_TIMEOUT', 10),
         'allowed_device_ips' => env('ALLOWED_DEVICE_IPS', ''),
         'device_secret' => env('ISAPI_DEVICE_SECRET'),
+        'allowed_cidrs' => array_filter(array_map('trim', explode(',', env('HIKVISION_ALLOWED_CIDRS', '')))),
         'listener_ip' => env('HIKVISION_LISTENER_IP', '192.168.90.64'),
         'listener_port' => (int) env('HIKVISION_LISTENER_PORT', 8080),
         'stream_max_event_age_seconds' => (int) env('HIKVISION_STREAM_MAX_EVENT_AGE_SECONDS', 120),

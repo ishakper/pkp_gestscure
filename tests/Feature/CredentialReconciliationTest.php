@@ -6,9 +6,11 @@ use App\Models\Employee;
 use App\Models\CredentialReconciliationBatch;
 use App\Services\HikvisionCredentialReconciliation;
 use Tests\TestCase;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
 class CredentialReconciliationTest extends TestCase
 {
+    use RefreshDatabase;
     protected function setUp(): void
     {
         parent::setUp();
@@ -25,7 +27,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'John Doe'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $this->assertEquals('card', $credential['method']);
@@ -42,7 +44,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'Jane Doe'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $this->assertEquals('fingerprint', $credential['method']);
@@ -59,7 +61,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'Admin'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $this->assertEquals('card', $credential['method']);
@@ -76,7 +78,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'Security'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $this->assertEquals('card', $credential['method']);
@@ -93,7 +95,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'Employee'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         // Must be expected, never auto-verified
@@ -112,7 +114,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => 'Conflict'
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $this->assertEquals('review', $credential['method']);
@@ -123,7 +125,7 @@ class CredentialReconciliationTest extends TestCase
     {
         $initialCount = Employee::count();
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         // Dry-run should not mutate
 
         $finalCount = Employee::count();
@@ -146,7 +148,7 @@ class CredentialReconciliationTest extends TestCase
             'display_name' => $employee->name
         ];
 
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         // In dry-run, nothing changes
@@ -187,10 +189,17 @@ class CredentialReconciliationTest extends TestCase
         ];
 
         // Nameless should go to review, not created
-        $reconciliation = new HikvisionCredentialReconciliation(':memory:', true);
+        $reconciliation = $this->reconciliation(true);
         $credential = $reconciliation->classifyCredential($record);
 
         $finalCount = Employee::count();
         $this->assertEquals($initialCount, $finalCount);
     }
-}
+
+    private function reconciliation(bool $dryRun = true): HikvisionCredentialReconciliation
+    {
+        $path = tempnam(sys_get_temp_dir(), 'hikvision-cred-');
+        file_put_contents($path, 'fixture');
+
+        return new HikvisionCredentialReconciliation($path, $dryRun);
+    }}

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use App\Services\IpCidrValidator;
 
 class HikvisionIsapiService
 {
@@ -45,20 +46,12 @@ class HikvisionIsapiService
     {
         if ($door) {
             if (!empty($door->isapi_username) && !empty($door->isapi_password)) {
-                $password = $door->isapi_password;
-                // If model attribute was accessed uncast or has an encrypted payload, attempt fallback decrypt
-                if (is_string($password) && str_starts_with($password, 'eyJ')) {
-                    try {
-                        $password = Crypt::decryptString($password);
-                    } catch (\Throwable) {
-                        // Raw string fallback
-                    }
-                }
-                return ['username' => $door->isapi_username, 'password' => $password];
+                // Laravel encrypted cast auto-decrypts on access
+                return ['username' => $door->isapi_username, 'password' => $door->isapi_password];
             }
 
             if (!empty($door->door_id)) {
-                $doorKey = strtoupper($door->door_id); // e.g. DOOR-A or DOOR-B
+                $doorKey = $door->door_id; // e.g. DOOR-A or DOOR-B
                 $doorConfig = config("services.doors.{$doorKey}") ?? config("services.doors.{$door->door_id}");
 
 
@@ -85,7 +78,7 @@ class HikvisionIsapiService
      */
     public function getDeviceHostAndPort(?Door $door = null): array
     {
-        $doorKey = $door && !empty($door->door_id) ? strtoupper($door->door_id) : null;
+        $doorKey = $door && !empty($door->door_id) ? $door->door_id : null;
         $configuredIp = $doorKey ? config("services.doors.{$doorKey}.ip") : null;
 
         $host = $door && !empty($door->device_ip)
@@ -108,7 +101,7 @@ class HikvisionIsapiService
     {
         // 1. Check door-specific configuration
         if (!empty($door->door_id)) {
-            $doorKey = strtoupper($door->door_id);
+            $doorKey = $door->door_id;
             $configuredChannel = config("services.doors.{$doorKey}.channel");
             if (is_numeric($configuredChannel)) {
                 return (int) $configuredChannel;
@@ -295,6 +288,7 @@ class HikvisionIsapiService
     public function testDeviceConnection(string $ip, ?string $username = null, ?string $password = null): array
     {
         $username = $username ?: config('services.hikvision.username');
+        $username = $username ?: config('services.hikvision.username');
         $password = $password ?: config('services.hikvision.password');
 
         if ($this->isMockMode()) {
@@ -402,40 +396,10 @@ class HikvisionIsapiService
         ?string $password = null,
         bool $verify_tls = true
     ): array {
-        // Input validation
-        if (!filter_var($ip, FILTER_VALIDATE_IP)) {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Invalid IP address format', 'data' => null];
-        }
-
-        // SSRF protection: reject dangerous IP ranges
-        $ipLong = ip2long($ip);
-        if ($ipLong === false) {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Invalid IP address', 'data' => null];
-        }
-
-        // Reject loopback (127.0.0.0/8)
-        if (($ipLong >= ip2long('127.0.0.0') && $ipLong <= ip2long('127.255.255.255'))) {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Loopback IP addresses not allowed', 'data' => null];
-        }
-
-        // Reject link-local (169.254.0.0/16)
-        if (($ipLong >= ip2long('169.254.0.0') && $ipLong <= ip2long('169.254.255.255'))) {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Link-local IP addresses not allowed', 'data' => null];
-        }
-
-        // Reject multicast (224.0.0.0/4)
-        if (($ipLong >= ip2long('224.0.0.0') && $ipLong <= ip2long('239.255.255.255'))) {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Multicast IP addresses not allowed', 'data' => null];
-        }
-
-        // Reject broadcast
-        if ($ip === '255.255.255.255') {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Broadcast IP address not allowed', 'data' => null];
-        }
-
-        // Reject cloud metadata endpoint
-        if ($ip === '169.254.169.254') {
-            return ['status' => false, 'statusCode' => 422, 'error' => 'Cloud metadata endpoint not allowed', 'data' => null];
+        // CIDR allowlist + dangerous IP validation
+        $cidrValidation = IpCidrValidator::validateManualDeviceIp($ip);
+        if (!$cidrValidation['allowed']) {
+            return ['status' => false, 'statusCode' => 422, 'error' => $cidrValidation['reason'], 'data' => null];
         }
 
         // Validate port
@@ -454,18 +418,8 @@ class HikvisionIsapiService
             return ['status' => false, 'statusCode' => 422, 'error' => 'Scheme must be http or https', 'data' => null];
         }
 
-        // Use provided credentials or fall back to config
         $username = $username ?: config('services.hikvision.username');
         $password = $password ?: config('services.hikvision.password');
-
-        // Handle encrypted password (Laravel encrypted cast)
-        if ($password && str_starts_with($password, 'eyJ')) {
-            try {
-                $password = Crypt::decryptString($password);
-            } catch (\Throwable) {
-                // If decrypt fails, use as-is (might be plaintext from test request)
-            }
-        }
 
         // Mock mode
         if ($this->isMockMode()) {

@@ -40,7 +40,7 @@ class StreamHikvisionAlertEventsCommand extends Command
         HikvisionEventIngestionService $ingestionService,
         HikvisionStreamLeaseManager $leaseManager
     ): int {
-        $doorId = strtoupper((string) $this->argument('door_id'));
+        $doorId = (string) $this->argument('door_id');
         $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->first();
 
         if (!$door) {

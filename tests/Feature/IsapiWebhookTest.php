@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\Admin;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 class IsapiWebhookTest extends TestCase
@@ -37,6 +38,11 @@ class IsapiWebhookTest extends TestCase
             'card_no' => 'CARD-1001',
             'department' => 'IT Support',
         ]);
+
+        Config::set(
+            "services.doors.{$this->door->door_id}.webhook_secret",
+            'secret_door_a_9981'
+        );
     }
 
     /**
@@ -215,12 +221,12 @@ class IsapiWebhookTest extends TestCase
             'password' => bcrypt('password'),
             'role' => 'super_admin',
         ]);
-        $token = $admin->createToken('device-token-DOOR-A', ['device:push-log'])->plainTextToken;
+        $token = $admin->createToken('device-token-' . $this->door->door_id, ['device:push-log'])->plainTextToken;
 
         $this->withServerVariables(['REMOTE_ADDR' => '192.168.90.11'])
             ->withToken($token)
             ->postJson('/api/v1/isapi/event-notification', [
-                'door_id' => 'DOOR-A',
+                'door_id' => $this->door->door_id,
                 'user' => 'NIK-882101',
                 'access_status' => 'Granted',
             ])->assertStatus(200);
@@ -319,7 +325,7 @@ XML;
                 'status' => 'success',
                 'data' => [
                     'access_status' => 'Granted',
-                    'door_id' => 'DOOR-A',
+                    'door_id' => $this->door->door_id,
                     'employee_name' => 'Budi Santoso',
                 ],
             ]);
