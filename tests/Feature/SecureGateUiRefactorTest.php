@@ -55,18 +55,18 @@ class SecureGateUiRefactorTest extends TestCase
         $this->assertStringContainsString('pingSingleDoor', $script);
     }
 
-    public function test_realtime_fallback_never_invokes_physical_connection_checks(): void
-{
-    $script = file_get_contents(public_path('js/dashboard.js'));
-    $start = strpos($script, 'function reconcileLiveData()');
-    $end = strpos($script, 'function startFallbackPolling()', $start);
-    $body = substr($script, $start, $end - $start);
+        public function test_realtime_fallback_never_invokes_physical_connection_checks(): void
+    {
+        $script = file_get_contents(public_path('js/dashboard.js'));
+        $start = strpos($script, 'function reconcileLiveData()');
+        $end = strpos($script, 'function startFallbackPolling()', $start);
+        $body = substr($script, $start, $end - $start);
 
-    $this->assertNotEmpty($body);
-    $this->assertStringContainsString('scheduleMetricCardsUpdate()', $body);
-    $this->assertStringNotContainsString('checkAllDoors', $body);
-    $this->assertStringNotContainsString('pingSingleDoor', $body);
-}
+        $this->assertNotEmpty($body);
+        $this->assertStringContainsString('scheduleMetricCardsUpdate()', $body);
+        $this->assertStringNotContainsString('checkAllDoors', $body);
+        $this->assertStringNotContainsString('pingSingleDoor', $body);
+    }
 
     public function test_phase_nine_facility_dom_contract_preserves_existing_door_editor(): void
     {
