@@ -1509,21 +1509,22 @@ function renderAccessLogsTable(logs) {
 
     if (renderTargets.length === 0) return;
 
-    if (logs.length === 0) {
-        renderTargets.forEach(target => {
-            target.innerHTML = `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
-        });
-        return;
-    }
-
-    const html = logs.map(log => {
+    const renderRows = (items) => items.map(log => {
         const rawStatus = log.access_status || log.status || 'Granted';
         const eventType = log.event_type || 'STANDARD_TAP';
 
         let statusBadge = '';
-        if (rawStatus === 'Alarm' || eventType === 'DOOR_FORCED_OPEN' || eventType === 'TAMPER_ALARM') {
+
+        if (
+            rawStatus === 'Alarm' ||
+            eventType === 'DOOR_FORCED_OPEN' ||
+            eventType === 'TAMPER_ALARM'
+        ) {
             statusBadge = `<span class="badge badge-alarm">🚨 ALARM / INTRUSION</span>`;
-        } else if (rawStatus === 'Duress' || eventType === 'DURESS_FINGERPRINT') {
+        } else if (
+            rawStatus === 'Duress' ||
+            eventType === 'DURESS_FINGERPRINT'
+        ) {
             statusBadge = `<span class="badge badge-duress">⚠️ DURESS ALERT</span>`;
         } else if (rawStatus === 'Granted') {
             statusBadge = `<span class="badge badge-granted">✓ GRANTED</span>`;
@@ -1531,40 +1532,42 @@ function renderAccessLogsTable(logs) {
             statusBadge = `<span class="badge badge-denied">✕ DENIED</span>`;
         }
 
-        let userHtml = '';
-
-        if (eventType === 'DOOR_FORCED_OPEN') {
-            userHtml = `<strong style="color: #f87171;">🚨 Pintu Dibobol Paksa</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor intrusi terbuka tanpa autentikasi')}</small>`;
-        } else if (eventType === 'TAMPER_ALARM') {
-            userHtml = `<strong style="color: #f87171;">🔧 Sabotase Terminal</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor anti-tamper casing terpicu')}</small>`;
-        } else if (eventType === 'DURESS_FINGERPRINT') {
-            const empName = log.user?.name || log.nik || 'Karyawan';
-            userHtml = `<strong>${escapeHtml(empName)}</strong> <span class="badge badge-duress" style="font-size: 0.65rem; padding: 1px 5px;">DURESS</span><br><small class="text-muted">${escapeHtml(log.user?.nik || log.nik || '')} • <em>${escapeHtml(log.reason || 'Akses dibuka di bawah ancaman')}</em></small>`;
-        } else if (log.user && (log.user.name || log.user.nik)) {
-            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
-        } else {
-            userHtml = `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Unregistered User')}</span>`;
-        }
-
         let methodBadge = '';
+
         if (eventType === 'DOOR_FORCED_OPEN') {
             methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">⚡ Forced Entry</span>`;
         } else if (eventType === 'TAMPER_ALARM') {
             methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">🔧 Tamper Sensor</span>`;
-        } else if (eventType === 'DURESS_FINGERPRINT' || log.verify_method === 'Duress_Fingerprint') {
+        } else if (
+            eventType === 'DURESS_FINGERPRINT' ||
+            log.verify_method === 'Duress_Fingerprint'
+        ) {
             methodBadge = `<span class="method-chip" style="background: rgba(245,158,11,0.18); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35);">⚠️ Duress FP</span>`;
-        } else if (log.verify_method === 'Card' || log.auth_method === 'Card') {
+        } else if (
+            log.verify_method === 'Card' ||
+            log.auth_method === 'Card'
+        ) {
             methodBadge = `<span class="method-chip method-card">💳 Card</span>`;
         } else {
             methodBadge = `<span class="method-chip method-fp">👆 Fingerprint</span>`;
         }
 
         const timestampStr = log.timestamp
-            ? new Date(log.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' })
+            ? new Date(log.timestamp).toLocaleString(
+                'id-ID',
+                {
+                    dateStyle: 'medium',
+                    timeStyle: 'medium'
+                }
+            )
             : '-';
 
         const safeTime = escapeHtml(timestampStr);
-        const attendanceStatus = log.attendance?.result || 'NOT_DERIVED';
+
+        const attendanceStatus =
+            log.attendance?.result ||
+            'NOT_DERIVED';
+
         const attendanceClasses = {
             PRESENT: 'badge-success',
             LATE: 'badge-pending',
@@ -1573,15 +1576,44 @@ function renderAccessLogsTable(logs) {
             LEAVE: 'badge-info',
             NOT_DERIVED: 'badge-neutral',
         };
-        const attendanceLabel = attendanceStatus === 'NOT_DERIVED'
-            ? (rawStatus === 'Denied' ? 'Ditolak' : 'Belum diproses')
-            : attendanceStatus;
+
+        const attendanceLabel =
+            attendanceStatus === 'NOT_DERIVED'
+                ? (
+                    rawStatus === 'Denied'
+                        ? 'Ditolak'
+                        : 'Belum diproses'
+                )
+                : attendanceStatus;
+
         const attendanceResult =
-            `<span class="badge ${attendanceClasses[attendanceStatus] || 'badge-info'}">${escapeHtml(attendanceLabel)}</span>` +
-            `${log.attendance?.direction ? ` <small class="text-muted">${escapeHtml(log.attendance.direction)}</small>` : ''}`;
-        const safeNik = escapeHtml(log.user?.nik || log.nik || 'Employee belum terpetakan');
-        const safeName = escapeHtml(log.user?.name || 'Employee belum terpetakan');
-        const safeDoor = escapeHtml(log.door_id || '-');
+            `<span class="badge ${
+                attendanceClasses[attendanceStatus] ||
+                'badge-info'
+            }">${escapeHtml(attendanceLabel)}</span>` +
+            `${
+                log.attendance?.direction
+                    ? ` <small class="text-muted">${escapeHtml(
+                        log.attendance.direction
+                    )}</small>`
+                    : ''
+            }`;
+
+        const safeNik = escapeHtml(
+            log.user?.nik ||
+            log.nik ||
+            'Employee belum terpetakan'
+        );
+
+        const safeName = escapeHtml(
+            log.user?.name ||
+            'Employee belum terpetakan'
+        );
+
+        const safeDoor = escapeHtml(
+            log.door_id ||
+            '-'
+        );
 
         return `
             <tr>
@@ -1597,7 +1629,32 @@ function renderAccessLogsTable(logs) {
         `;
     }).join('');
 
-    renderTargets.forEach(target => target.innerHTML = html);
+    const emptyHtml =
+        `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
+
+    const fullHtml = logs.length
+        ? renderRows(logs)
+        : emptyHtml;
+
+    const overviewLogs = logs.slice(0, 5);
+
+    const overviewHtml = overviewLogs.length
+        ? renderRows(overviewLogs)
+        : emptyHtml;
+
+    const tbody =
+        document.getElementById('logsTableBody');
+
+    const overviewTbody =
+        document.getElementById('overviewLogsTableBody');
+
+    if (tbody) {
+        tbody.innerHTML = fullHtml;
+    }
+
+    if (overviewTbody) {
+        overviewTbody.innerHTML = overviewHtml;
+    }
 }
 
 function resetLogFilters() {
@@ -5857,7 +5914,7 @@ async function loadAttendanceData() {
     try {
         const res = await apiFetch('/attendance/records');
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
-        
+
         const records = res.data.data || res.data;
         if (!records.length) {
             tbody.innerHTML = '<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses untuk scope Anda.</td></tr>';
@@ -5871,7 +5928,7 @@ async function loadAttendanceData() {
             const doorName = sourceLog?.door?.door_name || '-';
             const credential = sourceLog?.verify_method || '-';
             const processingState = sourceLog ? 'Diproses perangkat' : 'Input terverifikasi';
-            
+
             let statusBadge = '';
             switch (r.status) {
                 case 'PRESENT': statusBadge = '<span class="status-badge status-active">Hadir</span>'; break;
@@ -5882,8 +5939,8 @@ async function loadAttendanceData() {
                 default: statusBadge = `<span class="status-badge">${escapeHtml(r.status)}</span>`;
             }
 
-            const lateSpan = r.late_minutes > 0 
-                ? `<span style="color: #ef4444; font-weight: 700;">+${r.late_minutes} min</span>` 
+            const lateSpan = r.late_minutes > 0
+                ? `<span style="color: #ef4444; font-weight: 700;">+${r.late_minutes} min</span>`
                 : '<span style="color: var(--text-muted);">-</span>';
 
             return `
@@ -5913,7 +5970,7 @@ async function loadAttendanceMetrics() {
     try {
         const res = await apiFetch('/attendance/metrics');
         if (!res.success) return;
-        
+
         const m = res.data;
         const t = m.today;
         const live = m.live || {};
