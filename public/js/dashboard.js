@@ -2046,7 +2046,7 @@ function reconcileLiveData() {
     if (document.hidden || isRedirectingToLogin) return;
     loadDoors();
     loadAccessLogs();
-    updateMetricCards();
+    scheduleMetricCardsUpdate();
     if (state.activeTab === 'attendanceTab') loadAttendanceData();
     if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
 }
