@@ -448,6 +448,9 @@ class AttendanceController extends Controller
         if ($request->filled('status')) {
             $query->where('status', $request->input('status'));
         }
+        if ($request->filled('building_id')) {
+            $query->whereHas('employee', fn ($employee) => $employee->where('building_id', (int) $request->input('building_id')));
+        }
 
         $records = $query->paginate($request->input('per_page', 30));
 

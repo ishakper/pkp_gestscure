@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\Employee;
 use App\Policies\AttendancePolicy;
+use App\Services\AttendanceProcessor;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -16,7 +17,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceReportController extends Controller
 {
-    public function __construct(private readonly AttendancePolicy $policy) {}
+    public function __construct(
+        private readonly AttendancePolicy $policy,
+        private readonly AttendanceProcessor $processor,
+    ) {}
 
     #[OA\Get(
         path: '/api/v1/attendance/reports/monthly',
@@ -37,12 +41,12 @@ class AttendanceReportController extends Controller
     public function monthly(Request $request): JsonResponse
     {
         [$actor, $filters, $from, $to] = $this->validatedContext($request);
-        $records = $this->reportQuery($actor, $filters, $from, $to)->get();
+        $report = $this->buildReport($actor, $filters, $from, $to);
 
         return response()->json(['success' => true, 'data' => [
             'period' => ['month' => $from->format('Y-m'), 'from' => $from->toDateString(), 'to' => $to->toDateString()],
-            'totals' => $this->totals($records),
-            'rows' => $this->rows($records),
+            'totals' => $report['totals'],
+            'rows' => $report['rows'],
         ]]);
     }
 
@@ -65,7 +69,7 @@ class AttendanceReportController extends Controller
     public function export(Request $request): StreamedResponse
     {
         [$actor, $filters, $from, $to] = $this->validatedContext($request);
-        $rows = $this->rows($this->reportQuery($actor, $filters, $from, $to)->get());
+        $rows = $this->buildReport($actor, $filters, $from, $to)['rows'];
 
         return response()->streamDownload(function () use ($rows): void {
             $stream = fopen('php://output', 'wb');
@@ -110,33 +114,100 @@ class AttendanceReportController extends Controller
         return $query;
     }
 
-    private function rows(Collection $records): array
+    /**
+     * Active employees the report is about, under the same actor/building/employee
+     * scope as reportQuery(). This is the population; it does not depend on whether
+     * anyone has attendance rows in the period.
+     */
+    private function populationQuery($actor, array $filters): Builder
     {
-        return $records->groupBy('employee_id')->map(function (Collection $items): array {
-            $employee = $items->first()->employee;
+        $query = Employee::query()
+            ->with('building:id,name')
+            ->where(fn (Builder $q) => $q->where('employment_status', 'ACTIVE')->orWhereNull('employment_status'));
+
+        if ($this->policy->self($actor) && !$this->policy->viewAny($actor)) {
+            $query->where('email', $actor->email);
+        } elseif (!empty($actor->assigned_building)) {
+            $query->whereHas('building', fn (Builder $building) => $building->where('name', $actor->assigned_building));
+        }
+        if (!empty($filters['building_id'])) $query->where('building_id', $filters['building_id']);
+        if (!empty($filters['employee_id'])) $query->where('id', $filters['employee_id']);
+        return $query;
+    }
+
+    private function buildReport($actor, array $filters, Carbon $from, Carbon $to): array
+    {
+        $records = $this->reportQuery($actor, $filters, $from, $to)->get();
+        $population = $this->populationQuery($actor, $filters)->get(['id', 'employee_id', 'name', 'building_id', 'hire_date']);
+
+        $recordedDates = [];
+        foreach ($records as $record) {
+            $recordedDates[$record->employee_id][Carbon::parse($record->attendance_date)->toDateString()] = true;
+        }
+        // A day only becomes a missed working day once it is over (Asia/Jakarta), and
+        // only once the system was recording attendance at all: days before the first
+        // attendance row anywhere predate go-live and are not anybody's absence.
+        $trackingStart = Attendance::query()->min('attendance_date');
+        $derivedAbsent = [];
+        if ($trackingStart) {
+            $absenceFrom = $from->copy()->max(Carbon::parse($trackingStart)->startOfDay());
+            $absenceUntil = $to->copy()->min(now()->subDay()->endOfDay());
+            $derivedAbsent = $this->processor->derivedAbsences($population, $absenceFrom, $absenceUntil, $recordedDates);
+        }
+
+        $rows = $this->rows($records, $population, $derivedAbsent);
+        $present = array_sum(array_column($rows, 'present'));
+        $late = array_sum(array_column($rows, 'late'));
+        $absent = array_sum(array_column($rows, 'absent'));
+
+        return ['rows' => $rows, 'totals' => [
+            'employees' => $population->count(),
+            'employees_with_attendance' => $records->pluck('employee_id')->unique()->count(),
+            'attendance_rows' => $records->count(),
+            'present' => $present,
+            'late' => $late,
+            'absent' => $absent,
+            'absent_derived' => array_sum($derivedAbsent),
+            'tracking_started_on' => $trackingStart ? Carbon::parse($trackingStart)->toDateString() : null,
+            'attendance_rate' => $this->attendanceRate($present, $late, $absent),
+        ]];
+    }
+
+    /**
+     * One row per employee that has something to report: attendance rows and/or
+     * derived absences. PRESENT/FIELD/WFH count as present; LATE as late; ABSENT rows
+     * plus working days with no row as absent. OFF/LEAVE/SICK/PERMISSION are excluded
+     * from the rate denominator.
+     */
+    private function rows(Collection $records, Collection $population, array $derivedAbsent): array
+    {
+        $byEmployee = $records->groupBy('employee_id');
+        $employees = $population->keyBy('id');
+        $ids = collect($byEmployee->keys())->merge(array_keys($derivedAbsent))->unique();
+
+        return $ids->map(function ($id) use ($byEmployee, $employees, $derivedAbsent): array {
+            $items = $byEmployee->get($id, collect());
+            $employee = $employees->get($id) ?? $items->first()?->employee;
             $present = $items->whereIn('status', ['PRESENT', 'FIELD', 'WFH'])->count();
             $late = $items->where('status', 'LATE')->count();
-            $absent = $items->where('status', 'ABSENT')->count();
-            $scheduled = $present + $late + $absent;
+            $absent = $items->where('status', 'ABSENT')->count() + ($derivedAbsent[$id] ?? 0);
             return [
-                'employee_id' => $employee?->id,
+                'employee_id' => $employee?->id ?? $id,
                 'employee_code' => $employee?->employee_id ?? '-',
                 'employee_name' => $employee?->name ?? 'Unknown employee',
                 'building' => $employee?->building?->name ?? 'Unassigned',
                 'present' => $present, 'late' => $late, 'absent' => $absent,
-                'attendance_rate' => $scheduled ? round((($present + $late) / $scheduled) * 100, 1) : 0.0,
+                'attendance_rate' => $this->attendanceRate($present, $late, $absent),
                 'late_minutes' => (int) $items->sum('late_minutes'),
             ];
         })->sortBy(fn (array $row) => [$row['building'], $row['employee_name']])->values()->all();
     }
 
-    private function totals(Collection $records): array
+    /** (present + late) / (present + late + absent), as a percentage with one decimal. */
+    private function attendanceRate(int $present, int $late, int $absent): float
     {
-        $present = $records->whereIn('status', ['PRESENT', 'FIELD', 'WFH'])->count();
-        $late = $records->where('status', 'LATE')->count();
-        $absent = $records->where('status', 'ABSENT')->count();
         $scheduled = $present + $late + $absent;
-        return ['employees' => $records->pluck('employee_id')->unique()->count(), 'present' => $present, 'late' => $late, 'absent' => $absent, 'attendance_rate' => $scheduled ? round((($present + $late) / $scheduled) * 100, 1) : 0.0];
+        return $scheduled ? round((($present + $late) / $scheduled) * 100, 1) : 0.0;
     }
 
     private function csvCell(?string $value): string
