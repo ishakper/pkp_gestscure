@@ -121,6 +121,19 @@ class DashboardInlineHandlerTest extends TestCase
         }
     }
 
+    public function test_async_handlers_are_exported_once_inside_the_init_guard(): void
+    {
+        $js = $this->jsSource();
+        $guardEnd = '} // end of window.__secureGateInitialized guard';
+
+        $this->assertSame(1, substr_count($js, 'Object.assign(window, {'), 'Export the async handlers in exactly one block');
+        $this->assertSame(1, substr_count($js, $guardEnd));
+        $this->assertLessThan(strpos($js, $guardEnd), strpos($js, 'Object.assign(window, {'));
+        // Outside the guard the async handlers are out of scope, so anything after it
+        // that names them throws ReferenceError at load.
+        $this->assertSame('', trim(substr($js, strpos($js, $guardEnd) + strlen($guardEnd))));
+    }
+
     public function test_remote_unlock_listener_is_not_gated_on_the_init_flag(): void
     {
         // The flag is set at the top of the file, so re-checking it inside a later

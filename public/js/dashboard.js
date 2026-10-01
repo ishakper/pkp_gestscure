@@ -2091,9 +2091,6 @@ function closeLiveAccessStream() {
         realtime.source.onopen = null;
         realtime.source.onmessage = null;
         realtime.source.onerror = null;
-// No __secureGateInitialized check here: the flag is already true by the time
-// 'load' fires, and the guard around this whole file already prevents a second
-// registration. Checking it again silently disabled every Remote Unlock button.
         realtime.source.close();
     }
     realtime.source = null;
@@ -8037,90 +8034,3 @@ Object.assign(window, {
     viewOnboardingCaseDetail,
 });
 } // end of window.__secureGateInitialized guard
-
-// Everything above lives inside the init guard's `else { }` block. Plain function
-// declarations there still leak to window (Annex B), but `async function`
-// declarations stay block-scoped, so Blade's inline on* handlers cannot see them.
-// Expose exactly the async handlers that the Blade view and the HTML templates
-// in this file call inline (tests/Feature/DashboardInlineHandlerTest.php).
-Object.assign(window, {
-    downloadSecureDocument,
-    exportAttendanceReport,
-    loadAccessLogs,
-    loadAccessRequests,
-    loadActivityLogs,
-    loadAssetAssignments,
-    loadAssetIncidents,
-    loadAssetMaintenances,
-    loadAssetsInventory,
-    loadAtsApplications,
-    loadAtsVacancies,
-    loadAttendanceData,
-    loadAttendanceReport,
-    loadCredentials,
-    loadDashboardBuildings,
-    loadDeviceSyncs,
-    loadEmoneyCards,
-    loadEmployees,
-    loadFieldAttendanceData,
-    loadInternshipData,
-    loadInternships,
-    loadOnboardingCases,
-    loadOnboardingContracts,
-    loadOnboardingData,
-    loadOnboardingDocuments,
-    loadRecruitmentData,
-    onEmoneyStatusSelectChanged,
-    openApplyModal,
-    openConvertCandidateModal,
-    openEditAssetModal,
-    openFacilityModal,
-    refreshAccessData,
-    retryDeviceSyncItem,
-    saveApplication,
-    saveCandidate,
-    saveContract,
-    saveEmployee,
-    saveInternActivity,
-    saveInternEvaluation,
-    saveInternReport,
-    saveInternship,
-    saveInterviewFeedback,
-    saveInterviewSchedule,
-    saveOffer,
-    saveOnboardingCase,
-    saveVacancy,
-    showAssetDetail,
-    submitAccessProfile,
-    submitAccessRequest,
-    submitApproveAccessRequest,
-    submitAssetForm,
-    submitAssignAsset,
-    submitBuildingConfig,
-    submitCompleteCaseDirect,
-    submitCompleteInternship,
-    submitCompleteMaintenance,
-    submitConvertCandidateToIntern,
-    submitConvertToEmployee,
-    submitCredential,
-    submitDisposeAsset,
-    submitDoorConfig,
-    submitEmoneyCard,
-    submitFieldAttendance,
-    submitFieldOverride,
-    submitIncident,
-    submitMaintenance,
-    submitRejectAccessRequest,
-    submitResolveIncident,
-    submitReturnAsset,
-    submitReviewInternActivity,
-    submitReviewInternReport,
-    submitRevokeCredential,
-    submitTaskUpdate,
-    submitTransitionStage,
-    submitUploadDocument,
-    submitVerifyDocument,
-    toggleDoorStatus,
-    viewFieldPhoto,
-    viewOnboardingCaseDetail,
-});
