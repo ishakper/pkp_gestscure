@@ -5265,7 +5265,7 @@
             </div>
             <div class="form-row">
                 <label>Profil Hak Akses Reusable</label>
-                <select id="accessReqProfileId" onchange="onAccessProfileSelected()" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                <select id="accessReqProfileId" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
                     <option value="">-- Pilih Profil Akses (Opsional) --</option>
                 </select>
             </div>
@@ -5992,7 +5992,7 @@
         }
     };
 </script>
-<script src="/js/dashboard.js"></script>
+<script src="/js/dashboard.js?v={{ @filemtime(public_path('js/dashboard.js')) ?: '1' }}"></script>
 
 </body>
 </html>
