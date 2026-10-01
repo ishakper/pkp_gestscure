@@ -269,8 +269,9 @@ async function updateMetricCards() {
         const metricsRequest = scope
             ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
             : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
-        const [res, attendance] = await Promise.all([
+        const [res, deniedToday, attendance] = await Promise.all([
             metricsRequest,
+            deniedTodayCount(scope).catch(() => null),
             canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
         ]);
         if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
@@ -291,6 +292,9 @@ async function updateMetricCards() {
             const deniedMetric = document.getElementById('metricDeniedLogs');
             if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
         }
+        setOverviewValue('compactUserActive', res?.status === 'success' ? res.data.activeEmployees : null);
+        setOverviewValue('compactUserRegistered', res?.status === 'success' ? res.data.registeredCredentials : null);
+        setOverviewValue('compactAlertDenied', deniedToday);
 
         if (attendance && attendance.success) {
             const today = attendance.data?.today || {};
@@ -318,9 +322,12 @@ async function loadDoors() {
     const overviewGrid = document.getElementById('overviewDoorsGrid');
     if (!grid && !overviewGrid) return;
 
-    [grid, overviewGrid].filter(Boolean).forEach(target => {
-        target.innerHTML = '<div class="loading-td"><div class="spinner"></div> CHECKING terminal Gedung B...</div>';
-    });
+    // Keep the cards already on screen while refreshing; only show the spinner on first load.
+    if (!state.allDoors.length) {
+        [grid, overviewGrid].filter(Boolean).forEach(target => {
+            target.innerHTML = '<div class="loading-td"><div class="spinner"></div> Memeriksa status terminal...</div>';
+        });
+    }
 
     try {
         const res = await apiFetch('/admin/doors');
@@ -328,12 +335,14 @@ async function loadDoors() {
             state.allDoors = res.data;
             state.doors = doorsInBuildingScope(state.allDoors);
             renderDoorCards(state.doors);
+            renderDeviceStatusPanel();
             refreshDoorFilters(state.doors);
             scheduleMetricCardsUpdate();
         }
     } catch (err) {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
         if (overviewGrid) overviewGrid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
+        setOverviewValues(['compactDevOnline', 'compactDevOffline', 'compactDevMaint', 'compactDevTotal', 'compactAlertOffline'], null);
     }
 }
 
@@ -389,6 +398,7 @@ function onDashboardBuildingChange(value) {
 function refreshDashboardScope() {
     state.doors = doorsInBuildingScope(state.allDoors);
     renderDoorCards(state.doors);
+    renderDeviceStatusPanel();
     refreshDoorFilters(state.doors);
     loadEmployees(1);
     loadAccessLogs();
@@ -398,6 +408,47 @@ function refreshDashboardScope() {
 async function fetchTotalRecords(url) {
     const res = await apiFetch(url, { isBackground: true });
     return Number(res.pagination?.total_records ?? 0);
+}
+
+// Compact overview panels (Perlu Perhatian / Device Status / User & Credentials).
+// Each value is "…" while loading, a number once known, and "!" when its source failed.
+function setOverviewValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const failed = value === null || value === undefined || Number.isNaN(Number(value));
+    el.textContent = failed ? '!' : String(Number(value));
+    el.title = failed ? 'Data gagal dimuat, coba Refresh Live Data' : '';
+    el.removeAttribute('aria-busy');
+}
+
+function setOverviewValues(ids, value) {
+    ids.forEach(id => setOverviewValue(id, value));
+}
+
+// Device Status is derived from the canonical door list, with the same
+// maintenance/online rules renderDoorCards uses for the badges.
+function renderDeviceStatusPanel() {
+    const doors = state.doors || [];
+    const maintenance = doors.filter(door => Boolean(door.is_manual_override)).length;
+    const online = doors.filter(door => !door.is_manual_override
+        && (door.health_status || (door.connection_status === 'online' ? 'online' : 'offline')) === 'online').length;
+    const offline = doors.length - maintenance - online;
+    setOverviewValue('compactDevOnline', online);
+    setOverviewValue('compactDevOffline', offline);
+    setOverviewValue('compactDevMaint', maintenance);
+    setOverviewValue('compactDevTotal', doors.length);
+    setOverviewValue('compactAlertOffline', offline);
+}
+
+// Denied taps since 00:00 WIB today. The access-log date filter is day-based and
+// the app stores timestamps in Asia/Jakarta, so "today" is computed in that zone.
+async function deniedTodayCount(buildingId) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+    const base = `/admin/access-logs?status=Denied&start_date=${today}&end_date=${today}&per_page=1`;
+    if (!buildingId) return fetchTotalRecords(base);
+    const counts = await Promise.all(doorsInBuildingScope(state.allDoors)
+        .map(door => fetchTotalRecords(`${base}&door_id=${encodeURIComponent(door.door_id)}`)));
+    return counts.reduce((sum, count) => sum + count, 0);
 }
 
 // KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
@@ -1987,6 +2038,9 @@ function toggleSidebar(forceState) {
 // Expose globally
 window.toggleSidebar = toggleSidebar;
 window.pingSingleDoor = pingSingleDoor;
+// No __secureGateInitialized check here: the flag is already true by the time
+// 'load' fires, and the guard around this whole file already prevents a second
+// registration. Checking it again silently disabled every Remote Unlock button.
 window.addEventListener('load', () => {
     document.addEventListener('click', (event) => {
         const trigger = event.target.closest('[data-action="remote-unlock"]');
@@ -7895,6 +7949,93 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
+
+// Everything above lives inside the init guard's `else { }` block. Plain function
+// declarations there still leak to window (Annex B), but `async function`
+// declarations stay block-scoped, so Blade's inline on* handlers cannot see them.
+// Expose exactly the async handlers that the Blade view and the HTML templates
+// in this file call inline (tests/Feature/DashboardInlineHandlerTest.php).
+Object.assign(window, {
+    downloadSecureDocument,
+    exportAttendanceReport,
+    loadAccessLogs,
+    loadAccessRequests,
+    loadActivityLogs,
+    loadAssetAssignments,
+    loadAssetIncidents,
+    loadAssetMaintenances,
+    loadAssetsInventory,
+    loadAtsApplications,
+    loadAtsVacancies,
+    loadAttendanceData,
+    loadAttendanceReport,
+    loadCredentials,
+    loadDashboardBuildings,
+    loadDeviceSyncs,
+    loadEmoneyCards,
+    loadEmployees,
+    loadFieldAttendanceData,
+    loadInternshipData,
+    loadInternships,
+    loadOnboardingCases,
+    loadOnboardingContracts,
+    loadOnboardingData,
+    loadOnboardingDocuments,
+    loadRecruitmentData,
+    onEmoneyStatusSelectChanged,
+    openApplyModal,
+    openConvertCandidateModal,
+    openEditAssetModal,
+    openFacilityModal,
+    refreshAccessData,
+    retryDeviceSyncItem,
+    saveApplication,
+    saveCandidate,
+    saveContract,
+    saveEmployee,
+    saveInternActivity,
+    saveInternEvaluation,
+    saveInternReport,
+    saveInternship,
+    saveInterviewFeedback,
+    saveInterviewSchedule,
+    saveOffer,
+    saveOnboardingCase,
+    saveVacancy,
+    showAssetDetail,
+    submitAccessProfile,
+    submitAccessRequest,
+    submitApproveAccessRequest,
+    submitAssetForm,
+    submitAssignAsset,
+    submitBuildingConfig,
+    submitCompleteCaseDirect,
+    submitCompleteInternship,
+    submitCompleteMaintenance,
+    submitConvertCandidateToIntern,
+    submitConvertToEmployee,
+    submitCredential,
+    submitDisposeAsset,
+    submitDoorConfig,
+    submitEmoneyCard,
+    submitFieldAttendance,
+    submitFieldOverride,
+    submitIncident,
+    submitMaintenance,
+    submitRejectAccessRequest,
+    submitResolveIncident,
+    submitReturnAsset,
+    submitReviewInternActivity,
+    submitReviewInternReport,
+    submitRevokeCredential,
+    submitTaskUpdate,
+    submitTransitionStage,
+    submitUploadDocument,
+    submitVerifyDocument,
+    toggleDoorStatus,
+    viewFieldPhoto,
+    viewOnboardingCaseDetail,
+});
 } // end of window.__secureGateInitialized guard
 
 // Everything above lives inside the init guard's `else { }` block. Plain function
