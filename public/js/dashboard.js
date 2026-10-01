@@ -5960,18 +5960,45 @@ function formatAttendanceDate(value) {
 
 async function loadAttendanceData() {
     loadAttendanceMetrics();
+    loadAttendanceReport(); // sets the month input to the current month on first load
+    loadAttendanceRecords();
+}
+
+// The selected report month/building drive both the monthly summary and the processed
+// records below it, so the two never describe different periods.
+function onAttendanceFilterChange() {
     loadAttendanceReport();
+    loadAttendanceRecords();
+}
+
+let attendanceRecordsSeq = 0;
+
+async function loadAttendanceRecords() {
     const tbody = document.getElementById('attendanceTableBody');
     if (!tbody) return;
+    const month = document.getElementById('attendanceReportMonth');
+    if (month && !month.value) month.value = currentMonthValue();
+    const building = document.getElementById('attendanceReportBuilding');
+    const seq = ++attendanceRecordsSeq;
+
+    const query = new URLSearchParams({ per_page: '100' });
+    if (month?.value) {
+        const [year, mon] = month.value.split('-').map(Number);
+        query.set('from', `${month.value}-01`);
+        query.set('to', `${month.value}-${String(new Date(year, mon, 0).getDate()).padStart(2, '0')}`);
+    }
+    if (building?.value) query.set('building_id', building.value);
 
     tbody.innerHTML = '<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
     try {
-        const res = await apiFetch('/attendance/records');
+        const res = await apiFetch(`/attendance/records?${query}`);
+        if (seq !== attendanceRecordsSeq) return; // a newer month/building selection superseded this request
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
 
         const records = res.data.data || res.data;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses untuk scope Anda.</td></tr>';
+            const scope = [month?.value, attendanceReportBuildingLabel()].filter(Boolean).join(' · ');
+            tbody.innerHTML = `<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses${scope ? ` untuk ${escapeHtml(scope)}` : ''}.</td></tr>`;
             return;
         }
 
@@ -6013,6 +6040,7 @@ async function loadAttendanceData() {
             `;
         }).join('');
     } catch (e) {
+        if (seq !== attendanceRecordsSeq) return;
         tbody.innerHTML = `<tr><td colspan="10" class="error-td">Gagal memuat kehadiran. ${escapeHtml(e.message)}</td></tr>`;
     }
 }
@@ -6054,8 +6082,10 @@ async function loadAttendanceMetrics() {
             </div>
             <div class="stat-card">
                 <div class="stat-title">Live Office Attendance</div>
-                <div class="stat-value" style="font-size:1.15rem;color:#10b981;">${live.latest_event_at ? new Date(live.latest_event_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</div>
-                <div class="stat-desc">${escapeHtml(live.latest_door || 'Belum ada event hari ini')}</div>
+                <div class="stat-value" style="color:#10b981;">${Number(live.in_office_now || 0)} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">di kantor</span></div>
+                <div class="stat-desc">${Number(live.checked_in_today || 0)} sudah masuk hari ini${live.latest_event_at
+                    ? ` · tap terakhir ${escapeHtml(new Date(live.latest_event_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }))} WIB${live.latest_door ? ` (${escapeHtml(live.latest_door)})` : ''}`
+                    : ' · belum ada tap hari ini'}</div>
             </div>
             <div class="stat-card">
                 <div class="stat-title">Event Belum Terpetakan</div>
@@ -6103,7 +6133,12 @@ async function ensureAttendanceReportBuildings() {
 }
 
 function renderAttendanceReportMetrics(totals) {
-    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
+    const recorded = Number(totals.employees_with_attendance ?? 0);
+    const derived = Number(totals.absent_derived ?? 0);
+    const absentNote = totals.tracking_started_on
+        ? `${derived} hari kerja tanpa catatan · dihitung sejak ${escapeHtml(formatAttendanceDate(totals.tracking_started_on))}`
+        : 'Belum ada catatan kehadiran di sistem';
+    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div><div class="stat-desc">${recorded} punya catatan kehadiran</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div><div class="stat-desc">${absentNote}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
 }
 
 async function loadAttendanceReport() {
@@ -6127,9 +6162,11 @@ async function loadAttendanceReport() {
         attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows };
         attendanceReportState.buildingLabel = buildingLabel;
         renderAttendanceReportMetrics(res.data.totals);
-        const emptyMessage = buildingLabel
-            ? `Tidak ada data kehadiran untuk ${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}.`
-            : 'Tidak ada data kehadiran untuk periode ini.';
+        const population = Number(res.data.totals.employees || 0);
+        const scopeLabel = buildingLabel ? `${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}` : `periode ${escapeHtml(month.value)}`;
+        const emptyMessage = population
+            ? `Belum ada catatan kehadiran untuk ${population} karyawan di ${scopeLabel}.`
+            : `Tidak ada karyawan aktif untuk ${scopeLabel}.`;
         tbody.innerHTML = res.data.rows.length
             ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
             : `<tr><td colspan="7" class="empty-td">${emptyMessage}</td></tr>`;

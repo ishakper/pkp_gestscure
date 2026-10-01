@@ -113,7 +113,8 @@ class PaginationAjaxRegressionTest extends TestCase
     {
         // Create employees with different names
         Employee::factory()->create(['name' => 'Alice Smith', 'employee_id' => 'EMP001']);
-        Employee::factory()->count(19)->create();
+        // Fixed names: a random faker name containing "Alice" made this test flaky.
+        Employee::factory()->count(19)->sequence(fn ($sequence) => ['name' => 'Staff ' . $sequence->index])->create();
 
         // Search for "Alice" on page 1
         $search1 = $this->actingAs($this->admin, 'admin')

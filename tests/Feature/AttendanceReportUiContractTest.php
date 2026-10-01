@@ -38,11 +38,16 @@ class AttendanceReportUiContractTest extends TestCase
     {
         $this->assertStringContainsString('id="attendanceReportBuilding"', $this->blade);
         $this->assertStringContainsString('id="attendanceReportMonth"', $this->blade);
-        $this->assertMatchesRegularExpression('/id="attendanceReportBuilding"[^>]*onchange="loadAttendanceReport\(\)"/', $this->blade);
+        // Month and building drive both the monthly summary and the processed records table.
+        $this->assertMatchesRegularExpression('/id="attendanceReportBuilding"[^>]*onchange="onAttendanceFilterChange\(\)"/', $this->blade);
+        $this->assertMatchesRegularExpression('/id="attendanceReportMonth"[^>]*onchange="onAttendanceFilterChange\(\)"/', $this->blade);
+        $filterChange = $this->functionBody('onAttendanceFilterChange');
+        $this->assertStringContainsString('loadAttendanceReport()', $filterChange);
+        $this->assertStringContainsString('loadAttendanceRecords()', $filterChange);
         $this->assertStringContainsString('onclick="exportAttendanceReport(this)"', $this->blade);
         $this->assertStringContainsString('onclick="printAttendanceReport()"', $this->blade);
 
-        foreach (['loadAttendanceReport', 'exportAttendanceReport', 'printAttendanceReport', 'ensureAttendanceReportBuildings'] as $fn) {
+        foreach (['loadAttendanceReport', 'loadAttendanceRecords', 'exportAttendanceReport', 'printAttendanceReport', 'ensureAttendanceReportBuildings'] as $fn) {
             $this->functionBody($fn);
         }
     }

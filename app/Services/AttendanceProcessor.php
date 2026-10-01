@@ -471,6 +471,102 @@ class AttendanceProcessor
     }
 
     /**
+     * Count, per employee, the working days in [$from, $to] that have no attendance
+     * row at all. computeStatus() would classify each of those days as ABSENT, but
+     * nothing persists ABSENT rows (generateSkeletons() is not scheduled), so reports
+     * must derive them. Read-only: no rows are written.
+     *
+     * Applies the same rules as resolveCalendar() / computeStatus() with no clock-in:
+     * assignment > building default > company default calendar, schedule working day,
+     * public holiday for the calendar's building, approved LEAVE/SICK/WFH/PERMISSION.
+     * Inputs are preloaded once so a month of ~100 employees stays a handful of queries.
+     *
+     * @param  Collection<int, Employee>  $employees
+     * @param  array<int, array<string, true>>  $recordedDates  employee id => ['Y-m-d' => true]
+     * @return array<int, int>  employee id => derived absent days (only non-zero entries)
+     */
+    public function derivedAbsences(Collection $employees, Carbon $from, Carbon $to, array $recordedDates): array
+    {
+        if ($employees->isEmpty() || $from->gt($to)) {
+            return [];
+        }
+
+        $employeeIds = $employees->pluck('id')->all();
+        $fromDate = $from->toDateString();
+        $toDate = $to->toDateString();
+
+        $calendars = WorkCalendar::with('scheduleDays')->get()->keyBy('id');
+        $buildingDefaults = $calendars
+            ->filter(fn (WorkCalendar $calendar) => $calendar->is_default && $calendar->is_active)
+            ->keyBy(fn (WorkCalendar $calendar) => (string) $calendar->building_id);
+        $assignments = EmployeeCalendarAssignment::query()
+            ->whereIn('employee_id', $employeeIds)
+            ->where('effective_from', '<=', $toDate)
+            ->where(fn ($q) => $q->whereNull('effective_until')->orWhere('effective_until', '>=', $fromDate))
+            ->orderByDesc('effective_from')
+            ->get()
+            ->groupBy('employee_id');
+        $holidays = PublicHoliday::query()
+            ->whereBetween('holiday_date', [$fromDate, $toDate.' 23:59:59'])
+            ->get(['holiday_date', 'building_id'])
+            ->map(fn (PublicHoliday $holiday) => [Carbon::parse($holiday->holiday_date)->toDateString(), $holiday->building_id]);
+        $approvedRequests = AttendanceRequest::query()
+            ->whereIn('employee_id', $employeeIds)
+            ->where('status', AttendanceRequest::STATUS_APPROVED)
+            ->whereIn('request_type', [
+                AttendanceRequest::TYPE_LEAVE, AttendanceRequest::TYPE_SICK,
+                AttendanceRequest::TYPE_WFH, AttendanceRequest::TYPE_PERMISSION,
+            ])
+            ->whereDate('start_date', '<=', $toDate)
+            ->whereDate('end_date', '>=', $fromDate)
+            ->get(['employee_id', 'start_date', 'end_date'])
+            ->groupBy('employee_id');
+
+        $absences = [];
+        foreach ($employees as $employee) {
+            $hireDate = $employee->hire_date ? Carbon::parse($employee->hire_date)->toDateString() : null;
+            $count = 0;
+
+            for ($date = $from->copy()->startOfDay(); $date->lte($to); $date->addDay()) {
+                $day = $date->toDateString();
+                if (isset($recordedDates[$employee->id][$day]) || ($hireDate && $day < $hireDate)) {
+                    continue;
+                }
+
+                $assignment = ($assignments[$employee->id] ?? collect())->first(fn ($a) =>
+                    Carbon::parse($a->effective_from)->toDateString() <= $day
+                    && (!$a->effective_until || Carbon::parse($a->effective_until)->toDateString() >= $day));
+                $calendar = $assignment
+                    ? $calendars->get($assignment->work_calendar_id)
+                    : ($buildingDefaults->get((string) $employee->building_id) ?? $buildingDefaults->get(''));
+                if (!$calendar) {
+                    continue;
+                }
+
+                $scheduleDay = $this->resolveScheduleDay($calendar, $date);
+                if (!$scheduleDay || !$scheduleDay->is_working_day) {
+                    continue;
+                }
+                if ($holidays->contains(fn ($h) => $h[0] === $day && ($h[1] === null || (int) $h[1] === (int) $calendar->building_id))) {
+                    continue;
+                }
+                if (($approvedRequests[$employee->id] ?? collect())->contains(fn ($r) =>
+                    Carbon::parse($r->start_date)->toDateString() <= $day && Carbon::parse($r->end_date)->toDateString() >= $day)) {
+                    continue;
+                }
+
+                $count++;
+            }
+
+            if ($count > 0) {
+                $absences[$employee->id] = $count;
+            }
+        }
+
+        return $absences;
+    }
+
+    /**
      * Integrate an approved AttendanceRequest (WFH, LEAVE, PERMISSION, SICK)
      * into Attendance daily records across its entire date range.
      */
@@ -714,6 +810,10 @@ class AttendanceProcessor
         $todayCheckoutCount = Attendance::where('attendance_date', $today)
             ->whereNotNull('clock_out_at')
             ->count();
+        // Live office presence: clocked in today, and clocked out not yet.
+        $todayCheckedIn = Attendance::where('attendance_date', $today)->whereNotNull('clock_in_at');
+        $checkedInToday = (clone $todayCheckedIn)->count();
+        $inOfficeNow = (clone $todayCheckedIn)->whereNull('clock_out_at')->count();
 
         $latestDeviceEvent = AccessLog::query()
             ->with('door:id,door_id,door_name,name')
@@ -745,6 +845,9 @@ class AttendanceProcessor
                 'latest_event_at' => $latestDeviceEvent?->timestamp?->toIso8601String(),
                 'latest_door' => $latestDeviceEvent?->door?->door_name,
                 'latest_status' => $latestDeviceEvent?->access_status,
+                'in_office_now' => $inOfficeNow,
+                'checked_in_today' => $checkedInToday,
+                'active_employees' => $activeEmployeeCount,
                 'unmatched_events' => AccessLog::query()
                     ->whereDate('timestamp', $today)
                     ->where(function ($query) {
