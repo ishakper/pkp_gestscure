@@ -341,7 +341,41 @@ async function updateMetricCards() {
 // ==========================================
 // Section 1: Doors Monitoring & Control
 // ==========================================
+// Background refreshes (live taps, tab navigation) go through scheduleBackgroundRefresh().
+// Loaders record when they last ran; a background call inside the cooldown is skipped
+// (navigation) or folded into a single trailing run (live taps). Reloads after a user
+// action (save, maintenance toggle, filter change, Refresh button) call the loaders
+// directly and are never delayed.
+const backgroundRefresh = {};
+
+function noteRefreshed(key) {
+    (backgroundRefresh[key] ||= { lastAt: 0, timer: null }).lastAt = Date.now();
+}
+
+function scheduleBackgroundRefresh(key, loader, cooldownMs, { trailing = false } = {}) {
+    const entry = backgroundRefresh[key] ||= { lastAt: 0, timer: null };
+    if (entry.timer) return; // a trailing run is already queued
+    const wait = Math.max(0, cooldownMs - (Date.now() - entry.lastAt));
+    if (wait === 0) {
+        loader();
+        return;
+    }
+    if (!trailing) return; // still fresh: navigation needs no reload
+    entry.timer = setTimeout(() => {
+        entry.timer = null;
+        if (!document.hidden) loader();
+    }, wait);
+}
+
+// Live taps cannot change terminal health (that comes from doors:ping), so door cards
+// refresh at most every 30 s from taps; the access log feed at most every 10 s.
+const LIVE_DOORS_COOLDOWN_MS = 30000;
+const LIVE_ACCESS_LOGS_COOLDOWN_MS = 10000;
+// Returning to a tab within this window reuses what is already on screen.
+const NAVIGATION_FRESH_MS = 15000;
+
 async function loadDoors() {
+    noteRefreshed('doors');
     const grid = document.getElementById('doorsGrid');
     const overviewGrid = document.getElementById('overviewDoorsGrid');
     if (!grid && !overviewGrid) return;
@@ -478,13 +512,15 @@ async function deniedTodayCount(buildingId) {
 // KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
 async function buildingMetrics(buildingId) {
     const doors = doorsInBuildingScope(state.allDoors);
-    const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
-    const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
-        fetchTotalRecords(`${base}&per_page=1`),
-        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`),
+    // Every employee of the building is paged in below anyway, so total and active counts come
+    // from that list (same `employment_status=ACTIVE` match the API filter uses) instead of two
+    // extra per_page=1 count requests on every metrics update.
+    const [deniedPerDoor, employees] = await Promise.all([
         Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
         fetchEmployeesForBuilding(buildingId),
     ]);
+    const totalUsers = employees.length;
+    const activeUsers = employees.filter(emp => emp.employment_status === 'ACTIVE').length;
     const registered = employees.filter(emp =>
         emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
         || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
@@ -822,6 +858,7 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
         return;
     }
 
+    noteRefreshed('employees');
     const previousScrollY = window.scrollY;
 
     const tbody = document.getElementById('employeesTableBody');
@@ -1381,6 +1418,7 @@ function onLogSearchInput(sourceEl) {
 }
 
 async function loadAccessLogs() {
+    noteRefreshed('accessLogs');
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
     const doorFilter = document.getElementById('logDoorFilter')?.value || document.getElementById('logDoorFilterTab')?.value || '';
@@ -1925,9 +1963,9 @@ function switchTab(tabId, btn) {
         toggleSidebar(false);
     }
 
-    if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
-    if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
-    if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
+    if (tabId === 'doorsTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('doors', loadDoors, NAVIGATION_FRESH_MS);
+    if (tabId === 'employeesTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('employees', () => loadEmployees(), NAVIGATION_FRESH_MS);
+    if (tabId === 'logsTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('accessLogs', loadAccessLogs, NAVIGATION_FRESH_MS);
     if (tabId === 'auditLogTab') loadActivityLogs();
     if (tabId === 'systemAccountsTab') loadSystemAccounts();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
@@ -2122,8 +2160,8 @@ function closeLiveAccessStream() {
 
 function reconcileLiveData() {
     if (document.hidden || isRedirectingToLogin) return;
-    loadDoors();
-    loadAccessLogs();
+    scheduleBackgroundRefresh('doors', loadDoors, LIVE_DOORS_COOLDOWN_MS, { trailing: true });
+    scheduleBackgroundRefresh('accessLogs', loadAccessLogs, LIVE_ACCESS_LOGS_COOLDOWN_MS, { trailing: true });
     scheduleMetricCardsUpdate();
     if (state.activeTab === 'attendanceTab') scheduleAttendanceRefresh();
     if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
