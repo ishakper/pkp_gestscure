@@ -113,15 +113,15 @@ class DashboardBackgroundRefreshTest extends TestCase
         $this->assertStringContainsString('requestAnimationFrame', $body);
     }
 
-    public function test_building_metrics_do_not_send_extra_employee_count_requests(): void
+    public function test_building_scoped_kpis_do_not_send_employee_count_requests(): void
     {
-        $body = $this->functionBody('buildingMetrics');
+        // Scoped KPIs are one backend request (dashboard-metrics?building_id); the client no
+        // longer pages through employees or counts per door to recompute them.
+        $body = $this->functionBody('updateMetricCards');
 
-        // Employee counts come from the paged list; no separate /user-management/employees count requests.
+        $this->assertStringContainsString('/admin/dashboard-metrics?building_id=', $body);
         $this->assertStringNotContainsString('/user-management/employees', $body);
-        $this->assertStringNotContainsString('employment_status=ACTIVE&per_page=1', $body);
-        $this->assertStringContainsString('fetchEmployeesForBuilding(buildingId)', $body);
-        $this->assertStringContainsString('const totalUsers = employees.length;', $body);
-        $this->assertStringContainsString("employees.filter(emp => emp.employment_status === 'ACTIVE').length", $body);
+        $this->assertStringNotContainsString('buildingMetrics(', $this->script);
+        $this->assertStringNotContainsString('fetchEmployeesForBuilding(', $this->script);
     }
 }

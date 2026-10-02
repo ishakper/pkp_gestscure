@@ -244,8 +244,14 @@ async function apiFetchForm(endpoint, formData) {
 let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
 
+let metricsForcedPending = false;
+
 function scheduleMetricCardsUpdate(force = false) {
     if (document.hidden || isRedirectingToLogin) return;
+    // A queued forced update (building change, maintenance toggle, Refresh) must not be
+    // pushed back to the cooldown by an ordinary call landing right after it, e.g. from
+    // loadEmployees(); otherwise the KPIs keep the previous scope's numbers for ~15 s.
+    if (metricsForcedPending && !force) return;
     clearTimeout(metricsDebounceTimer);
 
     const now = Date.now();
@@ -253,7 +259,11 @@ function scheduleMetricCardsUpdate(force = false) {
     const cooldown = 15000; // minimum 15 seconds between metrics updates
 
     if (force || elapsed >= cooldown) {
-        metricsDebounceTimer = setTimeout(updateMetricCards, 100);
+        metricsForcedPending = force;
+        metricsDebounceTimer = setTimeout(() => {
+            metricsForcedPending = false;
+            updateMetricCards();
+        }, 100);
     } else {
         metricsDebounceTimer = setTimeout(updateMetricCards, cooldown - elapsed);
     }
@@ -287,9 +297,12 @@ async function updateMetricCards() {
     try {
         const canViewAttendance = hasCapability('attendance.view');
         const scope = state.buildingFilter;
-        const metricsRequest = scope
-            ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
-            : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
+        // Global and building-scoped KPIs share one backend contract (AdminDoorController::metrics):
+        // the same active/registered definitions, narrowed by employees.building_id / doors.building_id.
+        const metricsRequest = apiFetch(
+            scope ? `/admin/dashboard-metrics?building_id=${encodeURIComponent(scope)}` : '/admin/dashboard-metrics',
+            { isBackground: true },
+        ).catch(() => null);
         const [res, deniedToday, attendance] = await Promise.all([
             metricsRequest,
             deniedTodayCount(scope).catch(() => null),
@@ -416,6 +429,13 @@ function restoreBuildingFilter() {
     try { state.buildingFilter = localStorage.getItem(BUILDING_FILTER_KEY) || ''; } catch (_) { state.buildingFilter = ''; }
 }
 
+// Name of the building selected in the global filter, without the dropdown's icon prefix.
+function dashboardBuildingLabel() {
+    const select = document.getElementById('dashboardBuildingFilter');
+    const option = select?.selectedOptions?.[0];
+    return option && option.value ? option.textContent.replace(/^[^\p{L}\p{N}]+/u, '').trim() : '';
+}
+
 function doorsInBuildingScope(doors) {
     if (!state.buildingFilter) return doors;
     return (doors || []).filter(door => String(door.building_id) === String(state.buildingFilter));
@@ -454,6 +474,16 @@ function onDashboardBuildingChange(value) {
 }
 
 function refreshDashboardScope() {
+    // The KPI numbers on screen belong to the previous scope; show "…" until the new
+    // scope's metrics arrive instead of presenting them as the selected building's.
+    ['metricActiveEmployees', 'metricRegisteredCredentials', 'metricDeniedLogs'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '…';
+    });
+    ['compactUserActive', 'compactUserRegistered', 'compactAlertDenied'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = '…'; el.setAttribute('aria-busy', 'true'); }
+    });
     state.doors = doorsInBuildingScope(state.allDoors);
     renderDoorCards(state.doors);
     renderDeviceStatusPanel();
@@ -507,41 +537,6 @@ async function deniedTodayCount(buildingId) {
     const counts = await Promise.all(doorsInBuildingScope(state.allDoors)
         .map(door => fetchTotalRecords(`${base}&door_id=${encodeURIComponent(door.door_id)}`)));
     return counts.reduce((sum, count) => sum + count, 0);
-}
-
-// KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
-async function buildingMetrics(buildingId) {
-    const doors = doorsInBuildingScope(state.allDoors);
-    // Every employee of the building is paged in below anyway, so total and active counts come
-    // from that list (same `employment_status=ACTIVE` match the API filter uses) instead of two
-    // extra per_page=1 count requests on every metrics update.
-    const [deniedPerDoor, employees] = await Promise.all([
-        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
-        fetchEmployeesForBuilding(buildingId),
-    ]);
-    const totalUsers = employees.length;
-    const activeUsers = employees.filter(emp => emp.employment_status === 'ACTIVE').length;
-    const registered = employees.filter(emp =>
-        emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
-        || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
-    return {
-        totalUsers,
-        activeEmployees: activeUsers, // ponytail: was fallback to totalUsers; show actual 0 when 0 active
-        registeredCredentials: registered,
-        activeDoors: doors.filter(door => door.connection_status === 'online').length,
-        totalDoors: doors.length,
-        deniedLogs: deniedPerDoor.reduce((sum, count) => sum + count, 0),
-    };
-}
-
-async function fetchEmployeesForBuilding(buildingId) {
-    const all = [];
-    for (let page = 1; ; page++) { // ponytail: was capped at 5; now uses total_pages from API
-        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
-        all.push(...(res.data || []));
-        if (page >= Number(res.pagination?.total_pages || 1)) break;
-    }
-    return all;
 }
 
 function refreshDoorFilters(doors) {
@@ -830,16 +825,62 @@ async function checkAllDoors(btn) {
 // ==========================================
 // Section 2: User & Privilege Management
 // ==========================================
-async function loadOrganizationLookup() {
-    try {
-        const res = await apiFetch('/user-management/organization/lookup');
-        if (res.status !== 'success') return;
-        state.organization = res.data;
-        for (const [field, values] of [['empBuilding', res.data.buildings], ['empDivision', res.data.divisions], ['empPosition', res.data.positions]]) {
-            const el = document.getElementById(field); if (!el) continue;
-            el.innerHTML = '<option value="">Pilih</option>' + values.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
-        }
-    } catch (err) { console.warn('Organization lookup unavailable', err); }
+// Gedung / Divisi / Posisi options for the employee form, from the master tables only
+// (buildings, divisions, positions). Loaded once when the form first opens; a failed
+// lookup is retried on the next open.
+let organizationLookupPromise = null;
+
+function ensureOrganizationLookup() {
+    if (!organizationLookupPromise) {
+        organizationLookupPromise = apiFetch('/user-management/organization/lookup')
+            .then(res => {
+                if (res.status !== 'success') throw new Error(res.message || 'Lookup organisasi gagal');
+                state.organization = res.data;
+                return res.data;
+            })
+            .catch(err => {
+                organizationLookupPromise = null;
+                throw err;
+            });
+    }
+    return organizationLookupPromise;
+}
+
+function fillOrganizationSelect(select, items, placeholder, emptyText, selected) {
+    if (!select) return;
+    select.innerHTML = items.length
+        ? `<option value="">${placeholder}</option>` + items.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('')
+        : `<option value="">${emptyText}</option>`;
+    select.disabled = items.length === 0;
+    select.value = items.some(x => String(x.id) === String(selected)) ? String(selected) : '';
+}
+
+// Divisions follow the chosen building and positions the chosen division. Entries without
+// a parent stay available everywhere. Empty master tables are shown as such, never padded.
+function renderEmployeeOrganizationOptions({ building = '', division = '', position = '' } = {}) {
+    const org = state.organization || { buildings: [], divisions: [], positions: [] };
+    fillOrganizationSelect(document.getElementById('empBuilding'), org.buildings || [], 'Pilih Gedung', 'Belum ada data gedung', building);
+    const buildingId = document.getElementById('empBuilding')?.value || '';
+    const divisions = (org.divisions || []).filter(d => !buildingId || !d.building_id || String(d.building_id) === buildingId);
+    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi', 'Belum ada data divisi', division);
+    const divisionId = document.getElementById('empDivision')?.value || '';
+    const positions = (org.positions || []).filter(p => !divisionId || !p.division_id || String(p.division_id) === divisionId);
+    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi', 'Belum ada data posisi', position);
+}
+
+function onEmployeeOrganizationChange() {
+    renderEmployeeOrganizationOptions({
+        building: document.getElementById('empBuilding')?.value,
+        division: document.getElementById('empDivision')?.value,
+        position: document.getElementById('empPosition')?.value,
+    });
+}
+
+function loadEmployeeOrganizationOptions(selected = {}) {
+    renderEmployeeOrganizationOptions(selected);
+    return ensureOrganizationLookup()
+        .then(() => renderEmployeeOrganizationOptions(selected))
+        .catch(err => showToast(`Data gedung/divisi/posisi gagal dimuat: ${err.message}`, 'warning'));
 }
 
 let employeeRequestController = null;
@@ -923,16 +964,19 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
                 document.getElementById('employeeTotalSummary');
 
             if (totalSummary) {
-                const allCount =
-                    res.pagination?.total_all ??
-                    res.pagination?.total_records ??
-                    state.employees.length;
-
-                totalSummary.innerHTML =
-                    `Total Pengguna: <strong>${allCount}</strong>`;
+                // total_records is the result of this exact query (building, search, door
+                // filters). total_all ignores them and must not be shown as a scoped total.
+                const scopedCount = res.pagination?.total_records ?? state.employees.length;
+                const scopeLabel = state.buildingFilter ? dashboardBuildingLabel() : '';
+                totalSummary.innerHTML = scopeLabel
+                    ? `Total Pengguna di ${escapeHtml(scopeLabel)}: <strong>${scopedCount}</strong>`
+                    : `Total Pengguna: <strong>${scopedCount}</strong>`;
             }
 
-            renderEmployeesTable(state.employees);
+            renderEmployeesTable(state.employees, {
+                // Nothing at all mapped to this building (not just no search match).
+                unmappedBuilding: Boolean(state.buildingFilter) && !searchVal && !doorFilter && state.employees.length === 0,
+            });
             renderEmployeePagination();
 
             requestAnimationFrame(() => {
@@ -974,7 +1018,7 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
     }
 }
 
-function renderEmployeesTable(employees) {
+function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
     const targets = [
         document.getElementById('employeesTableBody'),
         document.getElementById('fullEmployeesTableBody')
@@ -983,8 +1027,13 @@ function renderEmployeesTable(employees) {
     if (targets.length === 0) return;
 
     if (employees.length === 0) {
+        // Organization mapping is employees.building_id only; door assignments are physical
+        // access and are deliberately not used to place employees in a building.
+        const message = unmappedBuilding
+            ? 'Belum ada karyawan yang dipetakan ke gedung ini.'
+            : 'Tidak ada data karyawan ditemukan.';
         targets.forEach(t => {
-            t.innerHTML = `<tr><td colspan="7" class="empty-td">Tidak ada data karyawan ditemukan.</td></tr>`;
+            t.innerHTML = `<tr><td colspan="7" class="empty-td">${message}</td></tr>`;
         });
         return;
     }
@@ -1302,7 +1351,8 @@ function openAddEmployeeModal() {
     document.getElementById('empName').value = '';
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
-    ['empEmail','empPhone','empBuilding','empDivision','empPosition','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    ['empEmail','empPhone','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    loadEmployeeOrganizationOptions();
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
     document.getElementById('empFp').checked = true;
     document.getElementById('empCard').checked = true;
@@ -1323,7 +1373,7 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
-    document.getElementById('empBuilding').value = emp.building?.id || ''; document.getElementById('empDivision').value = emp.division?.id || ''; document.getElementById('empPosition').value = emp.position?.id || '';
+    loadEmployeeOrganizationOptions({ building: emp.building?.id || '', division: emp.division?.id || '', position: emp.position?.id || '' });
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
