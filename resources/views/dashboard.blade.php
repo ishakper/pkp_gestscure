@@ -966,6 +966,8 @@
             box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
         }
         .ats-sub-content { display: none; }
+        .org-sub-content { display: none; }
+        .org-sub-content.active { display: block; }
         .ats-sub-content.active { display: block; animation: fadeIn 0.25s ease-out; }
         .stage-badge {
             display: inline-block;
@@ -2144,6 +2146,13 @@
             </div>
         </div>
 
+        <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; overflow-x: auto;">
+            <button class="subnav-btn active" onclick="switchOrganizationSubTab('hierarchy', this)">🏢 Gedung &amp; Zona</button>
+            <button class="subnav-btn" onclick="switchOrganizationSubTab('divisions', this)">🗂️ Divisi</button>
+            <button class="subnav-btn" onclick="switchOrganizationSubTab('positions', this)">🪪 Posisi</button>
+        </div>
+
+        <div id="orgSubHierarchy" class="org-sub-content active">
         <!-- Schema Status & Blueprint Callout -->
         <div style="margin-bottom: 1.5rem; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
             <span style="font-size: 1.25rem;">ℹ️</span>
@@ -2157,6 +2166,46 @@
         <div id="buildingHierarchyContainer">
             <div class="table-container" style="padding: 2.5rem; text-align: center;">
                 <div class="spinner"></div> Memuat hierarki gedung dan perangkat pintu...
+            </div>
+        </div>
+        </div>
+
+        <!-- Master organisasi: Gedung -> Divisi -> Posisi -->
+        <div id="orgSubDivisions" class="org-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <h3 style="margin:0;color:#fff;">Master Divisi</h3>
+                        <div class="section-desc">Divisi milik satu gedung. Dipakai pada form Tambah/Edit Pengguna.</div>
+                    </div>
+                    <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
+                        <select id="divisionBuildingFilter" class="form-control" onchange="renderOrganizationMaster()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
+                        @if($admin?->isSuperAdmin())
+                        <button class="btn-primary" onclick="openOrganizationMasterModal('divisions')">+ Tambah Divisi</button>
+                        @endif
+                    </div>
+                </div>
+                <div style="overflow:auto;"><table class="data-table"><thead><tr><th>Kode</th><th>Nama Divisi</th><th>Gedung</th><th>Posisi</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead>
+                    <tbody id="divisionsTableBody"><tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat divisi...</td></tr></tbody></table></div>
+            </div>
+        </div>
+
+        <div id="orgSubPositions" class="org-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <h3 style="margin:0;color:#fff;">Master Posisi</h3>
+                        <div class="section-desc">Posisi milik satu divisi. Dipakai pada form Tambah/Edit Pengguna.</div>
+                    </div>
+                    <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
+                        <select id="positionDivisionFilter" class="form-control" onchange="renderOrganizationMaster()" aria-label="Filter divisi"><option value="">Semua Divisi</option></select>
+                        @if($admin?->isSuperAdmin())
+                        <button class="btn-primary" onclick="openOrganizationMasterModal('positions')">+ Tambah Posisi</button>
+                        @endif
+                    </div>
+                </div>
+                <div style="overflow:auto;"><table class="data-table"><thead><tr><th>Kode</th><th>Nama Posisi</th><th>Divisi</th><th>Gedung</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead>
+                    <tbody id="positionsTableBody"><tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat posisi...</td></tr></tbody></table></div>
             </div>
         </div>
     </section>
@@ -5974,6 +6023,39 @@
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button type="button" class="btn-secondary" onclick="closeModal('addZoneModal')">Batal</button>
                 <button type="submit" class="btn-primary">Simpan Zona</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<div class="modal-overlay" id="orgMasterModal" role="dialog" aria-modal="true" aria-labelledby="orgMasterModalTitle">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="orgMasterModalTitle">Tambah Divisi</h3>
+            <button class="modal-close-btn" onclick="closeModal('orgMasterModal')">✖</button>
+        </div>
+        <form id="orgMasterForm" onsubmit="submitOrganizationMaster(event)" novalidate>
+            <input type="hidden" id="orgMasterType">
+            <input type="hidden" id="orgMasterId">
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label id="orgMasterParentLabel" for="orgMasterParent" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Gedung *</label>
+                <select id="orgMasterParent" class="form-control"></select>
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label for="orgMasterCode" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Kode *</label>
+                <input type="text" id="orgMasterCode" class="form-control" maxlength="100" placeholder="DIV-IT">
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label for="orgMasterName" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nama *</label>
+                <input type="text" id="orgMasterName" class="form-control" maxlength="255" placeholder="IT Support">
+            </div>
+            <div class="form-row" id="orgMasterActiveRow" style="margin-bottom: 1rem;">
+                <label style="display: flex; gap: .5rem; align-items: center; font-size: 0.85rem; color: var(--text-muted);"><input type="checkbox" id="orgMasterActive"> Aktif (muncul di form Pengguna)</label>
+            </div>
+            <div id="orgMasterError" class="error-placeholder" role="alert" hidden style="margin-bottom: 1rem;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('orgMasterModal')">Batal</button>
+                <button type="submit" class="btn-primary" id="orgMasterSubmit">Simpan</button>
             </div>
         </form>
     </div>
