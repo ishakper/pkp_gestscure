@@ -259,6 +259,27 @@ function scheduleMetricCardsUpdate(force = false) {
     }
 }
 
+// /attendance/metrics feeds both the dashboard KPI strip and the Rekap Kehadiran cards.
+// Every caller goes through here: one in-flight request is shared, and a result younger
+// than the metric cooldown is reused, so the two panels never fetch it independently.
+const ATTENDANCE_METRICS_TTL_MS = 15000;
+const attendanceMetricsCache = { at: 0, data: null, inflight: null };
+
+function fetchAttendanceMetrics({ force = false } = {}) {
+    if (attendanceMetricsCache.inflight) return attendanceMetricsCache.inflight;
+    if (!force && attendanceMetricsCache.data && Date.now() - attendanceMetricsCache.at < ATTENDANCE_METRICS_TTL_MS) {
+        return Promise.resolve(attendanceMetricsCache.data);
+    }
+    attendanceMetricsCache.inflight = apiFetch('/attendance/metrics', { isBackground: true })
+        .then(res => {
+            attendanceMetricsCache.data = res;
+            attendanceMetricsCache.at = Date.now();
+            return res;
+        })
+        .finally(() => { attendanceMetricsCache.inflight = null; });
+    return attendanceMetricsCache.inflight;
+}
+
 async function updateMetricCards() {
     if (document.hidden || isRedirectingToLogin) return;
     lastMetricsFetchTime = Date.now();
@@ -272,7 +293,7 @@ async function updateMetricCards() {
         const [res, deniedToday, attendance] = await Promise.all([
             metricsRequest,
             deniedTodayCount(scope).catch(() => null),
-            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
+            canViewAttendance ? fetchAttendanceMetrics().catch(() => null) : Promise.resolve(null),
         ]);
         if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
@@ -296,6 +317,9 @@ async function updateMetricCards() {
         setOverviewValue('compactUserRegistered', res?.status === 'success' ? res.data.registeredCredentials : null);
         setOverviewValue('compactAlertDenied', deniedToday);
 
+        if (attendance && attendance.success && state.activeTab === 'attendanceTab') {
+            renderAttendanceMetricsPanel(attendance); // live refresh of the Rekap Kehadiran cards, same response
+        }
         if (attendance && attendance.success) {
             const today = attendance.data?.today || {};
             const values = {
@@ -2101,7 +2125,7 @@ function reconcileLiveData() {
     loadDoors();
     loadAccessLogs();
     scheduleMetricCardsUpdate();
-    if (state.activeTab === 'attendanceTab') loadAttendanceData();
+    if (state.activeTab === 'attendanceTab') scheduleAttendanceRefresh();
     if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
 }
 
@@ -5958,17 +5982,54 @@ function formatAttendanceDate(value) {
     return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
 }
 
-async function loadAttendanceData() {
-    loadAttendanceMetrics();
-    loadAttendanceReport(); // sets the month input to the current month on first load
-    loadAttendanceRecords();
+let attendanceDataInflight = null;
+
+// Opening Rekap Kehadiran or pressing its Refresh button. A second call while one is
+// still loading (double click, tab re-entry) reuses it instead of firing again.
+// `force` (Refresh button only) bypasses the shared attendance metrics cache.
+async function loadAttendanceData(force = false) {
+    if (attendanceDataInflight) return attendanceDataInflight;
+    attendanceLiveRefresh.lastAt = Date.now();
+    attendanceDataInflight = Promise.allSettled([
+        loadAttendanceMetrics(force),
+        loadAttendanceReport(), // sets the month input to the current month on first load
+        loadAttendanceRecords(),
+    ]).finally(() => { attendanceDataInflight = null; });
+    return attendanceDataInflight;
 }
 
 // The selected report month/building drive both the monthly summary and the processed
-// records below it, so the two never describe different periods.
+// records below it, so the two never describe different periods. Rapid changes
+// (scrolling through months, quick re-selects) collapse into one reload.
+let attendanceFilterTimer = null;
+
 function onAttendanceFilterChange() {
-    loadAttendanceReport();
-    loadAttendanceRecords();
+    clearTimeout(attendanceFilterTimer);
+    attendanceFilterTimer = setTimeout(() => {
+        loadAttendanceReport();
+        loadAttendanceRecords();
+    }, 300);
+}
+
+// Live taps while Rekap Kehadiran is open. Metrics already refresh through
+// scheduleMetricCardsUpdate(); the heavy monthly report and records reload at most once
+// per cooldown, and only when the selected month is the current one (taps cannot change
+// a past month).
+const ATTENDANCE_LIVE_COOLDOWN_MS = 30000;
+const attendanceLiveRefresh = { lastAt: 0, timer: null };
+
+function scheduleAttendanceRefresh() {
+    if (attendanceLiveRefresh.timer) return; // one refresh already queued
+    const wait = Math.max(0, ATTENDANCE_LIVE_COOLDOWN_MS - (Date.now() - attendanceLiveRefresh.lastAt));
+    attendanceLiveRefresh.timer = setTimeout(() => {
+        attendanceLiveRefresh.timer = null;
+        if (document.hidden || state.activeTab !== 'attendanceTab') return;
+        const month = document.getElementById('attendanceReportMonth')?.value;
+        if (month && month !== currentMonthValue()) return;
+        attendanceLiveRefresh.lastAt = Date.now();
+        loadAttendanceReport();
+        loadAttendanceRecords();
+    }, wait);
 }
 
 let attendanceRecordsSeq = 0;
@@ -6045,57 +6106,59 @@ async function loadAttendanceRecords() {
     }
 }
 
-async function loadAttendanceMetrics() {
-    const container = document.getElementById('attendanceMetricsContainer');
-    if (!container) return;
-
+async function loadAttendanceMetrics(force = false) {
+    if (!document.getElementById('attendanceMetricsContainer')) return;
     try {
-        const res = await apiFetch('/attendance/metrics');
-        if (!res.success) return;
-
-        const m = res.data;
-        const t = m.today;
-        const live = m.live || {};
-        const total = t.present + t.late + t.absent + t.off + t.leave;
-        const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
-
-        container.innerHTML = `
-            <div class="stat-card">
-                <div class="stat-title">Tingkat Kehadiran Harian</div>
-                <div class="stat-value" style="color: #10b981;">${presentRate}%</div>
-                <div class="stat-desc">Hari Ini: ${escapeHtml(t.date)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Hadir & Terlambat</div>
-                <div class="stat-value" style="color: #f59e0b;">${t.present + t.late} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
-                <div class="stat-desc">(${t.late} terlambat)</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Mangkir (Tanpa Keterangan)</div>
-                <div class="stat-value" style="color: #ef4444;">${t.absent} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
-                <div class="stat-desc">Potensi pelanggaran</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Kalender Kerja Aktif</div>
-                <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
-                <div class="stat-desc">Dikelola oleh sistem</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Live Office Attendance</div>
-                <div class="stat-value" style="color:#10b981;">${Number(live.in_office_now || 0)} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">di kantor</span></div>
-                <div class="stat-desc">${Number(live.checked_in_today || 0)} sudah masuk hari ini${live.latest_event_at
-                    ? ` · tap terakhir ${escapeHtml(new Date(live.latest_event_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }))} WIB${live.latest_door ? ` (${escapeHtml(live.latest_door)})` : ''}`
-                    : ' · belum ada tap hari ini'}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Event Belum Terpetakan</div>
-                <div class="stat-value" style="color:#f59e0b;">${Number(live.unmatched_events || 0)}</div>
-                <div class="stat-desc">Hanya terlihat oleh pengguna berwenang</div>
-            </div>
-        `;
+        renderAttendanceMetricsPanel(await fetchAttendanceMetrics({ force }));
     } catch (e) {
-        console.error('Failed to load attendance metrics', e);
+        if (!e.suppressed) console.error('Failed to load attendance metrics', e);
     }
+}
+
+function renderAttendanceMetricsPanel(res) {
+    const container = document.getElementById('attendanceMetricsContainer');
+    if (!container || !res?.success) return;
+
+    const m = res.data;
+    const t = m.today;
+    const live = m.live || {};
+    const total = t.present + t.late + t.absent + t.off + t.leave;
+    const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
+
+    container.innerHTML = `
+        <div class="stat-card">
+            <div class="stat-title">Tingkat Kehadiran Harian</div>
+            <div class="stat-value" style="color: #10b981;">${presentRate}%</div>
+            <div class="stat-desc">Hari Ini: ${escapeHtml(t.date)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Hadir & Terlambat</div>
+            <div class="stat-value" style="color: #f59e0b;">${t.present + t.late} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+            <div class="stat-desc">(${t.late} terlambat)</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Mangkir (Tanpa Keterangan)</div>
+            <div class="stat-value" style="color: #ef4444;">${t.absent} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+            <div class="stat-desc">Potensi pelanggaran</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Kalender Kerja Aktif</div>
+            <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
+            <div class="stat-desc">Dikelola oleh sistem</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Live Office Attendance</div>
+            <div class="stat-value" style="color:#10b981;">${Number(live.in_office_now || 0)} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">di kantor</span></div>
+            <div class="stat-desc">${Number(live.checked_in_today || 0)} sudah masuk hari ini${live.latest_event_at
+                ? ` · tap terakhir ${escapeHtml(new Date(live.latest_event_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }))} WIB${live.latest_door ? ` (${escapeHtml(live.latest_door)})` : ''}`
+                : ' · belum ada tap hari ini'}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Event Belum Terpetakan</div>
+            <div class="stat-value" style="color:#f59e0b;">${Number(live.unmatched_events || 0)}</div>
+            <div class="stat-desc">Hanya terlihat oleh pengguna berwenang</div>
+        </div>
+    `;
 }
 
 let attendanceReportSeq = 0;
