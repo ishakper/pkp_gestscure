@@ -24,7 +24,7 @@ class AttendanceTimeDisplayContractTest extends TestCase
     private function loadAttendanceDataBody(): string
     {
         // The processed-records table is rendered by loadAttendanceRecords() (split out of loadAttendanceData()).
-        $this->assertSame(1, preg_match('/async function loadAttendanceRecords\(\)\s*\{/', $this->script, $m, PREG_OFFSET_CAPTURE));
+        $this->assertSame(1, preg_match('/async function loadAttendanceRecords\([^)]*\)\s*\{/', $this->script, $m, PREG_OFFSET_CAPTURE));
         $start = $m[0][1];
         $end = strpos($this->script, 'async function loadAttendanceMetrics', $start);
         $this->assertNotFalse($end);

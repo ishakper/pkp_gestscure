@@ -26,7 +26,7 @@ class SecureGateUiRefactorTest extends TestCase
         $this->assertStringContainsString('.advanced-nav { display: none !important; }', $blade);
         $this->assertStringContainsString("Memeriksa status terminal...", $script);
         $this->assertStringNotContainsString("CHECKING terminal Gedung B", $script);
-        $this->assertStringContainsString("apiFetch(`/attendance/records?\${query}`)", $script);
+        $this->assertStringContainsString("fetchAttendanceQuery(`/attendance/records?\${query}`, fresh)", $script);
         $this->assertStringNotContainsString("apiFetch('/api/v1/attendance/records')", $script);
     }
 
