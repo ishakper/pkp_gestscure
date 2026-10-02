@@ -6,6 +6,8 @@ use App\Models\Admin;
 use App\Models\Attendance;
 use App\Models\AttendanceRequest;
 use App\Models\Building;
+use App\Models\Contract;
+use App\Models\EmployeeCalendarAssignment;
 use App\Models\Employee;
 use App\Models\WorkCalendar;
 use App\Models\WorkScheduleDay;
@@ -197,7 +199,7 @@ class AttendanceMonthlyPopulationTest extends TestCase
     {
         $this->weekdayCalendar();
         $budi = $this->employee('BUDI', $this->gedungA);
-        $sari = $this->employee('SARI', $this->gedungA);
+        $sari = $this->employee('SARI', $this->gedungA, ['hire_date' => '2026-01-05']);
 
         // Budi: 20 present, 1 late, 1 explicit ABSENT row = all 22 working days covered.
         $days = collect(range(1, 30))
@@ -209,7 +211,7 @@ class AttendanceMonthlyPopulationTest extends TestCase
                 'status' => $i < 20 ? 'PRESENT' : ($i === 20 ? 'LATE' : 'ABSENT'),
             ]);
         }
-        // Sari has no rows at all: every working day is a derived absence.
+        // Sari was hired before September and has no rows: every working day is a derived absence.
 
         $data = $this->report('month=2026-09')->json('data');
         $rows = collect($data['rows'])->keyBy('employee_code');
@@ -227,7 +229,7 @@ class AttendanceMonthlyPopulationTest extends TestCase
         $this->weekdayCalendar();
         $this->trackingStartedOn('2026-09-01');
         $new = $this->employee('NEW', $this->gedungA, ['hire_date' => '2026-09-28']); // Mon 28 - Wed 30 = 3 days
-        $leave = $this->employee('LEAVE', $this->gedungA);
+        $leave = $this->employee('LEAVE', $this->gedungA, ['hire_date' => '2026-01-05']);
         AttendanceRequest::create([
             'employee_id' => $leave->id, 'request_type' => AttendanceRequest::TYPE_LEAVE,
             'start_date' => '2026-09-01', 'end_date' => '2026-09-30', 'reason' => 'Cuti',
@@ -244,7 +246,7 @@ class AttendanceMonthlyPopulationTest extends TestCase
     {
         $this->weekdayCalendar();
         $this->trackingStartedOn('2026-09-21'); // go-live Mon 21: 21-25 + 28-30 = 8 working days
-        $this->employee('LATE-GO-LIVE', $this->gedungA);
+        $this->employee('LATE-GO-LIVE', $this->gedungA, ['hire_date' => '2026-01-05']);
 
         $data = $this->report('month=2026-09')->json('data');
 
@@ -262,6 +264,101 @@ class AttendanceMonthlyPopulationTest extends TestCase
         $this->assertSame(5, $totals['employees']);
         $this->assertSame(0, $totals['absent']);
         $this->assertNull($totals['tracking_started_on']);
+    }
+
+    /**
+     * Production shape: 108 active employees, none with hire_date, a Mon-Fri calendar,
+     * and sparse attendance from 11 Sep. Only employees with their own evidence of a
+     * start date may accrue derived absences, and only from that date.
+     */
+    public function test_missing_hire_dates_do_not_fabricate_historical_absences(): void
+    {
+        $this->weekdayCalendar();
+        $this->population(60, 48);
+        $a1 = Employee::where('employee_id', 'A1')->first();
+        $b7 = Employee::where('employee_id', 'B7')->first();
+        // Sparse history: A1 first seen Fri 11 Sep, B7 first seen Tue 22 Sep.
+        Attendance::create(['employee_id' => $a1->id, 'attendance_date' => '2026-09-11', 'status' => 'PRESENT']);
+        Attendance::create(['employee_id' => $a1->id, 'attendance_date' => '2026-09-15', 'status' => 'LATE', 'late_minutes' => 20]);
+        Attendance::create(['employee_id' => $b7->id, 'attendance_date' => '2026-09-22', 'status' => 'LATE', 'late_minutes' => 640]);
+
+        $data = $this->report('month=2026-09')->json('data');
+        $rows = collect($data['rows'])->keyBy('employee_code');
+
+        // A1: 11-30 Sep = 14 working days, 2 recorded -> 12 derived, counted from first attendance.
+        $this->assertSame(12, $rows['A1']['absent']);
+        $this->assertSame('2026-09-11', $rows['A1']['absence_counted_from']);
+        $this->assertSame('first_attendance', $rows['A1']['absence_start_source']);
+        // B7: 22-30 Sep = 7 working days, 1 recorded -> 6 derived.
+        $this->assertSame(6, $rows['B7']['absent']);
+        // Nobody else has a defensible start date: no rows, no absences, not 108 x 14.
+        $this->assertCount(2, $data['rows']);
+        $this->assertSame(18, $data['totals']['absent']);
+        $this->assertSame(108, $data['totals']['employees']);
+        $this->assertSame(2, $data['totals']['employees_absence_evaluated']);
+        $this->assertSame(106, $data['totals']['employees_without_start_date']);
+    }
+
+    public function test_employee_with_no_prior_attendance_gets_no_derived_absence(): void
+    {
+        $this->weekdayCalendar();
+        $this->trackingStartedOn('2026-09-01');
+        $this->employee('NEVER', $this->gedungA);
+
+        $data = $this->report('month=2026-09')->json('data');
+
+        $this->assertNull(collect($data['rows'])->firstWhere('employee_code', 'NEVER'));
+        $this->assertSame(1, $data['totals']['employees_without_start_date']);
+    }
+
+    public function test_first_attendance_mid_month_bounds_absences_and_later_months(): void
+    {
+        $this->weekdayCalendar();
+        $employee = $this->employee('MID', $this->gedungA);
+        Attendance::create(['employee_id' => $employee->id, 'attendance_date' => '2026-09-24', 'status' => 'PRESENT']); // Thu
+
+        $september = collect($this->report('month=2026-09')->json('data.rows'))->firstWhere('employee_code', 'MID');
+        // 24, 25, 28, 29, 30 = 5 working days, 1 recorded.
+        $this->assertSame(4, $september['absent']);
+        $this->assertSame(1, $september['present']);
+        // August predates the first attendance entirely.
+        $this->assertSame([], $this->report('month=2026-08')->json('data.rows'));
+    }
+
+    public function test_calendar_assignment_effective_from_defines_the_start(): void
+    {
+        $calendar = $this->weekdayCalendar();
+        $this->trackingStartedOn('2026-09-01');
+        $assigned = $this->employee('ASG', $this->gedungA);
+        EmployeeCalendarAssignment::create([
+            'employee_id' => $assigned->id, 'work_calendar_id' => $calendar->id,
+            'effective_from' => '2026-09-14', 'effective_until' => null,
+        ]);
+        // A later first attendance does not push the start back: the earliest evidence wins.
+        Attendance::create(['employee_id' => $assigned->id, 'attendance_date' => '2026-09-21', 'status' => 'PRESENT']);
+
+        $row = collect($this->report('month=2026-09')->json('data.rows'))->firstWhere('employee_code', 'ASG');
+
+        // 14-30 Sep = 13 working days, 1 recorded.
+        $this->assertSame(12, $row['absent']);
+        $this->assertSame('2026-09-14', $row['absence_counted_from']);
+        $this->assertSame('calendar_assignment', $row['absence_start_source']);
+    }
+
+    public function test_only_contracts_that_took_effect_define_the_start(): void
+    {
+        $this->weekdayCalendar();
+        $this->trackingStartedOn('2026-09-01');
+        $signed = $this->employee('SIGNED', $this->gedungA);
+        $draft = $this->employee('DRAFT', $this->gedungA);
+        Contract::create(['contract_number' => 'K-1', 'employee_id' => $signed->id, 'contract_type' => 'PKWT', 'title' => 'PKWT', 'start_date' => '2026-09-28', 'status' => 'ACTIVE']);
+        Contract::create(['contract_number' => 'K-2', 'employee_id' => $draft->id, 'contract_type' => 'PKWT', 'title' => 'PKWT', 'start_date' => '2026-09-01', 'status' => 'DRAFT']);
+
+        $rows = collect($this->report('month=2026-09')->json('data.rows'))->keyBy('employee_code');
+
+        $this->assertSame(3, $rows['SIGNED']['absent']); // 28, 29, 30
+        $this->assertSame('contract', $rows['SIGNED']['absence_start_source']);
+        $this->assertArrayNotHasKey('DRAFT', $rows->all());
     }
 
     public function test_no_work_calendar_means_no_derived_absences(): void
@@ -296,7 +393,7 @@ class AttendanceMonthlyPopulationTest extends TestCase
     {
         $this->weekdayCalendar();
         $this->trackingStartedOn('2026-09-01');
-        $this->employee('CSV', $this->gedungA);
+        $this->employee('CSV', $this->gedungA, ['hire_date' => '2026-01-05']);
 
         $csv = $this->actingAs($this->viewer)->get('/api/v1/attendance/reports/monthly/export?month=2026-09')->assertOk()->streamedContent();
 

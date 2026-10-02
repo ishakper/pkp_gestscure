@@ -471,6 +471,66 @@ class AttendanceProcessor
     }
 
     /**
+     * The first date each employee can defensibly be expected at work, from existing
+     * per-employee facts only (read-only):
+     *   1. employees.hire_date, when set;
+     *   2. otherwise the earliest of
+     *      - start (effective_date, else start_date) of a contract that actually took
+     *        effect (ACTIVE / EXPIRED / TERMINATED / RENEWED),
+     *      - effective_from of an explicit calendar assignment,
+     *      - the employee's first attendance row.
+     * employees.created_at is deliberately not used: it records when the row was
+     * created or imported, not when the person started work. Employees with none of
+     * the above are omitted, so no absence is derived for them.
+     *
+     * @param  Collection<int, Employee>  $employees
+     * @return array<int, array{date: string, source: string}>  employee id => eligibility start
+     */
+    public function absenceEligibilityStarts(Collection $employees): array
+    {
+        $ids = $employees->pluck('id')->all();
+        if (!$ids) {
+            return [];
+        }
+
+        $evidence = [];
+        $add = function ($employeeId, $date, string $source) use (&$evidence): void {
+            if (!$date) return;
+            $date = Carbon::parse($date)->toDateString();
+            if (!isset($evidence[$employeeId]) || $date < $evidence[$employeeId]['date']) {
+                $evidence[$employeeId] = ['date' => $date, 'source' => $source];
+            }
+        };
+
+        \App\Models\Contract::query()
+            ->whereIn('employee_id', $ids)
+            ->whereIn('status', ['ACTIVE', 'EXPIRED', 'TERMINATED', 'RENEWED'])
+            ->get(['employee_id', 'start_date', 'effective_date'])
+            ->each(fn ($contract) => $add($contract->employee_id, $contract->effective_date ?? $contract->start_date, 'contract'));
+        EmployeeCalendarAssignment::query()
+            ->whereIn('employee_id', $ids)
+            ->get(['employee_id', 'effective_from'])
+            ->each(fn ($assignment) => $add($assignment->employee_id, $assignment->effective_from, 'calendar_assignment'));
+        Attendance::query()
+            ->whereIn('employee_id', $ids)
+            ->groupBy('employee_id')
+            ->selectRaw('employee_id, MIN(attendance_date) as first_date')
+            ->get()
+            ->each(fn ($row) => $add($row->employee_id, $row->first_date, 'first_attendance'));
+
+        $starts = [];
+        foreach ($employees as $employee) {
+            if ($employee->hire_date) {
+                $starts[$employee->id] = ['date' => Carbon::parse($employee->hire_date)->toDateString(), 'source' => 'hire_date'];
+            } elseif (isset($evidence[$employee->id])) {
+                $starts[$employee->id] = $evidence[$employee->id];
+            }
+        }
+
+        return $starts;
+    }
+
+    /**
      * Count, per employee, the working days in [$from, $to] that have no attendance
      * row at all. computeStatus() would classify each of those days as ABSENT, but
      * nothing persists ABSENT rows (generateSkeletons() is not scheduled), so reports
@@ -481,12 +541,18 @@ class AttendanceProcessor
      * public holiday for the calendar's building, approved LEAVE/SICK/WFH/PERMISSION.
      * Inputs are preloaded once so a month of ~100 employees stays a handful of queries.
      *
+     * Only days on or after the employee's eligibility start count; employees
+     * without one (see absenceEligibilityStarts()) get no derived absence at all.
+     *
      * @param  Collection<int, Employee>  $employees
      * @param  array<int, array<string, true>>  $recordedDates  employee id => ['Y-m-d' => true]
+     * @param  array<int, array{date: string, source: string}>  $eligibility  employee id => start
      * @return array<int, int>  employee id => derived absent days (only non-zero entries)
      */
-    public function derivedAbsences(Collection $employees, Carbon $from, Carbon $to, array $recordedDates): array
+    public function derivedAbsences(Collection $employees, Carbon $from, Carbon $to, array $recordedDates, array $eligibility): array
     {
+        $employees = $employees->filter(fn (Employee $employee) => isset($eligibility[$employee->id]))->values();
+
         if ($employees->isEmpty() || $from->gt($to)) {
             return [];
         }
@@ -524,12 +590,12 @@ class AttendanceProcessor
 
         $absences = [];
         foreach ($employees as $employee) {
-            $hireDate = $employee->hire_date ? Carbon::parse($employee->hire_date)->toDateString() : null;
+            $eligibleFrom = $eligibility[$employee->id]['date'];
             $count = 0;
 
             for ($date = $from->copy()->startOfDay(); $date->lte($to); $date->addDay()) {
                 $day = $date->toDateString();
-                if (isset($recordedDates[$employee->id][$day]) || ($hireDate && $day < $hireDate)) {
+                if ($day < $eligibleFrom || isset($recordedDates[$employee->id][$day])) {
                     continue;
                 }
 
