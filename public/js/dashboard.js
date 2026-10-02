@@ -6020,6 +6020,43 @@ function formatAttendanceDate(value) {
     return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
 }
 
+// Monthly report and records per (month, building) query are reused for 30 s, so flipping
+// back and forth between filters does not refetch what was just loaded; an identical
+// request still in flight is shared. Refresh and live updates pass fresh = true.
+const ATTENDANCE_QUERY_TTL_MS = 30000;
+const attendanceQueryCache = new Map();
+
+function fetchAttendanceQuery(url, fresh = false) {
+    const hit = attendanceQueryCache.get(url);
+    if (hit?.promise) return hit.promise;
+    if (!fresh && hit && Date.now() - hit.at < ATTENDANCE_QUERY_TTL_MS) return Promise.resolve(hit.data);
+    const promise = apiFetch(url)
+        .then(data => {
+            attendanceQueryCache.set(url, { at: Date.now(), data });
+            return data;
+        })
+        .catch(error => {
+            attendanceQueryCache.delete(url);
+            throw error;
+        });
+    attendanceQueryCache.set(url, { at: 0, promise });
+    for (const [key, entry] of attendanceQueryCache) { // keep the cache small
+        if (!entry.promise && Date.now() - entry.at >= ATTENDANCE_QUERY_TTL_MS) attendanceQueryCache.delete(key);
+    }
+    return promise;
+}
+
+// A filter reload that still hits the shared rate limit waits out the cooldown and retries
+// once, but only if the selection has not changed meanwhile, so the table never stays on
+// an error for the filter the user is looking at.
+function retryAttendanceAfterRateLimit(error, tbody, colspan, stillCurrent, reload) {
+    if (error?.status !== 429) return false;
+    const waitMs = Math.max(1000, (error.retryAfter ? error.retryAfter * 1000 : 0), rateLimitCooldownUntil - Date.now());
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="loading-td">Server sedang sibuk, memuat ulang otomatis dalam ${Math.ceil(waitMs / 1000)} detik...</td></tr>`;
+    setTimeout(() => { if (stillCurrent()) reload(); }, waitMs);
+    return true;
+}
+
 let attendanceDataInflight = null;
 
 // Opening Rekap Kehadiran or pressing its Refresh button. A second call while one is
@@ -6030,8 +6067,8 @@ async function loadAttendanceData(force = false) {
     attendanceLiveRefresh.lastAt = Date.now();
     attendanceDataInflight = Promise.allSettled([
         loadAttendanceMetrics(force),
-        loadAttendanceReport(), // sets the month input to the current month on first load
-        loadAttendanceRecords(),
+        loadAttendanceReport(force), // sets the month input to the current month on first load
+        loadAttendanceRecords(force),
     ]).finally(() => { attendanceDataInflight = null; });
     return attendanceDataInflight;
 }
@@ -6065,14 +6102,14 @@ function scheduleAttendanceRefresh() {
         const month = document.getElementById('attendanceReportMonth')?.value;
         if (month && month !== currentMonthValue()) return;
         attendanceLiveRefresh.lastAt = Date.now();
-        loadAttendanceReport();
-        loadAttendanceRecords();
+        loadAttendanceReport(true);
+        loadAttendanceRecords(true);
     }, wait);
 }
 
 let attendanceRecordsSeq = 0;
 
-async function loadAttendanceRecords() {
+async function loadAttendanceRecords(fresh = false) {
     const tbody = document.getElementById('attendanceTableBody');
     if (!tbody) return;
     const month = document.getElementById('attendanceReportMonth');
@@ -6090,7 +6127,7 @@ async function loadAttendanceRecords() {
 
     tbody.innerHTML = '<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
     try {
-        const res = await apiFetch(`/attendance/records?${query}`);
+        const res = await fetchAttendanceQuery(`/attendance/records?${query}`, fresh);
         if (seq !== attendanceRecordsSeq) return; // a newer month/building selection superseded this request
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
 
@@ -6140,6 +6177,7 @@ async function loadAttendanceRecords() {
         }).join('');
     } catch (e) {
         if (seq !== attendanceRecordsSeq) return;
+        if (retryAttendanceAfterRateLimit(e, tbody, 10, () => seq === attendanceRecordsSeq, () => loadAttendanceRecords(fresh))) return;
         tbody.innerHTML = `<tr><td colspan="10" class="error-td">Gagal memuat kehadiran. ${escapeHtml(e.message)}</td></tr>`;
     }
 }
@@ -6245,7 +6283,7 @@ function renderAttendanceReportMetrics(totals) {
     document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div><div class="stat-desc">${recorded} punya catatan kehadiran</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div><div class="stat-desc">${absentNote}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
 }
 
-async function loadAttendanceReport() {
+async function loadAttendanceReport(fresh = false) {
     const tbody = document.getElementById('attendanceReportBody');
     if (!tbody) return;
     const month = document.getElementById('attendanceReportMonth');
@@ -6261,7 +6299,7 @@ async function loadAttendanceReport() {
     if (building.value) query.set('building_id', building.value);
     const buildingLabel = attendanceReportBuildingLabel();
     try {
-        const res = await apiFetch(`/attendance/reports/monthly?${query}`);
+        const res = await fetchAttendanceQuery(`/attendance/reports/monthly?${query}`, fresh);
         if (seq !== attendanceReportSeq) return;
         attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows };
         attendanceReportState.buildingLabel = buildingLabel;
@@ -6276,6 +6314,7 @@ async function loadAttendanceReport() {
             : `<tr><td colspan="7" class="empty-td">${emptyMessage}</td></tr>`;
     } catch (error) {
         if (seq !== attendanceReportSeq) return;
+        if (retryAttendanceAfterRateLimit(error, tbody, 7, () => seq === attendanceReportSeq, () => loadAttendanceReport(fresh))) return;
         attendanceReportState.data = null;
         document.getElementById('attendanceReportMetrics').innerHTML = '';
         tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat laporan: ${escapeHtml(error.message)}</td></tr>`;
