@@ -6135,8 +6135,11 @@ async function ensureAttendanceReportBuildings() {
 function renderAttendanceReportMetrics(totals) {
     const recorded = Number(totals.employees_with_attendance ?? 0);
     const derived = Number(totals.absent_derived ?? 0);
+    const withoutStart = Number(totals.employees_without_start_date ?? 0);
+    // Derived absences only count from each employee's known start date (hire date,
+    // effective contract, calendar assignment or first attendance).
     const absentNote = totals.tracking_started_on
-        ? `${derived} hari kerja tanpa catatan · dihitung sejak ${escapeHtml(formatAttendanceDate(totals.tracking_started_on))}`
+        ? `${derived} hari kerja tanpa catatan${withoutStart ? ` · ${withoutStart} karyawan tanpa tanggal mulai tidak dihitung absen` : ''}`
         : 'Belum ada catatan kehadiran di sistem';
     document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div><div class="stat-desc">${recorded} punya catatan kehadiran</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div><div class="stat-desc">${absentNote}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
 }

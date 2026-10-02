@@ -144,18 +144,20 @@ class AttendanceReportController extends Controller
         foreach ($records as $record) {
             $recordedDates[$record->employee_id][Carbon::parse($record->attendance_date)->toDateString()] = true;
         }
-        // A day only becomes a missed working day once it is over (Asia/Jakarta), and
-        // only once the system was recording attendance at all: days before the first
-        // attendance row anywhere predate go-live and are not anybody's absence.
+        // A day only becomes a missed working day once it is over (Asia/Jakarta), only
+        // once the system was recording attendance at all (days before the first row
+        // anywhere predate go-live), and only from each employee's own defensible start
+        // date (hire date, effective contract, calendar assignment or first attendance).
         $trackingStart = Attendance::query()->min('attendance_date');
+        $eligibility = $this->processor->absenceEligibilityStarts($population);
         $derivedAbsent = [];
         if ($trackingStart) {
             $absenceFrom = $from->copy()->max(Carbon::parse($trackingStart)->startOfDay());
             $absenceUntil = $to->copy()->min(now()->subDay()->endOfDay());
-            $derivedAbsent = $this->processor->derivedAbsences($population, $absenceFrom, $absenceUntil, $recordedDates);
+            $derivedAbsent = $this->processor->derivedAbsences($population, $absenceFrom, $absenceUntil, $recordedDates, $eligibility);
         }
 
-        $rows = $this->rows($records, $population, $derivedAbsent);
+        $rows = $this->rows($records, $population, $derivedAbsent, $eligibility);
         $present = array_sum(array_column($rows, 'present'));
         $late = array_sum(array_column($rows, 'late'));
         $absent = array_sum(array_column($rows, 'absent'));
@@ -169,6 +171,9 @@ class AttendanceReportController extends Controller
             'absent' => $absent,
             'absent_derived' => array_sum($derivedAbsent),
             'tracking_started_on' => $trackingStart ? Carbon::parse($trackingStart)->toDateString() : null,
+            // Employees whose absences can be evaluated vs. those with no known start date.
+            'employees_absence_evaluated' => count($eligibility),
+            'employees_without_start_date' => $population->count() - count($eligibility),
             'attendance_rate' => $this->attendanceRate($present, $late, $absent),
         ]];
     }
@@ -179,13 +184,13 @@ class AttendanceReportController extends Controller
      * plus working days with no row as absent. OFF/LEAVE/SICK/PERMISSION are excluded
      * from the rate denominator.
      */
-    private function rows(Collection $records, Collection $population, array $derivedAbsent): array
+    private function rows(Collection $records, Collection $population, array $derivedAbsent, array $eligibility): array
     {
         $byEmployee = $records->groupBy('employee_id');
         $employees = $population->keyBy('id');
         $ids = collect($byEmployee->keys())->merge(array_keys($derivedAbsent))->unique();
 
-        return $ids->map(function ($id) use ($byEmployee, $employees, $derivedAbsent): array {
+        return $ids->map(function ($id) use ($byEmployee, $employees, $derivedAbsent, $eligibility): array {
             $items = $byEmployee->get($id, collect());
             $employee = $employees->get($id) ?? $items->first()?->employee;
             $present = $items->whereIn('status', ['PRESENT', 'FIELD', 'WFH'])->count();
@@ -199,6 +204,8 @@ class AttendanceReportController extends Controller
                 'present' => $present, 'late' => $late, 'absent' => $absent,
                 'attendance_rate' => $this->attendanceRate($present, $late, $absent),
                 'late_minutes' => (int) $items->sum('late_minutes'),
+                'absence_counted_from' => $eligibility[$id]['date'] ?? null,
+                'absence_start_source' => $eligibility[$id]['source'] ?? null,
             ];
         })->sortBy(fn (array $row) => [$row['building'], $row['employee_name']])->values()->all();
     }
