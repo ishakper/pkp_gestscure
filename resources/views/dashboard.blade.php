@@ -3334,7 +3334,7 @@
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn-secondary" onclick="loadAttendanceData(); showToast('Data Kehadiran disinkronkan', 'info');">
+                <button class="btn-secondary" onclick="loadAttendanceData(true); showToast('Data Kehadiran disinkronkan', 'info');">
                     🔄 Refresh
                 </button>
             </div>
