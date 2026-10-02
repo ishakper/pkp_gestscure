@@ -217,13 +217,15 @@ async function apiFetch(endpoint, options = {}) {
         if (!response.ok) {
             const error = new Error(data.message || `Request failed with status ${response.status}`);
             error.status = response.status;
+            if (data.errors) error.errors = data.errors; // 422 field messages for form feedback
             throw error;
         }
 
         return data;
     } catch (err) {
         // AbortError = a newer request superseded this one on purpose (AbortController); callers handle it.
-        if (err.name !== 'AbortError' && err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
+        // 422 = validation feedback, shown in the submitting form rather than logged as a fault.
+        if (err.name !== 'AbortError' && err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && err.status !== 422 && !err.suppressed) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
@@ -445,8 +447,8 @@ async function loadDashboardBuildings() {
     const select = document.getElementById('dashboardBuildingFilter');
     if (!select) return;
     try {
-        const res = await apiFetch('/user-management/organization/lookup');
-        const buildings = res.data?.buildings || [];
+        const lookup = await ensureOrganizationLookup(); // shared with the employee form and Setup Gedung
+        const buildings = lookup.buildings || [];
         if (buildings.length <= 1) {
             // A building admin: the backend already limits every endpoint to their building.
             select.innerHTML = `<option value="">🏢 ${escapeHtml(buildings[0]?.name || 'Gedung Anda')}</option>`;
@@ -846,8 +848,13 @@ function ensureOrganizationLookup() {
     return organizationLookupPromise;
 }
 
-function fillOrganizationSelect(select, items, placeholder, emptyText, selected) {
+function fillOrganizationSelect(select, items, placeholder, emptyText, selected, blockedText = '') {
     if (!select) return;
+    if (blockedText) { // the parent level is not chosen yet
+        select.innerHTML = `<option value="">${blockedText}</option>`;
+        select.disabled = true;
+        return;
+    }
     select.innerHTML = items.length
         ? `<option value="">${placeholder}</option>` + items.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('')
         : `<option value="">${emptyText}</option>`;
@@ -855,17 +862,30 @@ function fillOrganizationSelect(select, items, placeholder, emptyText, selected)
     select.value = items.some(x => String(x.id) === String(selected)) ? String(selected) : '';
 }
 
-// Divisions follow the chosen building and positions the chosen division. Entries without
-// a parent stay available everywhere. Empty master tables are shown as such, never padded.
+// Gedung -> Divisi -> Posisi: a level is enabled only once its parent is chosen and lists
+// only that parent's entries. Empty master tables are shown as such, never padded.
 function renderEmployeeOrganizationOptions({ building = '', division = '', position = '' } = {}) {
     const org = state.organization || { buildings: [], divisions: [], positions: [] };
     fillOrganizationSelect(document.getElementById('empBuilding'), org.buildings || [], 'Pilih Gedung', 'Belum ada data gedung', building);
     const buildingId = document.getElementById('empBuilding')?.value || '';
-    const divisions = (org.divisions || []).filter(d => !buildingId || !d.building_id || String(d.building_id) === buildingId);
-    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi', 'Belum ada data divisi', division);
+    const divisions = (org.divisions || []).filter(d => String(d.building_id) === buildingId);
+    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi', 'Belum ada data divisi', division, buildingId ? '' : 'Pilih gedung terlebih dahulu');
     const divisionId = document.getElementById('empDivision')?.value || '';
-    const positions = (org.positions || []).filter(p => !divisionId || !p.division_id || String(p.division_id) === divisionId);
-    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi', 'Belum ada data posisi', position);
+    const positions = (org.positions || []).filter(p => String(p.division_id) === divisionId);
+    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi', 'Belum ada data posisi', position, divisionId ? '' : 'Pilih divisi terlebih dahulu');
+}
+
+// After a Divisi/Posisi change the cached lookup is stale: drop it and, if the employee
+// form is open, rebuild its dropdowns from the fresh lookup without a page reload.
+function invalidateOrganizationLookup() {
+    organizationLookupPromise = null;
+    if (document.getElementById('employeeModal')?.classList.contains('active')) {
+        loadEmployeeOrganizationOptions({
+            building: document.getElementById('empBuilding')?.value,
+            division: document.getElementById('empDivision')?.value,
+            position: document.getElementById('empPosition')?.value,
+        });
+    }
 }
 
 function onEmployeeOrganizationChange() {
@@ -6307,9 +6327,9 @@ async function ensureAttendanceReportBuildings() {
     const building = document.getElementById('attendanceReportBuilding');
     if (!building || building.options.length > 1) return true;
     try {
-        const lookup = await apiFetch('/user-management/organization/lookup');
+        const lookup = await ensureOrganizationLookup(); // shared organization lookup cache
         const previous = building.value;
-        (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
+        (lookup.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
         if (previous) building.value = previous;
         return true;
     } catch (error) {
@@ -8100,6 +8120,250 @@ async function submitAddZone(e) {
         showToast(`Gagal menyimpan zona: ${err.message}`, 'error');
     }
 }
+
+// ==========================================
+// Setup Gedung: master Divisi & Posisi (Gedung -> Divisi -> Posisi)
+// ==========================================
+// Uses the existing OrganizationController endpoints only:
+//   GET  /user-management/organization/{divisions|positions}       (super admin, incl. inactive)
+//   POST /user-management/organization/{divisions|positions}       (super admin)
+//   PUT  /user-management/organization/{divisions|positions}/{id}  (super admin; is_active toggles)
+//   GET  /user-management/organization/lookup                      (everyone, active + scoped)
+// Other roles get a read-only view of the active entries from the lookup.
+const organizationMaster = { loaded: false, loading: null, readOnly: true, buildings: [], divisions: [], positions: [] };
+
+function canManageOrganizationMaster() {
+    return window.APP_CONFIG?.admin?.role === 'super_admin'; // mirrors OrganizationController::ensureSuperAdmin
+}
+
+function switchOrganizationSubTab(name, btn) {
+    document.querySelectorAll('#buildingSetupTab .subnav-btn').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('#buildingSetupTab .org-sub-content').forEach(el => el.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const target = document.getElementById(`orgSub${name.charAt(0).toUpperCase()}${name.slice(1)}`);
+    if (target) target.classList.add('active');
+    if (name === 'divisions' || name === 'positions') loadOrganizationMaster();
+}
+
+// Loads once per page (switching between Divisi and Posisi reuses it); `force` after a change.
+function loadOrganizationMaster(force = false) {
+    if (organizationMaster.loading) return organizationMaster.loading;
+    if (organizationMaster.loaded && !force) {
+        renderOrganizationMaster();
+        return Promise.resolve();
+    }
+    const loadingRow = label => `<tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat ${label}...</td></tr>`;
+    const divisionsBody = document.getElementById('divisionsTableBody');
+    const positionsBody = document.getElementById('positionsTableBody');
+    if (divisionsBody && !organizationMaster.loaded) divisionsBody.innerHTML = loadingRow('divisi');
+    if (positionsBody && !organizationMaster.loaded) positionsBody.innerHTML = loadingRow('posisi');
+
+    const manage = canManageOrganizationMaster();
+    const request = manage
+        ? Promise.all([
+            ensureOrganizationLookup(),
+            apiFetch('/user-management/organization/divisions'),
+            apiFetch('/user-management/organization/positions'),
+        ]).then(([lookup, divisions, positions]) => ({ buildings: lookup.buildings || [], divisions: divisions.data || [], positions: positions.data || [] }))
+        : ensureOrganizationLookup().then(lookup => ({
+            buildings: lookup.buildings || [],
+            divisions: (lookup.divisions || []).map(d => ({ ...d, is_active: true })),
+            positions: (lookup.positions || []).map(p => ({ ...p, is_active: true })),
+        }));
+
+    organizationMaster.loading = request
+        .then(data => {
+            Object.assign(organizationMaster, data, { loaded: true, readOnly: !manage });
+            renderOrganizationMaster();
+        })
+        .catch(err => {
+            const row = `<tr><td colspan="6" class="error-td">Gagal memuat master organisasi: ${escapeHtml(err.message)}</td></tr>`;
+            if (divisionsBody) divisionsBody.innerHTML = row;
+            if (positionsBody) positionsBody.innerHTML = row;
+        })
+        .finally(() => { organizationMaster.loading = null; });
+    return organizationMaster.loading;
+}
+
+// After a change only the affected list is refetched (one request). The shared lookup is
+// invalidated and refetched lazily by whoever needs it next (employee form, read-only view).
+async function refreshOrganizationMasterList(type) {
+    const res = await apiFetch(`/user-management/organization/${type}`);
+    organizationMaster[type] = res.data || [];
+    renderOrganizationMaster();
+}
+
+function organizationStatusBadge(active) {
+    return active ? '<span class="badge badge-granted">Aktif</span>' : '<span class="badge badge-dim">Nonaktif</span>';
+}
+
+function organizationRowActions(type, item) {
+    if (organizationMaster.readOnly) return '<span class="text-muted" style="font-size:.8rem;">Hanya lihat</span>';
+    return `<button class="btn-sm btn-edit" onclick="openOrganizationMasterModal('${type}', ${Number(item.id)})">✏️ Edit</button>
+        <button class="btn-sm ${item.is_active ? 'btn-delete' : 'btn-edit'}" onclick="toggleOrganizationMasterActive('${type}', ${Number(item.id)}, this)">${item.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>`;
+}
+
+function renderOrganizationMaster() {
+    const { buildings, divisions, positions, readOnly } = organizationMaster;
+    const buildingName = id => buildings.find(b => String(b.id) === String(id))?.name || (id ? `Gedung #${id}` : '-');
+    const divisionById = id => divisions.find(d => String(d.id) === String(id));
+
+    const buildingFilter = document.getElementById('divisionBuildingFilter');
+    if (buildingFilter) {
+        const current = buildingFilter.value;
+        buildingFilter.innerHTML = '<option value="">Semua Gedung</option>' + buildings.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+        buildingFilter.value = buildings.some(b => String(b.id) === current) ? current : '';
+    }
+    const divisionFilter = document.getElementById('positionDivisionFilter');
+    if (divisionFilter) {
+        const current = divisionFilter.value;
+        divisionFilter.innerHTML = '<option value="">Semua Divisi</option>' + divisions.map(d => `<option value="${d.id}">${escapeHtml(d.name)} — ${escapeHtml(buildingName(d.building_id))}</option>`).join('');
+        divisionFilter.value = divisions.some(d => String(d.id) === current) ? current : '';
+    }
+
+    const readOnlyNote = readOnly ? ' Hanya super admin yang dapat menambah atau mengubah.' : '';
+    const divisionsBody = document.getElementById('divisionsTableBody');
+    if (divisionsBody) {
+        const rows = divisions.filter(d => !buildingFilter?.value || String(d.building_id) === buildingFilter.value);
+        divisionsBody.innerHTML = rows.length
+            ? rows.map(d => `<tr>
+                <td><code>${escapeHtml(d.code)}</code></td>
+                <td><strong>${escapeHtml(d.name)}</strong></td>
+                <td>${escapeHtml(buildingName(d.building_id))}</td>
+                <td>${positions.filter(p => String(p.division_id) === String(d.id)).length}</td>
+                <td>${organizationStatusBadge(d.is_active)}</td>
+                <td style="text-align:right;white-space:nowrap;">${organizationRowActions('divisions', d)}</td>
+            </tr>`).join('')
+            : `<tr><td colspan="6" class="empty-td">Belum ada data divisi${buildingFilter?.value ? ' untuk gedung ini' : ''}.${readOnlyNote}</td></tr>`;
+    }
+
+    const positionsBody = document.getElementById('positionsTableBody');
+    if (positionsBody) {
+        const rows = positions.filter(p => !divisionFilter?.value || String(p.division_id) === divisionFilter.value);
+        positionsBody.innerHTML = rows.length
+            ? rows.map(p => {
+                const division = divisionById(p.division_id);
+                return `<tr>
+                    <td><code>${escapeHtml(p.code)}</code></td>
+                    <td><strong>${escapeHtml(p.name)}</strong></td>
+                    <td>${escapeHtml(division?.name || (p.division_id ? `Divisi #${p.division_id}` : '-'))}</td>
+                    <td>${escapeHtml(division ? buildingName(division.building_id) : '-')}</td>
+                    <td>${organizationStatusBadge(p.is_active)}</td>
+                    <td style="text-align:right;white-space:nowrap;">${organizationRowActions('positions', p)}</td>
+                </tr>`;
+            }).join('')
+            : `<tr><td colspan="6" class="empty-td">Belum ada data posisi${divisionFilter?.value ? ' untuk divisi ini' : ''}.${divisions.length ? '' : ' Tambahkan divisi terlebih dahulu.'}${readOnlyNote}</td></tr>`;
+    }
+}
+
+function showOrganizationMasterError(message) {
+    const box = document.getElementById('orgMasterError');
+    if (!box) return;
+    box.innerHTML = message;
+    box.hidden = !message;
+}
+
+function openOrganizationMasterModal(type, id = null) {
+    if (!canManageOrganizationMaster()) return;
+    const isDivision = type === 'divisions';
+    const list = isDivision ? organizationMaster.divisions : organizationMaster.positions;
+    const item = id ? list.find(x => Number(x.id) === Number(id)) : null;
+    const buildingName = bid => organizationMaster.buildings.find(b => String(b.id) === String(bid))?.name || `Gedung #${bid}`;
+
+    document.getElementById('orgMasterType').value = type;
+    document.getElementById('orgMasterId').value = item ? item.id : '';
+    document.getElementById('orgMasterModalTitle').textContent = `${item ? 'Edit' : 'Tambah'} ${isDivision ? 'Divisi' : 'Posisi'}`;
+    document.getElementById('orgMasterParentLabel').textContent = isDivision ? 'Gedung *' : 'Divisi *';
+    document.getElementById('orgMasterCode').value = item?.code || '';
+    document.getElementById('orgMasterCode').placeholder = isDivision ? 'DIV-IT' : 'POS-STAFF-IT';
+    document.getElementById('orgMasterName').value = item?.name || '';
+    document.getElementById('orgMasterName').placeholder = isDivision ? 'IT Support' : 'Staff IT';
+    document.getElementById('orgMasterActive').checked = item ? Boolean(item.is_active) : true;
+    document.getElementById('orgMasterActiveRow').hidden = !item;
+
+    // Parents: active ones, plus the current parent of the edited row even if inactive.
+    const parentId = item ? (isDivision ? item.building_id : item.division_id) : '';
+    const parents = isDivision
+        ? organizationMaster.buildings.map(b => ({ id: b.id, label: b.name }))
+        : organizationMaster.divisions
+            .filter(d => d.is_active || String(d.id) === String(parentId))
+            .map(d => ({ id: d.id, label: `${d.name} — ${buildingName(d.building_id)}` }));
+    const parent = document.getElementById('orgMasterParent');
+    parent.innerHTML = `<option value="">${isDivision ? 'Pilih Gedung...' : 'Pilih Divisi...'}</option>` + parents.map(x => `<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('');
+    parent.value = parentId ? String(parentId) : '';
+
+    const submit = document.getElementById('orgMasterSubmit');
+    submit.disabled = parents.length === 0;
+    showOrganizationMasterError(parents.length ? '' : (isDivision ? 'Belum ada gedung aktif. Tambahkan gedung terlebih dahulu.' : 'Belum ada divisi aktif. Tambahkan divisi terlebih dahulu.'));
+    openModal('orgMasterModal');
+}
+
+async function submitOrganizationMaster(event) {
+    event.preventDefault();
+    const type = document.getElementById('orgMasterType').value;
+    const id = document.getElementById('orgMasterId').value;
+    const parentId = document.getElementById('orgMasterParent').value;
+    const code = document.getElementById('orgMasterCode').value.trim();
+    const name = document.getElementById('orgMasterName').value.trim();
+    const isDivision = type === 'divisions';
+
+    const missing = [!parentId && (isDivision ? 'Gedung' : 'Divisi'), !code && 'Kode', !name && 'Nama'].filter(Boolean);
+    if (missing.length) {
+        showOrganizationMasterError(`Wajib diisi: ${missing.join(', ')}.`);
+        return;
+    }
+
+    const payload = { code, name, [isDivision ? 'building_id' : 'division_id']: Number(parentId) };
+    if (id) payload.is_active = document.getElementById('orgMasterActive').checked;
+
+    const submit = document.getElementById('orgMasterSubmit');
+    submit.disabled = true; // one request per click
+    showOrganizationMasterError('');
+    try {
+        await apiFetch(`/user-management/organization/${type}${id ? `/${Number(id)}` : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            body: JSON.stringify(payload),
+            isBackground: false,
+        });
+        closeModal('orgMasterModal');
+        showToast(`${isDivision ? 'Divisi' : 'Posisi'} ${name} berhasil ${id ? 'diperbarui' : 'ditambahkan'}.`, 'success');
+        invalidateOrganizationLookup();
+        await refreshOrganizationMasterList(type);
+    } catch (err) {
+        const fieldMessages = err.errors ? Object.values(err.errors).flat() : [];
+        showOrganizationMasterError(escapeHtml(fieldMessages.length ? fieldMessages.join(' ') : err.message));
+    } finally {
+        submit.disabled = false;
+    }
+}
+
+async function toggleOrganizationMasterActive(type, id, button) {
+    if (!canManageOrganizationMaster()) return;
+    const list = type === 'divisions' ? organizationMaster.divisions : organizationMaster.positions;
+    const item = list.find(x => Number(x.id) === Number(id));
+    if (!item) return;
+    const activate = !item.is_active;
+    if (!activate && !confirm(`Nonaktifkan ${item.name}? Data tidak dihapus, hanya tidak muncul lagi di form Pengguna.`)) return;
+
+    const parentKey = type === 'divisions' ? 'building_id' : 'division_id';
+    if (button) button.disabled = true;
+    try {
+        await apiFetch(`/user-management/organization/${type}/${Number(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ code: item.code, name: item.name, [parentKey]: item[parentKey], is_active: activate }),
+            isBackground: false,
+        });
+        showToast(`${item.name} ${activate ? 'diaktifkan' : 'dinonaktifkan'}.`, 'success');
+        invalidateOrganizationLookup();
+        await refreshOrganizationMasterList(type);
+    } catch (err) {
+        showToast(`Gagal mengubah status: ${err.message}`, 'error');
+        if (button) button.disabled = false;
+    }
+}
+
+window.submitOrganizationMaster = submitOrganizationMaster;
+window.toggleOrganizationMasterActive = toggleOrganizationMasterActive;
 
 window.loadBuildingHierarchy = loadBuildingHierarchy;
 window.openAddBuildingModal = openAddBuildingModal;
