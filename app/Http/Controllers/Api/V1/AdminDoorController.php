@@ -49,7 +49,13 @@ class AdminDoorController extends Controller
     public function metrics(Request $request)
     {
         $admin = $request->user();
-        $doors = Door::query();
+        // Optional building scope for the dashboard's global building filter. It narrows
+        // the same queries (employees.building_id, doors.building_id) on top of the
+        // building-admin restriction below, so one contract serves global and scoped KPIs.
+        $buildingFilter = $request->validate([
+            'building_id' => ['nullable', 'integer', 'exists:buildings,id'],
+        ])['building_id'] ?? null;
+        $doors = Door::query()->when($buildingFilter, fn ($query) => $query->where('building_id', $buildingFilter));
 
         if ($admin && $admin->isBuildingAdmin()) {
             $buildingId = $admin->employee?->building_id;
@@ -62,7 +68,7 @@ class AdminDoorController extends Controller
         $scopedDoors = $doors->get();
         $doorIds = $scopedDoors->pluck('id');
 
-        $employees = Employee::query();
+        $employees = Employee::query()->when($buildingFilter, fn ($query) => $query->where('building_id', $buildingFilter));
         if ($admin && $admin->isBuildingAdmin()) {
             $buildingId = $admin->employee?->building_id;
             abort_unless($buildingId || $admin->assigned_building, 403);

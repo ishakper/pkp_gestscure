@@ -43,7 +43,7 @@ class DashboardBuildingFilterTest extends TestCase
     {
         $this->assertMatchesRegularExpression('/id="dashboardBuildingFilter"[^>]*onchange="onDashboardBuildingChange\(this\.value\)"/', $this->blade);
 
-        foreach (['onDashboardBuildingChange', 'refreshDashboardScope', 'loadDashboardBuildings', 'restoreBuildingFilter', 'doorsInBuildingScope', 'buildingMetrics'] as $fn) {
+        foreach (['onDashboardBuildingChange', 'refreshDashboardScope', 'loadDashboardBuildings', 'restoreBuildingFilter', 'doorsInBuildingScope'] as $fn) {
             $this->assertMatchesRegularExpression('/function\s+' . $fn . '\s*\(/', $this->script, "{$fn}() must be defined");
         }
     }
@@ -52,7 +52,8 @@ class DashboardBuildingFilterTest extends TestCase
     {
         $this->assertStringContainsString('doorsInBuildingScope(state.allDoors)', $this->body('async function loadDoors('));
         $this->assertStringContainsString("params.set('building_id', state.buildingFilter)", $this->body('async function loadEmployees('));
-        $this->assertStringContainsString('buildingMetrics(scope)', $this->body('async function updateMetricCards('));
+        // Scoped KPIs come from the same backend contract as the global ones.
+        $this->assertStringContainsString('/admin/dashboard-metrics?building_id=${encodeURIComponent(scope)}', $this->body('async function updateMetricCards('));
         $this->assertStringContainsString('doorsInBuildingScope(state.allDoors)', $this->body('async function loadAccessLogs('));
     }
 
