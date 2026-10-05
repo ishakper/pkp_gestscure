@@ -688,7 +688,7 @@ class HikvisionIsapiService
     /**
      * Read device user metadata without biometric templates or credential material.
      */
-    public function fetchUsers(Door $door, int $limit = 100): array
+    public function fetchUsers(Door $door, int $limit = 100, bool $withCredentialCounts = false): array
     {
         if ($this->isMockMode()) {
             return ['status' => false, 'total_device_matches' => 0, 'inspected_users' => 0, 'users' => [], 'error' => 'Device user inventory requires --real mode.'];
@@ -755,12 +755,18 @@ class HikvisionIsapiService
                 $remaining = $limit - count($users);
 
                 foreach (array_slice($rows, 0, $remaining) as $user) {
-                    $users[] = [
+                    $row = [
                         'employee_no' => (string) ($user['employeeNo'] ?? ''),
                         'name' => (string) ($user['name'] ?? ''),
                         'status' => (string) ($user['Valid']['enable'] ?? $user['enable'] ?? ''),
                         'card_count' => isset($user['numOfCard']) ? (int) $user['numOfCard'] : null,
                     ];
+                    if ($withCredentialCounts) {
+                        // Counts only; biometric templates are never requested or kept.
+                        $row['fingerprint_count'] = isset($user['numOfFP']) ? (int) $user['numOfFP'] : null;
+                        $row['face_count'] = isset($user['numOfFace']) ? (int) $user['numOfFace'] : null;
+                    }
+                    $users[] = $row;
                 }
 
                 $position += $numOfMatches;
@@ -788,7 +794,7 @@ class HikvisionIsapiService
      * Read device card inventory metadata without exposing plaintext credential values or card numbers.
      * Returns only privacy-safe aggregates and presence mappings per employeeNo.
      */
-    public function fetchCards(Door $door, int $limit = 100): array
+    public function fetchCards(Door $door, int $limit = 100, bool $withCardFingerprint = false): array
     {
         if ($this->isMockMode()) {
             return ['status' => false, 'total_device_matches' => 0, 'inspected_cards' => 0, 'cards' => [], 'error' => 'Device card inventory requires non-mock mode.'];
@@ -800,6 +806,7 @@ class HikvisionIsapiService
         $position = 0;
         $totalMatches = 0;
         $cards = [];
+        $cardSecurity = app(CardSecurityService::class);
 
         try {
             $client = $this->buildHttpClient($door);
@@ -841,12 +848,20 @@ class HikvisionIsapiService
                 foreach (array_slice($rows, 0, $remaining) as $card) {
                     $employeeNo = trim((string) ($card['employeeNo'] ?? ''));
                     $cardType = (string) ($card['cardType'] ?? 'normalCard');
-                    // Immediately drop cardNo; only store boolean presence and safe type descriptor
-                    $cards[] = [
+                    $rawCardNo = trim((string) ($card['cardNo'] ?? ''));
+                    // Immediately drop cardNo; keep only presence, safe type, keyed hash and mask
+                    $row = [
                         'employee_no' => $employeeNo,
                         'card_registered' => true,
                         'card_type' => $cardType,
                     ];
+                    if ($withCardFingerprint) {
+                        // Keyed HMAC + ****1234 mask for comparison with the app record.
+                        $row['card_hash'] = $rawCardNo !== '' ? $cardSecurity->hashCardNumber($rawCardNo) : null;
+                        $row['card_mask'] = $rawCardNo !== '' ? $cardSecurity->maskCardNumber($rawCardNo) : null;
+                    }
+                    $cards[] = $row;
+                    unset($rawCardNo);
                 }
 
                 $position += $numOfMatches;
