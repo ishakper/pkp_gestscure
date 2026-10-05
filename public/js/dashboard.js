@@ -828,16 +828,26 @@ async function checkAllDoors(btn) {
 // Section 2: User & Privilege Management
 // ==========================================
 // Gedung / Divisi / Posisi options for the employee form, from the master tables only
-// (buildings, divisions, positions). Loaded once when the form first opens; a failed
-// lookup is retried on the next open.
+// (buildings, divisions, positions). The lookup is shared with the dashboard/attendance
+// building filters and loaded at boot; the employee form re-reads it when it is older than
+// ORGANIZATION_LOOKUP_FRESH_MS, so masters created in another tab or by another admin show
+// up without a page reload. A failed lookup is retried on the next open.
+const ORGANIZATION_LOOKUP_FRESH_MS = 30000;
 let organizationLookupPromise = null;
+let organizationLookupLoadedAt = 0;
 
-function ensureOrganizationLookup() {
+function ensureOrganizationLookup({ maxAgeMs = Infinity } = {}) {
+    // loadedAt is 0 while a request is in flight, so an in-flight lookup is always reused.
+    if (organizationLookupPromise && organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt > maxAgeMs) {
+        organizationLookupPromise = null;
+    }
     if (!organizationLookupPromise) {
+        organizationLookupLoadedAt = 0;
         organizationLookupPromise = apiFetch('/user-management/organization/lookup')
             .then(res => {
                 if (res.status !== 'success') throw new Error(res.message || 'Lookup organisasi gagal');
                 state.organization = res.data;
+                organizationLookupLoadedAt = Date.now();
                 return res.data;
             })
             .catch(err => {
@@ -848,31 +858,78 @@ function ensureOrganizationLookup() {
     return organizationLookupPromise;
 }
 
-function fillOrganizationSelect(select, items, placeholder, emptyText, selected, blockedText = '') {
+const ORGANIZATION_LEGACY_TEXT = {
+    building: 'Data gedung lama tidak ditemukan',
+    division: 'Data divisi lama tidak ditemukan',
+    position: 'Data posisi lama tidak ditemukan',
+};
+
+// legacy: the employee's stored entry when it is not in the lookup (inactive, deleted or
+// outside the admin's scope). It stays selected and visible instead of silently becoming
+// empty, and saveEmployee() leaves it untouched.
+function fillOrganizationSelect(select, items, placeholder, emptyText, selected, blockedText = '', legacy = null) {
     if (!select) return;
     if (blockedText) { // the parent level is not chosen yet
         select.innerHTML = `<option value="">${blockedText}</option>`;
         select.disabled = true;
         return;
     }
-    select.innerHTML = items.length
-        ? `<option value="">${placeholder}</option>` + items.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('')
+    const known = items.some(x => String(x.id) === String(selected));
+    const legacyOption = !known && legacy && selected && String(legacy.id) === String(selected)
+        ? `<option value="${escapeHtml(String(legacy.id))}" data-legacy="1">${escapeHtml(legacy.text)}${legacy.name ? ` (${escapeHtml(legacy.name)})` : ''}</option>`
+        : '';
+    const options = items.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+    select.innerHTML = items.length || legacyOption
+        ? `<option value="">${items.length ? placeholder : emptyText}</option>` + legacyOption + options
         : `<option value="">${emptyText}</option>`;
-    select.disabled = items.length === 0;
-    select.value = items.some(x => String(x.id) === String(selected)) ? String(selected) : '';
+    select.disabled = !items.length && !legacyOption;
+    select.value = known || legacyOption ? String(selected) : '';
+}
+
+function setEmployeeOrganizationState(value) {
+    const building = document.getElementById('empBuilding');
+    if (building) building.dataset.orgState = value; // loading | ready | error
+}
+
+function renderEmployeeOrganizationLoading(text = 'Memuat data organisasi...') {
+    ['empBuilding', 'empDivision', 'empPosition'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        select.innerHTML = `<option value="">${text}</option>`;
+        select.disabled = true;
+    });
 }
 
 // Gedung -> Divisi -> Posisi: a level is enabled only once its parent is chosen and lists
 // only that parent's entries. Empty master tables are shown as such, never padded.
-function renderEmployeeOrganizationOptions({ building = '', division = '', position = '' } = {}) {
+function renderEmployeeOrganizationOptions({ building = '', division = '', position = '' } = {}, legacy = employeeOrganizationForm.legacy) {
     const org = state.organization || { buildings: [], divisions: [], positions: [] };
-    fillOrganizationSelect(document.getElementById('empBuilding'), org.buildings || [], 'Pilih Gedung', 'Belum ada data gedung', building);
+    const allDivisions = org.divisions || [];
+    const allPositions = org.positions || [];
+    fillOrganizationSelect(document.getElementById('empBuilding'), org.buildings || [], 'Pilih Gedung', 'Belum ada data gedung', building, '', legacy.building);
     const buildingId = document.getElementById('empBuilding')?.value || '';
-    const divisions = (org.divisions || []).filter(d => String(d.building_id) === buildingId);
-    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi', 'Belum ada data divisi', division, buildingId ? '' : 'Pilih gedung terlebih dahulu');
+    const divisions = allDivisions.filter(d => String(d.building_id) === buildingId);
+    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi',
+        allDivisions.length ? 'Belum ada divisi untuk gedung ini' : 'Belum ada data divisi',
+        division, buildingId ? '' : 'Pilih gedung terlebih dahulu', legacy.division);
     const divisionId = document.getElementById('empDivision')?.value || '';
-    const positions = (org.positions || []).filter(p => String(p.division_id) === divisionId);
-    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi', 'Belum ada data posisi', position, divisionId ? '' : 'Pilih divisi terlebih dahulu');
+    const positions = allPositions.filter(p => String(p.division_id) === divisionId);
+    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi',
+        allPositions.length ? 'Belum ada posisi untuk divisi ini' : 'Belum ada data posisi',
+        position, divisionId ? '' : 'Pilih divisi terlebih dahulu', legacy.position);
+}
+
+// What the form should show: the employee's stored values on open, then whatever the user
+// picks. An asynchronous lookup refresh renders this, so it never resets a user's choice
+// and a response for an earlier open (seq) is ignored.
+const employeeOrganizationForm = { seq: 0, selection: {}, legacy: {}, touched: false, recordPending: false };
+
+function readEmployeeOrganizationSelection() {
+    return {
+        building: document.getElementById('empBuilding')?.value || '',
+        division: document.getElementById('empDivision')?.value || '',
+        position: document.getElementById('empPosition')?.value || '',
+    };
 }
 
 // After a Divisi/Posisi change the cached lookup is stale: drop it and, if the employee
@@ -881,26 +938,76 @@ function invalidateOrganizationLookup() {
     organizationLookupPromise = null;
     if (document.getElementById('employeeModal')?.classList.contains('active')) {
         loadEmployeeOrganizationOptions({
-            building: document.getElementById('empBuilding')?.value,
-            division: document.getElementById('empDivision')?.value,
-            position: document.getElementById('empPosition')?.value,
-        });
+            ...employeeOrganizationForm.selection,
+        }, employeeOrganizationForm.legacy, { keepTouched: true });
     }
 }
 
 function onEmployeeOrganizationChange() {
+    // A stored entry that is not in the lookup only survives while its parent is unchanged.
+    const previous = employeeOrganizationForm.selection;
+    const legacy = { ...employeeOrganizationForm.legacy };
+    if ((document.getElementById('empBuilding')?.value || '') !== String(previous.building || '')) {
+        legacy.division = null;
+        legacy.position = null;
+    } else if ((document.getElementById('empDivision')?.value || '') !== String(previous.division || '')) {
+        legacy.position = null;
+    }
+    employeeOrganizationForm.legacy = legacy;
+    employeeOrganizationForm.touched = true;
     renderEmployeeOrganizationOptions({
         building: document.getElementById('empBuilding')?.value,
         division: document.getElementById('empDivision')?.value,
         position: document.getElementById('empPosition')?.value,
     });
+    // Children that no longer belong to the chosen parent were reset by the render.
+    employeeOrganizationForm.selection = readEmployeeOrganizationSelection();
 }
 
-function loadEmployeeOrganizationOptions(selected = {}) {
-    renderEmployeeOrganizationOptions(selected);
-    return ensureOrganizationLookup()
-        .then(() => renderEmployeeOrganizationOptions(selected))
-        .catch(err => showToast(`Data gedung/divisi/posisi gagal dimuat: ${err.message}`, 'warning'));
+function loadEmployeeOrganizationOptions(selected = {}, legacy = {}, { keepTouched = false } = {}) {
+    const seq = ++employeeOrganizationForm.seq;
+    if (!keepTouched) employeeOrganizationForm.touched = false;
+    employeeOrganizationForm.selection = { building: selected.building || '', division: selected.division || '', position: selected.position || '' };
+    employeeOrganizationForm.legacy = legacy;
+
+    if (organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt <= ORGANIZATION_LOOKUP_FRESH_MS) {
+        // fresh cache: show it right away (no request below)
+        renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, legacy);
+        setEmployeeOrganizationState('ready');
+    } else {
+        renderEmployeeOrganizationLoading();
+        setEmployeeOrganizationState('loading');
+    }
+
+    return ensureOrganizationLookup({ maxAgeMs: ORGANIZATION_LOOKUP_FRESH_MS })
+        .then(() => {
+            if (seq !== employeeOrganizationForm.seq) return; // a newer open/refresh owns the form
+            renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, employeeOrganizationForm.legacy);
+            setEmployeeOrganizationState('ready');
+        })
+        .catch(err => {
+            if (seq !== employeeOrganizationForm.seq) return;
+            if (!organizationLookupLoadedAt && !state.organization?.buildings?.length) {
+                renderEmployeeOrganizationLoading('Data organisasi gagal dimuat');
+                setEmployeeOrganizationState('error');
+            }
+            showToast(`Data gedung/divisi/posisi gagal dimuat: ${err.message}`, 'warning');
+        });
+}
+
+// Organization fields to send: a level still on its stored legacy entry, or a form whose
+// options never loaded, is left out so the stored value is kept rather than cleared.
+function employeeOrganizationPayload() {
+    const orgState = document.getElementById('empBuilding')?.dataset.orgState;
+    if (orgState === 'loading' || orgState === 'error') return {};
+    if (employeeOrganizationForm.recordPending && !employeeOrganizationForm.touched) return {};
+    const payload = {};
+    [['empBuilding', 'building_id'], ['empDivision', 'division_id'], ['empPosition', 'position_id']].forEach(([id, key]) => {
+        const select = document.getElementById(id);
+        if (!select || select.selectedOptions[0]?.dataset.legacy) return;
+        payload[key] = select.value || null;
+    });
+    return payload;
 }
 
 let employeeRequestController = null;
@@ -1159,7 +1266,7 @@ const DEVICE_CARD_BADGES = {
     MATCHED: ['badge-success', 'Kartu ✓ perangkat', 'Kartu terverifikasi di perangkat dan cocok dengan aplikasi'],
     DEVICE_FOUND: ['badge-info', 'Kartu di perangkat', 'Perangkat menyimpan kartu; aplikasi belum punya nomor kartu untuk dibandingkan'],
     MISMATCH: ['badge-danger', 'Kartu beda', 'Kartu di perangkat berbeda dengan kartu di aplikasi'],
-    APP_RECORDED: ['badge-dim', 'Kartu tercatat di aplikasi', 'Tercatat di aplikasi, belum terverifikasi di perangkat'],
+    APP_RECORDED: ['badge-warning', 'Kartu tidak ada di perangkat', 'Aplikasi mencatat kartu, perangkat yang terverifikasi tidak menyimpannya'],
     NONE: ['badge-dim', 'Tanpa kartu', 'Tidak ada kartu di aplikasi maupun di perangkat'],
     DEVICE_UNREACHABLE: ['badge-warning', 'Kartu: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
     UNKNOWN: ['badge-dim', 'Kartu belum diverifikasi', 'Belum ada data perangkat untuk kartu ini'],
@@ -1191,21 +1298,33 @@ function employeeCredentialBadges(emp) {
     const appCard = Boolean(verification?.app_recorded?.card ?? (emp.card_registered === true || emp.biometric_status?.card_enrolled));
     const appFp = Boolean(verification?.app_recorded?.fingerprint ?? emp.biometric_status?.fingerprint_enrolled);
 
-    let cardStatus = verification?.card_status || (appCard ? 'APP_RECORDED' : 'UNKNOWN');
-    if (!DEVICE_CARD_BADGES[cardStatus]) cardStatus = 'UNKNOWN';
-    const fpStatus = DEVICE_FP_BADGES[verification?.fingerprint_status] ? verification.fingerprint_status : 'UNKNOWN';
+    // Device badges move away from UNKNOWN only with device evidence (a reconciliation result
+    // for this employee). App-recorded flags get their own marker and never count as device truth.
+    const verified = Boolean(verification?.last_verified_at);
+    const cardStatus = verified && DEVICE_CARD_BADGES[verification.card_status] ? verification.card_status : 'UNKNOWN';
+    const fpStatus = verified && DEVICE_FP_BADGES[verification.fingerprint_status] ? verification.fingerprint_status : 'UNKNOWN';
 
-    let fpBadge = credentialBadge(DEVICE_FP_BADGES[fpStatus]);
-    if (appFp && fpStatus === 'UNKNOWN') {
-        fpBadge = credentialBadge(['badge-dim', 'FP tercatat di aplikasi', 'Tercatat di aplikasi, belum terverifikasi di perangkat']);
-    }
+    const recorded = [appFp && 'FP', appCard && 'Kartu'].filter(Boolean);
+    const appBadge = recorded.length
+        ? credentialBadge(['badge-dim', `Tercatat di aplikasi: ${recorded.join(', ')}`, 'Catatan aplikasi (form Pengguna), belum bukti dari perangkat'])
+        : '';
 
     const sync = verification?.sync_status;
     const syncBadge = sync && sync !== 'UNVERIFIED' && SYNC_STATUS_BADGES[sync]
         ? credentialBadge([SYNC_STATUS_BADGES[sync][0], SYNC_STATUS_BADGES[sync][1], `Status sinkron perangkat: ${SYNC_STATUS_BADGES[sync][1]}`])
         : '';
 
-    return { fpBadge, cardBadge: credentialBadge(DEVICE_CARD_BADGES[cardStatus]), syncBadge };
+    return {
+        fpBadge: credentialBadge(DEVICE_FP_BADGES[fpStatus]),
+        cardBadge: credentialBadge(DEVICE_CARD_BADGES[cardStatus]),
+        syncBadge: syncBadge + appBadge,
+    };
+}
+
+// Employee or door-access changes make the Credential Center comparison out of date; the next
+// open of that tab reloads it instead of reusing the 30 s window. No request is sent here.
+function markAccessViewsStale() {
+    reconState.loadedAt = 0;
 }
 
 // Replace one employee in the current page with the saved record so the row reflects the
@@ -1360,6 +1479,7 @@ async function submitDoorAssignment(e) {
         if (res.status === 'success') {
             showToast(`Akses pintu berhasil diperbarui untuk ${state.selectedEmployeeForAssign.name}.`, 'success');
             closeModal('doorAssignModal');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1389,6 +1509,7 @@ async function revokeAllEmployeeDoors() {
         if (res.status === 'success') {
             showToast(`Seluruh izin pintu untuk ${state.selectedEmployeeForAssign.name} berhasil dicabut.`, 'success');
             closeModal('doorAssignModal');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1413,6 +1534,7 @@ async function revokeSingleDoor(empId, doorId) {
 
         if (res.status === 'success') {
             showToast(`Izin akses pintu ${doorId} berhasil dicabut.`, 'success');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1433,6 +1555,8 @@ function openAddEmployeeModal() {
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
     setSelectValuePreserving(document.getElementById('empDept'), '');
+    employeeEditSeq++; // a pending re-read of an edited employee no longer applies
+    employeeOrganizationForm.recordPending = false;
     ['empEmail','empPhone','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
     loadEmployeeOrganizationOptions();
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
@@ -1458,11 +1582,45 @@ function openEditEmployeeModal(empId) {
     setSelectValuePreserving(document.getElementById('empDept'), emp.department);
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
-    loadEmployeeOrganizationOptions({ building: emp.building?.id || '', division: emp.division?.id || '', position: emp.position?.id || '' });
+    loadEmployeeOrganizationOptions({ building: emp.building?.id || '', division: emp.division?.id || '', position: emp.position?.id || '' }, organizationLegacyFor(emp));
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
     document.getElementById('employeeModal').classList.add('active');
+    refreshEditedEmployee(emp.id);
+}
+
+function organizationLegacyFor(emp) {
+    return {
+        building: emp.building?.id ? { id: emp.building.id, name: emp.building.name, text: ORGANIZATION_LEGACY_TEXT.building } : null,
+        division: emp.division?.id ? { id: emp.division.id, name: emp.division.name, text: ORGANIZATION_LEGACY_TEXT.division } : null,
+        position: emp.position?.id ? { id: emp.position.id, name: emp.position.name, text: ORGANIZATION_LEGACY_TEXT.position } : null,
+    };
+}
+
+// The table row can be older than the record (another admin, another tab). The modal opens
+// from the row at once, then re-reads this one employee: the row is patched and, unless the
+// user already changed them, Gedung/Divisi/Posisi are restored from the fresh record. Until
+// then an untouched organization is not sent, so a stale row cannot clear stored values.
+let employeeEditSeq = 0;
+
+function refreshEditedEmployee(id) {
+    const seq = ++employeeEditSeq;
+    employeeOrganizationForm.recordPending = true;
+    return apiFetch(`/user-management/employees/${Number(id)}`)
+        .then(res => {
+            const modalOpen = document.getElementById('employeeModal')?.classList.contains('active');
+            if (seq !== employeeEditSeq || !modalOpen || String(document.getElementById('empDbId').value) !== String(id) || !res?.data) return;
+            patchEmployeeRow(res.data);
+            if (!employeeOrganizationForm.touched) {
+                const fresh = res.data;
+                loadEmployeeOrganizationOptions({ building: fresh.building?.id || '', division: fresh.division?.id || '', position: fresh.position?.id || '' }, organizationLegacyFor(fresh));
+            }
+        })
+        .catch(() => { /* the row data stays usable; a failed re-read is not fatal */ })
+        .finally(() => {
+            if (seq === employeeEditSeq) employeeOrganizationForm.recordPending = false;
+        });
 }
 
 function setSelectValuePreserving(select, value) {
@@ -1485,7 +1643,7 @@ async function saveEmployee(e) {
         nik: document.getElementById('empNik').value,
         name: document.getElementById('empName').value,
         email: document.getElementById('empEmail').value, phone: document.getElementById('empPhone').value,
-        building_id: document.getElementById('empBuilding').value || null, division_id: document.getElementById('empDivision').value || null, position_id: document.getElementById('empPosition').value || null,
+        ...employeeOrganizationPayload(),
         employment_type: document.getElementById('empEmploymentType').value || null, employment_status: document.getElementById('empEmploymentStatus').value, hire_date: document.getElementById('empHireDate').value || null,
         department: document.getElementById('empDept').value,
         role_jabatan: document.getElementById('empRole').value,
@@ -1511,6 +1669,9 @@ async function saveEmployee(e) {
             showToast(id ? 'Data karyawan berhasil diperbarui!' : 'Karyawan baru berhasil ditambahkan!', 'success');
             closeModal('employeeModal');
             if (id) patchEmployeeRow(res.data);
+            markAccessViewsStale();
+            // Deactivation revokes door access on the server: door cards must not keep old counts.
+            if (payload.employment_status === 'INACTIVE') scheduleBackgroundRefresh('doors', loadDoors, 0);
             await loadEmployees();
         }
     } catch (err) {
