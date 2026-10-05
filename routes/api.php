@@ -207,6 +207,13 @@ Route::prefix('v1')->group(function () {
             Route::get('/device-syncs', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'deviceSyncs']);
             Route::post('/device-syncs/{id}/retry', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'retryDeviceSync']);
 
+            // Device ↔ app reconciliation (read-only towards devices)
+            Route::get('/reconciliation', [\App\Http\Controllers\Api\DeviceReconciliationController::class, 'index']);
+            Route::post('/reconciliation/run', [\App\Http\Controllers\Api\DeviceReconciliationController::class, 'run']);
+            Route::get('/reconciliation/employees/{id}', [\App\Http\Controllers\Api\DeviceReconciliationController::class, 'employee'])->whereNumber('id');
+            Route::get('/reconciliation/device-persons/{id}', [\App\Http\Controllers\Api\DeviceReconciliationController::class, 'devicePerson'])->whereNumber('id');
+            Route::post('/reconciliation/device-persons/{id}/decision', [\App\Http\Controllers\Api\DeviceReconciliationController::class, 'decide'])->whereNumber('id');
+
             // E-Money Cards (Admin-Only)
             Route::get('/emoney', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'emoneyCards']);
             Route::post('/emoney', [\App\Http\Controllers\Api\AccessProvisioningController::class, 'storeEmoneyCard']);

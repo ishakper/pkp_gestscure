@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\DeviceCredentialReconciliationService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -51,10 +52,13 @@ class EmployeeResource extends JsonResource
             'division' => $this->division?->only(['id', 'code', 'name']),
             'position' => $this->position?->only(['id', 'code', 'name']),
             'supervisor' => $this->supervisor?->only(['id', 'employee_id', 'name']),
+            // App-recorded flags (form checkboxes). They are not proof that the device holds
+            // the credential; device_verification carries what the devices reported.
             'biometric_status' => [
                 'fingerprint_enrolled' => (bool) optional($this->biometricStatus)->has_fingerprint,
                 'card_enrolled' => (bool) optional($this->biometricStatus)->card_enrolled,
             ],
+            'device_verification' => $this->when($this->relationLoaded('deviceStates'), fn () => $this->deviceVerification($request)),
             'door_assign' => $doors->map(fn ($door) => [
                 'door_id' => $door->door_id,
                 'door_name' => ($door->name ?? $door->door_name)." ({$door->location})",
@@ -63,5 +67,16 @@ class EmployeeResource extends JsonResource
             ]),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    private function deviceVerification(Request $request): array
+    {
+        $service = app(DeviceCredentialReconciliationService::class);
+        // One latest-result query per request, shared by every row of a page.
+        if (!$request->attributes->has('device_door_results')) {
+            $request->attributes->set('device_door_results', $service->latestDoorResults());
+        }
+
+        return $service->employeeVerification($this->resource, $request->attributes->get('device_door_results'));
     }
 }

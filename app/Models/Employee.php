@@ -94,6 +94,12 @@ class Employee extends Model
                     ->withTimestamps();
     }
 
+    // What the devices last reported for this employee (read-only reconciliation).
+    public function deviceStates()
+    {
+        return $this->hasMany(DevicePersonState::class);
+    }
+
     public function accessLogs()
     {
         return $this->hasMany(AccessLog::class);

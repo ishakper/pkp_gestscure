@@ -3020,6 +3020,60 @@
 
         <!-- SUB-TAB 3: CREDENTIAL CENTER -->
         <div id="accessSubCredentials" class="ats-sub-content" style="display: none;">
+            <!-- Reconciliation Center: device vs app, read-only towards devices (super_admin) -->
+            <div id="deviceReconciliationSection" class="table-container" style="display: none; margin-bottom: 1.25rem;">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display:flex;flex-direction:column;gap:0.2rem;">
+                        <strong style="color:#fff;">Rekonsiliasi Perangkat</strong>
+                        <small id="reconLastRun" style="color:#94a3b8;">Belum pernah membaca perangkat.</small>
+                    </div>
+                    <div class="toolbar-right">
+                        <button type="button" class="btn-primary" id="reconRunAllBtn" onclick="runDeviceReconciliation(null, this)" title="Membaca data pengguna/kartu/sidik jari dari perangkat. Tidak ada data yang ditulis ke perangkat.">⟳ Refresh dari Perangkat</button>
+                    </div>
+                </div>
+                <div id="reconDeviceSummary" class="recon-device-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0.75rem;padding:0 1rem 1rem;"></div>
+
+                <div style="padding:0 1rem 1rem;">
+                    <strong style="color:#fff;">Data Perangkat Belum Terhubung</strong>
+                    <table style="margin-top:0.5rem;">
+                        <thead>
+                            <tr>
+                                <th>Person Number</th><th>Nama di Perangkat</th><th>Kartu</th><th>Jumlah FP</th><th>Perangkat</th><th>Kandidat</th><th>Keyakinan</th><th>Status</th><th style="text-align:right;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reconUnlinkedBody">
+                            <tr><td colspan="9" class="empty-td">Belum ada data perangkat.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="table-toolbar">
+                    <div class="toolbar-left" id="reconTabs" style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                        <button type="button" class="subnav-btn active" data-recon-tab="all" onclick="setReconciliationTab('all')">Semua</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="synced" onclick="setReconciliationTab('synced')">Tersinkron</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="partial" onclick="setReconciliationTab('partial')">Partial</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="app_only" onclick="setReconciliationTab('app_only')">Hanya Aplikasi</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="device_only" onclick="setReconciliationTab('device_only')">Hanya Perangkat</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="conflict" onclick="setReconciliationTab('conflict')">Konflik</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="review" onclick="setReconciliationTab('review')">Perlu Verifikasi</button>
+                    </div>
+                    <div class="toolbar-right">
+                        <input type="text" id="reconSearch" placeholder="Cari nama / NIK / person number..." oninput="debounceReconciliationSearch()" style="width: 240px;">
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>App Status</th><th>Device Status</th><th>Sync Status</th><th>Last Verified</th><th style="text-align:right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reconTableBody">
+                        <tr><td colspan="11" class="empty-td">Memuat rekonsiliasi...</td></tr>
+                    </tbody>
+                </table>
+                <div id="reconPagination" style="display:flex;justify-content:flex-end;gap:0.5rem;align-items:center;padding:0.75rem 1rem;"></div>
+            </div>
+
             <div class="table-container">
                 <div class="table-toolbar">
                     <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
@@ -4230,15 +4284,16 @@
             <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
             <div class="form-row"><label>Tipe / Status Kerja</label><div style="display:flex;gap:.5rem"><select id="empEmploymentType"><option value="">Pilih Tipe</option><option>PERMANENT</option><option>CONTRACT</option><option>OUTSOURCE</option></select><select id="empEmploymentStatus"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div></div>
             <div class="form-row"><label>Tanggal Masuk</label><input type="date" id="empHireDate"></div>            <div class="form-row">
-                <label>Enrollment Biometrik</label>
+                <label>Credential tercatat di aplikasi</label>
                 <div style="display: flex; gap: 1.5rem; margin-top: 0.35rem;">
                     <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; color: #ffffff;">
-                        <input type="checkbox" id="empFp" checked> Fingerprint Enrolled
+                        <input type="checkbox" id="empFp"> Fingerprint tercatat di aplikasi
                     </label>
                     <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; color: #ffffff;">
-                        <input type="checkbox" id="empCard" checked> Card Enrolled
+                        <input type="checkbox" id="empCard"> Card tercatat di aplikasi
                     </label>
                 </div>
+                <small id="empCredentialHint" style="display:block;margin-top:0.35rem;color:#94a3b8;">Centang ini hanya catatan aplikasi. Status "terverifikasi di perangkat" berasal dari Rekonsiliasi Perangkat (read-only).</small>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
                 <button type="button" class="btn-secondary" onclick="closeModal('employeeModal')">Batal</button>
@@ -5496,6 +5551,33 @@
                 <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Cabut Kredensial</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL: DETAIL PERBANDINGAN REKONSILIASI -->
+<div class="modal-overlay" id="modalReconDetail">
+    <div class="modal-card" style="max-width: 760px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Detail Perbandingan Aplikasi ↔ Perangkat</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalReconDetail')">✖</button>
+        </div>
+        <div id="reconDetailBody" style="font-size:0.85rem;color:var(--text-muted);">Memuat...</div>
+        <div id="reconDecisionPanel" style="display:none;margin-top:1rem;border-top:1px solid var(--border-color);padding-top:1rem;">
+            <input type="hidden" id="reconDecisionStateId">
+            <div class="form-row">
+                <label>Hubungkan ke Pengguna (hanya membuat tautan, tidak membuat karyawan baru)</label>
+                <select id="reconLinkEmployee"><option value="">-- Pilih Karyawan --</option></select>
+            </div>
+            <div class="form-row">
+                <label>Catatan</label>
+                <input type="text" id="reconDecisionNote" maxlength="500" placeholder="Alasan keputusan (opsional)">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;">
+                <button type="button" class="btn-secondary" onclick="submitReconciliationDecision('IGNORED', this)">Abaikan</button>
+                <button type="button" class="btn-secondary" onclick="submitReconciliationDecision('REVIEW', this)">Tandai Perlu Verifikasi</button>
+                <button type="button" class="btn-primary" onclick="submitReconciliationDecision('LINKED', this)">Hubungkan ke Pengguna</button>
+            </div>
+        </div>
     </div>
 </div>
 
