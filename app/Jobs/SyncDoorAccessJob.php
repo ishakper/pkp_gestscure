@@ -83,8 +83,8 @@ class SyncDoorAccessJob implements ShouldQueue
         if (!$provisionResult['status']) {
             $failedStep = $provisionResult['failed_step'] ?? null;
             $statusCode = $this->safeStatusCode($provisionResult['statusCode'] ?? null);
-            $safeError = $statusCode ?? 'Provisioning failed without status code';
-            $errorMsg = $failedStep ? "{$failedStep}: {$safeError}" : $safeError;
+            $safeError = $this->sanitizeDiagnosticError($provisionResult['error'] ?? null);
+            $errorMsg = mb_substr($failedStep ? "{$failedStep}: {$safeError}" : $safeError, 0, 500);
             $assignment->update([
                 'sync_status' => 'failed',
                 'last_sync_error' => $errorMsg,
@@ -159,5 +159,22 @@ class SyncDoorAccessJob implements ShouldQueue
         $statusCode = trim((string) $statusCode);
 
         return preg_match('/^(?:\d{3}|0x[0-9a-f]+)$/i', $statusCode) ? $statusCode : null;
+    }
+
+    private function sanitizeDiagnosticError(mixed $error): string
+    {
+        if (!is_scalar($error)) {
+            return 'Provisioning failed without a safe diagnostic message';
+        }
+
+        $error = trim(preg_replace('/\s+/', ' ', (string) $error));
+        $secretKey = '(?:password|authorization|token|card(?:_no)?|credential(?:[_\s-]?secret)?)';
+        $error = preg_replace('/\bauthorization\b\s*[:=]\s*(?:Bearer\s+)?[^\s,;]+/i', '[REDACTED]', $error);
+        $error = preg_replace('/["\']' . $secretKey . '["\']\s*:\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;}]+)/i', '[REDACTED]', $error);
+        $error = preg_replace('/\b' . $secretKey . '\b\s*[:=]\s*(?:"[^"]*"|\'[^\']*\'|[^\s,;]+)/i', '[REDACTED]', $error);
+        $error = preg_replace('/\bBearer\s+[A-Za-z0-9._~+\/=:-]+/i', '[REDACTED]', $error);
+        $error = trim((string) $error);
+
+        return mb_substr($error !== '' ? $error : 'Provisioning failed without a safe diagnostic message', 0, 500);
     }
 }

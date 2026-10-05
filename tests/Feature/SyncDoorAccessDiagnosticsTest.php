@@ -66,6 +66,27 @@ class SyncDoorAccessDiagnosticsTest extends TestCase
         ]);
     }
 
+    public function test_user_info_error_message_and_status_code_are_stored_separately(): void
+    {
+        $assignment = $this->assignment('ACTIVE');
+        $isapi = Mockery::mock(HikvisionIsapiService::class);
+        $isapi->shouldReceive('pingDevice')->once()->andReturnTrue();
+        $isapi->shouldReceive('provisionEmployeeAccess')->once()->andReturn([
+            'status' => false,
+            'failed_step' => 'USER_INFO',
+            'statusCode' => 400,
+            'error' => "  Invalid\n employeeNo  ",
+        ]);
+
+        (new SyncDoorAccessJob($assignment->id))->handle($isapi);
+
+        $assignment->refresh();
+        $this->assertSame('USER_INFO', $assignment->failed_step);
+        $this->assertSame('400', $assignment->last_sync_status_code);
+        $this->assertSame('USER_INFO: Invalid employeeNo', $assignment->last_sync_error);
+        $this->assertSame('Invalid employeeNo', ActivityLog::where('action', 'sync_door_failed')->value('error'));
+    }
+
     /** @dataProvider failedSteps */
     public function test_failed_stage_is_persisted_and_logged_without_sensitive_data(string $failedStep): void
     {
@@ -76,32 +97,31 @@ class SyncDoorAccessDiagnosticsTest extends TestCase
             'status' => false,
             'failed_step' => $failedStep,
             'statusCode' => '0x60000001',
-            'error' => 'password=device-secret card=CARD-SECRET-778899',
+            'error' => 'password=device-secret Authorization: Bearer abc.def token=secret card_no=CARD-SECRET-778899 credential_secret=hidden ' . str_repeat('x', 600),
         ]);
 
         (new SyncDoorAccessJob($assignment->id))->handle($isapi);
 
         $assignment->refresh();
-        $this->assertSame(['failed', $failedStep, '0x60000001', "{$failedStep}: 0x60000001"], [
-            $assignment->sync_status,
-            $assignment->failed_step,
-            $assignment->last_sync_status_code,
-            $assignment->last_sync_error,
-        ]);
+        $this->assertSame(['failed', $failedStep, '0x60000001'], [$assignment->sync_status, $assignment->failed_step, $assignment->last_sync_status_code]);
+        $this->assertStringStartsWith("{$failedStep}: [REDACTED]", $assignment->last_sync_error);
+        $this->assertLessThanOrEqual(500, mb_strlen($assignment->last_sync_error));
 
         $log = ActivityLog::where('action', 'sync_door_failed')->firstOrFail();
-        $this->assertSame([$assignment->id, $assignment->employee_id, $assignment->door_id, $failedStep, '0x60000001', '0x60000001'], [
+        $this->assertSame([$assignment->id, $assignment->employee_id, $assignment->door_id, $failedStep, '0x60000001'], [
             $log->assignment_id,
             $log->employee_id,
             $log->door_id,
             $log->failed_step,
             $log->status_code,
-            $log->error,
         ]);
+        $this->assertLessThanOrEqual(500, mb_strlen($log->error));
         $serializedLog = json_encode($log->getAttributes());
         $this->assertStringNotContainsString('device-secret', $serializedLog);
         $this->assertStringNotContainsString('CARD-SECRET-778899', $serializedLog);
         $this->assertStringNotContainsString('password', $serializedLog);
+        $this->assertStringNotContainsString('abc.def', $serializedLog);
+        $this->assertStringNotContainsString('credential_secret', $serializedLog);
     }
 
     public static function failedSteps(): array
