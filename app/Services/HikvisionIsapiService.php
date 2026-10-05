@@ -603,15 +603,10 @@ class HikvisionIsapiService
     {
         $payload = [
             'CardInfo' => [
-                'employeeNo' => $employeeNo,
-                'cardNo' => $cardNo,
+                'employeeNo' => (string) $employeeNo,
+                'cardNo' => (string) $cardNo,
                 'cardType' => 'normalCard',
-                'leaderCard' => 'false',
-                'name' => $employeeName,
             ],
-            'employeeNo' => $employeeNo,
-            'cardNo' => $cardNo,
-            'name' => $employeeName,
         ];
 
         // 1. Mock Mode: Direct Internal Controller Invocation
@@ -650,7 +645,7 @@ class HikvisionIsapiService
         }
 
         // 2. Real Physical Device Mode
-        $url = $this->buildUrl('/AccessControl/CardInfo/Record', $door);
+        $url = $this->buildUrl('/AccessControl/CardInfo/Record?format=json', $door);
 
         try {
             $response = $this->buildHttpClient($door)->put($url, $payload);

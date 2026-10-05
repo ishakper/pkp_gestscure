@@ -6,6 +6,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -185,8 +186,22 @@ XML;
     {
         Config::set('services.hikvision.use_mock', false);
 
-        Http::fake([
-            '*/AccessControl/CardInfo/Record' => Http::response([
+        Http::fake(function (HttpRequest $request) {
+            $this->assertStringEndsWith('/AccessControl/CardInfo/Record?format=json', $request->url());
+            $this->assertSame([
+                'CardInfo' => [
+                    'employeeNo' => 'USR-1001',
+                    'cardNo' => 'CARD-100234',
+                    'cardType' => 'normalCard',
+                ],
+            ], $request->data());
+            $this->assertArrayNotHasKey('employeeNo', $request->data());
+            $this->assertArrayNotHasKey('cardNo', $request->data());
+            $this->assertArrayNotHasKey('name', $request->data());
+            $this->assertArrayNotHasKey('leaderCard', $request->data()['CardInfo']);
+            $this->assertArrayNotHasKey('name', $request->data()['CardInfo']);
+
+            return Http::response([
                 'statusCode' => 1,
                 'statusString' => 'OK',
                 'subStatusCode' => 'ok',
@@ -197,8 +212,8 @@ XML;
                 ],
                 'cardNo' => 'CARD-100234',
                 'employeeNo' => 'USR-1001',
-            ], 200),
-        ]);
+            ], 200);
+        });
 
         $result = $this->service->syncCardUser('USR-1001', 'CARD-100234', 'Budi Santoso', $this->door);
 
@@ -216,7 +231,7 @@ XML;
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
-            '*/AccessControl/CardInfo/Record' => Http::response([
+            '*/AccessControl/CardInfo/Record*' => Http::response([
                 'statusCode' => 4,
                 'statusString' => 'Invalid Operation',
                 'subStatusCode' => 'badParameters',
@@ -246,7 +261,7 @@ XML;
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
-            '*/AccessControl/CardInfo/Record' => function () {
+            '*/AccessControl/CardInfo/Record*' => function () {
                 throw new \Exception('Network unreachable');
             },
         ]);
@@ -477,7 +492,7 @@ XML;
 
         Http::fake([
             '*/System/deviceInfo*' => Http::response(['statusCode' => 1, 'status' => 'OK'], 200),
-            '*/AccessControl/CardInfo/Record' => Http::response(['statusCode' => 1, 'statusString' => 'OK'], 200),
+            '*/AccessControl/CardInfo/Record*' => Http::response(['statusCode' => 1, 'statusString' => 'OK'], 200),
         ]);
 
         // pingDevice
