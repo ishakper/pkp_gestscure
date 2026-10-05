@@ -8263,8 +8263,44 @@ function showOrganizationMasterError(message) {
     box.hidden = !message;
 }
 
-function openOrganizationMasterModal(type, id = null) {
+let organizationMasterModalSeq = 0;
+
+// The parent dropdown is built from the master data. Opening the modal before that data has
+// arrived (production latency, a quick click right after opening the tab) used to snapshot an
+// empty Gedung/Divisi list, disable Simpan for good and never send the POST. The modal now
+// waits for the data, then fills the parents and enables Simpan.
+async function openOrganizationMasterModal(type, id = null) {
     if (!canManageOrganizationMaster()) return;
+    const seq = ++organizationMasterModalSeq;
+    const isDivision = type === 'divisions';
+    const parent = document.getElementById('orgMasterParent');
+    const submit = document.getElementById('orgMasterSubmit');
+
+    document.getElementById('orgMasterType').value = type;
+    document.getElementById('orgMasterId').value = id || '';
+    document.getElementById('orgMasterModalTitle').textContent = `${id ? 'Edit' : 'Tambah'} ${isDivision ? 'Divisi' : 'Posisi'}`;
+    document.getElementById('orgMasterParentLabel').textContent = isDivision ? 'Gedung *' : 'Divisi *';
+    document.getElementById('orgMasterCode').value = '';
+    document.getElementById('orgMasterName').value = '';
+    showOrganizationMasterError('');
+
+    if (!organizationMaster.loaded) {
+        parent.innerHTML = `<option value="">Memuat data ${isDivision ? 'gedung' : 'divisi'}...</option>`;
+        parent.disabled = true;
+        submit.disabled = true;
+        openModal('orgMasterModal');
+        await loadOrganizationMaster();
+        if (seq !== organizationMasterModalSeq) return; // another open superseded this one
+        parent.disabled = false;
+        if (!organizationMaster.loaded) {
+            showOrganizationMasterError('Data gedung/divisi gagal dimuat. Tutup lalu coba lagi.');
+            return;
+        }
+    }
+    fillOrganizationMasterModal(type, id);
+}
+
+function fillOrganizationMasterModal(type, id) {
     const isDivision = type === 'divisions';
     const list = isDivision ? organizationMaster.divisions : organizationMaster.positions;
     const item = id ? list.find(x => Number(x.id) === Number(id)) : null;
@@ -8274,9 +8310,11 @@ function openOrganizationMasterModal(type, id = null) {
     document.getElementById('orgMasterId').value = item ? item.id : '';
     document.getElementById('orgMasterModalTitle').textContent = `${item ? 'Edit' : 'Tambah'} ${isDivision ? 'Divisi' : 'Posisi'}`;
     document.getElementById('orgMasterParentLabel').textContent = isDivision ? 'Gedung *' : 'Divisi *';
-    document.getElementById('orgMasterCode').value = item?.code || '';
+    if (item) { // create keeps whatever was typed while the data was loading
+        document.getElementById('orgMasterCode').value = item.code || '';
+        document.getElementById('orgMasterName').value = item.name || '';
+    }
     document.getElementById('orgMasterCode').placeholder = isDivision ? 'DIV-IT' : 'POS-STAFF-IT';
-    document.getElementById('orgMasterName').value = item?.name || '';
     document.getElementById('orgMasterName').placeholder = isDivision ? 'IT Support' : 'Staff IT';
     document.getElementById('orgMasterActive').checked = item ? Boolean(item.is_active) : true;
     document.getElementById('orgMasterActiveRow').hidden = !item;
@@ -8289,13 +8327,14 @@ function openOrganizationMasterModal(type, id = null) {
             .filter(d => d.is_active || String(d.id) === String(parentId))
             .map(d => ({ id: d.id, label: `${d.name} — ${buildingName(d.building_id)}` }));
     const parent = document.getElementById('orgMasterParent');
+    parent.disabled = false;
     parent.innerHTML = `<option value="">${isDivision ? 'Pilih Gedung...' : 'Pilih Divisi...'}</option>` + parents.map(x => `<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('');
     parent.value = parentId ? String(parentId) : '';
 
     const submit = document.getElementById('orgMasterSubmit');
     submit.disabled = parents.length === 0;
     showOrganizationMasterError(parents.length ? '' : (isDivision ? 'Belum ada gedung aktif. Tambahkan gedung terlebih dahulu.' : 'Belum ada divisi aktif. Tambahkan divisi terlebih dahulu.'));
-    openModal('orgMasterModal');
+    if (!document.getElementById('orgMasterModal').classList.contains('active')) openModal('orgMasterModal');
 }
 
 async function submitOrganizationMaster(event) {
@@ -8362,6 +8401,7 @@ async function toggleOrganizationMasterActive(type, id, button) {
     }
 }
 
+window.openOrganizationMasterModal = openOrganizationMasterModal;
 window.submitOrganizationMaster = submitOrganizationMaster;
 window.toggleOrganizationMasterActive = toggleOrganizationMasterActive;
 
