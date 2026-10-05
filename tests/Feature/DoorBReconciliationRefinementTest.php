@@ -22,7 +22,7 @@ use Tests\TestCase;
  * MATCHED=0 / REVIEW=93 because a placeholder NIK (UNVERIFIED-NIK-*) turned exact
  * person-number matches into REVIEW, and a fingerprint count the device never reported was
  * summed as 0. The fixture mirrors that device: 93 exact person numbers (one without a
- * name on the device), Vidi as 00001 and 1 pointing to two employees, three device-only
+ * name on the device), Vidi as distinct raw identifiers 00001 and 1, three device-only
  * persons (Endy with a name-only candidate), one assigned employee missing from the device,
  * and no numOfFP for anyone.
  */
@@ -97,7 +97,7 @@ class DoorBReconciliationRefinementTest extends TestCase
             }
         }
 
-        // Vidi: two device persons whose numbers both resolve to two different employees.
+        // Vidi: leading zeroes are significant raw identifier data.
         $this->vidiA = Employee::factory()->create(['employee_id' => '00001', 'hikvision_employee_no' => '00001', 'source_person_number' => '00001', 'nik' => 'UNVERIFIED-NIK-00001', 'name' => 'Vidi']);
         $this->vidiB = Employee::factory()->create(['employee_id' => '1', 'hikvision_employee_no' => '1', 'source_person_number' => null, 'nik' => 'UNVERIFIED-NIK-1', 'name' => 'Vidi Pratama']);
         $this->users[] = $this->person('00001', 'Vidi', 0);
@@ -188,24 +188,12 @@ class DoorBReconciliationRefinementTest extends TestCase
     }
 
     // 5
-    public function test_05_identifier_pointing_to_two_employees_is_a_conflict_with_both_candidates(): void
+    public function test_05_raw_identifiers_with_leading_zeroes_match_independently(): void
     {
         $this->reconcile();
 
-        foreach (['00001', '1'] as $no) {
-            $state = $this->state($no);
-            $this->assertSame(['CONFLICT', 'CONFLICT', 'CONFLICT'], $this->statuses($state));
-            $this->assertNull($state->employee_id, 'Never auto-linked');
-            $this->assertNull($state->candidate_employee_id, 'Neither conflicting employee is presented as the candidate');
-            $this->assertSame('NONE', $state->card_status, 'The device reported 0 cards');
-            $this->assertEqualsCanonicalizing([$this->vidiA->id, $this->vidiB->id], $state->reasons['detail']['conflicting_employee_ids']);
-        }
-
-        $detail = $this->getJson('/api/v1/access/reconciliation/device-persons/' . $this->state('00001')->id)->assertOk()->json('data');
-        $this->assertSame([$this->vidiA->id, $this->vidiB->id], array_column($detail['conflicting_employees'], 'id'));
-        $this->assertSame(['00001', null], array_column($detail['conflicting_employees'], 'source_person_number'));
-        $this->assertSame(['UNVERIFIED-NIK-00001', 'UNVERIFIED-NIK-1'], array_column($detail['conflicting_employees'], 'nik'));
-        $this->assertSame(['CONFLICT', 'CONFLICT', 'CONFLICT'], [$detail['state']['device_link_status'], $detail['state']['identity_status'], $detail['state']['status']]);
+        $this->assertSame([$this->vidiA->id, 'person_number', 'MATCHED'], [$this->state('00001')->employee_id, $this->state('00001')->match_basis, $this->state('00001')->device_link_status]);
+        $this->assertSame([$this->vidiB->id, 'employee_id', 'MATCHED'], [$this->state('1')->employee_id, $this->state('1')->match_basis, $this->state('1')->device_link_status]);
         $this->assertSame(0, DevicePersonLink::count());
     }
 
@@ -232,18 +220,18 @@ class DoorBReconciliationRefinementTest extends TestCase
         $summary = collect(app(Recon::class)->deviceSummaries())->firstWhere('door_code', 'DOOR-B');
         $this->assertSame([
             'users_on_device' => 98, 'cards_on_device' => 82, 'fingerprints_on_device' => null,
-            'device_matched' => 93, 'identity_verified' => 0, 'identity_unverified' => 92, 'identity_review' => 1,
-            'synced' => 0, 'partial' => 93, 'review' => 0,
-            'device_only' => 3, 'app_only' => 1, 'conflicts' => 2, 'fingerprint_unknown' => 98,
+            'device_matched' => 95, 'identity_verified' => 0, 'identity_unverified' => 94, 'identity_review' => 1,
+            'synced' => 0, 'partial' => 95, 'review' => 0,
+            'device_only' => 3, 'app_only' => 1, 'conflicts' => 0, 'fingerprint_unknown' => 98,
         ], array_intersect_key($summary, array_flip([
             'users_on_device', 'cards_on_device', 'fingerprints_on_device', 'device_matched', 'identity_verified', 'identity_unverified',
             'identity_review', 'synced', 'partial', 'review', 'device_only', 'app_only', 'conflicts', 'fingerprint_unknown',
         ])));
 
         $overview = $this->getJson('/api/v1/access/reconciliation')->assertOk()->json('data');
-        $this->assertSame(93, $overview['counts']['partial']);
+        $this->assertSame(95, $overview['counts']['partial']);
         $this->assertSame(1, $overview['counts']['app_only']);
-        $this->assertSame(2, $overview['counts']['conflict']);
+        $this->assertSame(0, $overview['counts']['conflict']);
         $this->assertSame(3, $overview['counts']['device_only']);
         $this->assertSame(0, $overview['counts']['review'], 'Exact matches are no longer reported as failed matches');
         $ami = collect($this->getJson('/api/v1/access/reconciliation?search=250611')->json('data.rows'))->firstWhere('kind', 'employee');
@@ -254,7 +242,7 @@ class DoorBReconciliationRefinementTest extends TestCase
         $output = Artisan::output();
         $this->assertSame(0, $exit);
         $this->assertStringContainsString('Device matched', $output);
-        $this->assertMatchesRegularExpression('/\| DOOR-B \| ONLINE\s+\| 98\s+\| 82\s+\| -\s+\| 93\s+\| 0\s+\| 92\s+\| 1\s+\| 0\s+\| 93\s+\| 0\s+\| 3\s+\| 1\s+\| 2\s+\| 98\s+\|/', $output);
+        $this->assertMatchesRegularExpression('/\| DOOR-B \| ONLINE\s+\| 98\s+\| 82\s+\| -\s+\| 95\s+\| 0\s+\| 94\s+\| 1\s+\| 0\s+\| 95\s+\| 0\s+\| 3\s+\| 1\s+\| 0\s+\| 98\s+\|/', $output);
     }
 
     // 8 + 9

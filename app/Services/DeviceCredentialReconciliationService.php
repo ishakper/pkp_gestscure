@@ -10,6 +10,7 @@ use App\Models\DevicePersonState;
 use App\Models\DeviceReconciliationDoorResult;
 use App\Models\DeviceReconciliationRun;
 use App\Models\Door;
+use App\Models\DoorAssignment;
 use App\Models\Employee;
 use Illuminate\Support\Collection;
 
@@ -78,8 +79,6 @@ class DeviceCredentialReconciliationService
     public const ACCESS_NOT_GRANTED = 'NOT_GRANTED';
     public const ACCESS_FAILED = 'FAILED';
 
-    private const BASIS_PRIORITY = ['person_number', 'employee_id', 'nik', 'card'];
-
     public function __construct(
         private HikvisionIsapiService $isapi,
         private CardSecurityService $cardSecurity,
@@ -110,7 +109,7 @@ class DeviceCredentialReconciliationService
         $doorSummaries = [];
 
         foreach ($doors as $door) {
-            $doorSummaries[] = $this->reconcileDoor($run, $door, $index, $links, $limit);
+            $doorSummaries[] = $this->reconcileDoor($run, $door, $index, $links, $limit, $actor);
         }
 
         $reachable = collect($doorSummaries)->where('reachable', true)->count();
@@ -140,7 +139,7 @@ class DeviceCredentialReconciliationService
         return $run->fresh('doorResults');
     }
 
-    private function reconcileDoor(DeviceReconciliationRun $run, Door $door, array $index, Collection $links, int $limit): array
+    private function reconcileDoor(DeviceReconciliationRun $run, Door $door, array $index, Collection $links, int $limit, ?Admin $actor): array
     {
         $users = $this->isapi->fetchUsers($door, $limit, true);
 
@@ -195,7 +194,7 @@ class DeviceCredentialReconciliationService
                 $fingerprintTotal += $observed['fingerprint_count'];
             }
 
-            DevicePersonState::updateOrCreate(
+            $state = DevicePersonState::updateOrCreate(
                 ['door_id' => $door->id, 'device_employee_no' => $no],
                 $observed + $evaluation + [
                     'present_on_device' => true,
@@ -204,6 +203,8 @@ class DeviceCredentialReconciliationService
                     'last_verified_at' => $now,
                 ]
             );
+
+            $this->reconcileAssignmentFromDevice($state, $actor);
         }
 
         if ($complete) {
@@ -285,7 +286,7 @@ class DeviceCredentialReconciliationService
      */
     public function buildAppIndex(): array
     {
-        $index = ['employees' => [], 'person_number' => [], 'employee_id' => [], 'nik' => [], 'card' => [], 'name' => []];
+        $index = ['employees' => [], 'person_number' => [], 'employee_id' => [], 'nik' => [], 'normalized_id' => [], 'card' => [], 'name' => []];
 
         $credentialHashes = CredentialRecord::query()
             ->whereNotNull('employee_id')
@@ -313,14 +314,22 @@ class DeviceCredentialReconciliationService
                     'app_fingerprint' => self::appRecordsFingerprint($employee),
                 ];
 
-                foreach (array_unique(array_filter([self::normalizeId($employee->source_person_number), self::normalizeId($employee->hikvision_employee_no)])) as $key) {
+                if (($key = self::rawId($employee->source_person_number)) !== '') {
                     $index['person_number'][$key][] = $employee->id;
                 }
-                if (($key = self::normalizeId($employee->employee_id)) !== '') {
+                if (($key = self::rawId($employee->employee_id)) !== '') {
                     $index['employee_id'][$key][] = $employee->id;
                 }
-                if (!self::isUnverifiedNik($employee->nik) && ($key = self::normalizeId($employee->nik)) !== '') {
+                if (!self::isUnverifiedNik($employee->nik) && ($key = self::rawId($employee->nik)) !== '') {
                     $index['nik'][$key][] = $employee->id;
+                }
+                foreach (array_unique(array_filter([
+                    self::normalizeId($employee->source_person_number),
+                    self::normalizeId($employee->hikvision_employee_no),
+                    self::normalizeId($employee->employee_id),
+                    self::isUnverifiedNik($employee->nik) ? '' : self::normalizeId($employee->nik),
+                ])) as $key) {
+                    $index['normalized_id'][$key][] = $employee->id;
                 }
                 foreach ($hashes as $hash) {
                     $index['card'][$hash][] = $employee->id;
@@ -345,69 +354,70 @@ class DeviceCredentialReconciliationService
      *   PARTIAL (exact link, something not validated yet), REVIEW (ambiguous / low-confidence
      *   match), CONFLICT, DEVICE_ONLY.
      *
-     * Priority: 1 exact device person number (source_person_number / hikvision_employee_no),
-     * 2 exact normalized employee_id / NIK, 3 card identifier owned by exactly one employee,
-     * 4 a human link decision, 5 name — only ever a candidate, never a match.
+     * Priority: exact raw source person number, employee_id, NIK; manual link; exact card;
+     * normalized identifier and name are review candidates only.
      */
     public function evaluate(array $observed, Door $door, array $index, ?DevicePersonLink $link = null): array
     {
-        $no = self::normalizeId($observed['device_employee_no'] ?? '');
+        $rawNo = self::rawId($observed['device_employee_no'] ?? '');
+        $normalizedNo = self::normalizeId($rawNo);
         $deviceName = trim((string) ($observed['device_name'] ?? ''));
         $deviceHashes = $observed['card_hashes'] ?? null;
         $reasons = [];
-        $strong = [];
-
-        foreach (['person_number', 'employee_id', 'nik'] as $basis) {
-            foreach ($index[$basis][$no] ?? [] as $id) {
-                $strong[$id][] = $basis;
-            }
-        }
-        foreach ((array) $deviceHashes as $hash) {
-            $owners = array_values(array_unique($index['card'][$hash] ?? []));
-            if (count($owners) === 1) {
-                $strong[$owners[0]][] = 'card';
-            } elseif (count($owners) > 1) {
-                $reasons[] = 'card_shared_by_multiple_employees';
-            }
-        }
-
         $employeeId = null;
         $basis = null;
         $confidence = 'none';
 
-        if ($link && $link->decision === DevicePersonLink::LINKED && $link->employee_id && isset($index['employees'][$link->employee_id])) {
+        foreach (['person_number', 'employee_id', 'nik'] as $exactBasis) {
+            $matches = array_values(array_unique($index[$exactBasis][$rawNo] ?? []));
+            if (count($matches) > 1) {
+                return $this->conflictResult($observed, $matches, 'duplicate_exact_raw_identifier');
+            }
+            if (count($matches) === 1) {
+                $employeeId = $matches[0];
+                $basis = $exactBasis;
+                $confidence = 'high';
+                break;
+            }
+        }
+
+        if ($employeeId === null && $link && $link->decision === DevicePersonLink::LINKED && $link->employee_id && isset($index['employees'][$link->employee_id])) {
             $employeeId = $link->employee_id;
             $basis = 'manual_link';
             $confidence = 'high';
-            if (array_diff(array_keys($strong), [$employeeId]) !== []) {
-                $reasons[] = 'link_disagrees_with_identifier';
-            }
-        } elseif (count($strong) > 1) {
-            // Never auto-linked or merged: the admin decides in Detail Perbandingan.
-            $reasons[] = 'identifiers_point_to_different_employees';
+        }
 
-            return $this->result([
-                'status' => self::SYNC_CONFLICT,
-                'device_link_status' => self::LINK_CONFLICT,
-                'identity_status' => self::IDENTITY_CONFLICT_STATUS,
-                // Both employees are listed in detail.conflicting_employee_ids; neither is
-                // presented as "the" candidate.
-                'match_basis' => 'multiple',
-                'confidence' => 'low',
-                'card_status' => self::cardStatusWithoutEmployee($observed['card_count'] ?? null),
-                'fingerprint_status' => self::fingerprintStatus($observed['fingerprint_count'] ?? null, false),
-            ], $reasons, ['conflicting_employee_ids' => array_keys($strong)]);
-        } elseif (count($strong) === 1) {
-            $employeeId = array_key_first($strong);
-            $bases = $strong[$employeeId];
-            $basis = collect(self::BASIS_PRIORITY)->first(fn ($b) => in_array($b, $bases, true));
-            $confidence = $basis === 'card' ? 'medium' : 'high';
+        if ($employeeId === null) {
+            $cardOwners = [];
+            foreach ((array) $deviceHashes as $hash) {
+                $owners = array_values(array_unique($index['card'][$hash] ?? []));
+                if (count($owners) > 1) {
+                    $reasons[] = 'card_shared_by_multiple_employees';
+                }
+                foreach ($owners as $owner) {
+                    $cardOwners[$owner] = true;
+                }
+            }
+            if (count($cardOwners) > 1) {
+                return $this->conflictResult($observed, array_keys($cardOwners), 'cards_point_to_different_employees');
+            }
+            if (count($cardOwners) === 1) {
+                $employeeId = array_key_first($cardOwners);
+                $basis = 'card';
+                $confidence = 'medium';
+            }
         }
 
         if ($employeeId === null) {
             $candidateId = null;
+            $normalizedMatches = array_values(array_unique($index['normalized_id'][$normalizedNo] ?? []));
             $nameMatches = array_values(array_unique($index['name'][self::normalizeName($deviceName)] ?? []));
-            if (count($nameMatches) === 1) {
+            if (count($normalizedMatches) === 1) {
+                $candidateId = $normalizedMatches[0];
+                $reasons[] = 'normalized_identifier_candidate';
+            } elseif (count($normalizedMatches) > 1) {
+                $reasons[] = 'ambiguous_normalized_identifier';
+            } elseif (count($nameMatches) === 1) {
                 $candidateId = $nameMatches[0]; // shown to the admin, never linked automatically
                 $reasons[] = 'name_only_candidate';
             } elseif (count($nameMatches) > 1) {
@@ -417,7 +427,7 @@ class DeviceCredentialReconciliationService
                 $reasons[] = 'device_name_missing';
             }
 
-            $sync = self::isMissingName($deviceName) || in_array('ambiguous_name', $reasons, true) ? self::SYNC_REVIEW : self::SYNC_DEVICE_ONLY;
+            $sync = $normalizedMatches !== [] || self::isMissingName($deviceName) || in_array('ambiguous_name', $reasons, true) ? self::SYNC_REVIEW : self::SYNC_DEVICE_ONLY;
             if ($link?->decision === DevicePersonLink::REVIEW) {
                 $sync = self::SYNC_REVIEW;
                 $reasons[] = 'marked_for_review';
@@ -432,8 +442,8 @@ class DeviceCredentialReconciliationService
                 'device_link_status' => self::LINK_DEVICE_ONLY,
                 'identity_status' => self::IDENTITY_REVIEW,
                 'candidate_employee_id' => $candidateId,
-                'match_basis' => $candidateId ? 'name_candidate' : null,
-                'confidence' => $candidateId ? 'low' : 'none',
+                'match_basis' => $normalizedMatches !== [] ? 'normalized_identifier_candidate' : ($candidateId ? 'name_candidate' : null),
+                'confidence' => $normalizedMatches !== [] ? 'medium' : ($candidateId ? 'low' : 'none'),
                 'card_status' => self::cardStatusWithoutEmployee($observed['card_count'] ?? null),
                 'fingerprint_status' => self::fingerprintStatus($observed['fingerprint_count'] ?? null, false),
             ], $reasons);
@@ -499,6 +509,50 @@ class DeviceCredentialReconciliationService
             'candidate_employee_id' => null,
             'reasons' => array_values(array_unique($reasons)) + ($detail ? ['detail' => $detail] : []),
         ];
+    }
+
+    private function conflictResult(array $observed, array $employeeIds, string $reason): array
+    {
+        return $this->result([
+            'status' => self::SYNC_CONFLICT,
+            'device_link_status' => self::LINK_CONFLICT,
+            'identity_status' => self::IDENTITY_CONFLICT_STATUS,
+            'match_basis' => 'multiple',
+            'confidence' => 'low',
+            'card_status' => self::cardStatusWithoutEmployee($observed['card_count'] ?? null),
+            'fingerprint_status' => self::fingerprintStatus($observed['fingerprint_count'] ?? null, false),
+        ], [$reason], ['conflicting_employee_ids' => $employeeIds]);
+    }
+
+    private function reconcileAssignmentFromDevice(DevicePersonState $state, ?Admin $actor): void
+    {
+        if (!$state->present_on_device
+            || $state->device_link_status !== self::LINK_MATCHED
+            || $state->confidence !== 'high'
+            || !in_array($state->match_basis, ['person_number', 'employee_id', 'nik'], true)
+            || !$state->employee_id) {
+            return;
+        }
+
+        $assignment = DoorAssignment::query()
+            ->where('door_id', $state->door_id)
+            ->where('employee_id', $state->employee_id)
+            ->first();
+
+        if (!$assignment || ($assignment->sync_status === 'synced' && $assignment->last_sync_error === null)) {
+            return;
+        }
+
+        $assignment->update(['sync_status' => 'synced', 'last_sync_error' => null]);
+
+        ActivityLog::create([
+            'admin_id' => $actor?->id,
+            'action' => 'assignment_reconciled_from_device',
+            'subject_type' => 'DoorAssignment',
+            'subject_id' => $assignment->id,
+            'description' => 'Status assignment dikonfirmasi dari read-only device reconciliation; bukan hasil provisioning atau write ke perangkat.',
+            'timestamp' => now(),
+        ]);
     }
 
     public static function cardStatus(?int $deviceCount, ?array $deviceHashes, array $appHashes, bool $appRecordsCard): string
@@ -928,6 +982,11 @@ class DeviceCredentialReconciliationService
         }
 
         return $value;
+    }
+
+    private static function rawId(mixed $value): string
+    {
+        return trim((string) $value);
     }
 
     public static function normalizeName(mixed $value): string

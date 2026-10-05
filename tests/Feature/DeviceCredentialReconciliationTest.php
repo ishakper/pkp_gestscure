@@ -8,13 +8,16 @@ use App\Models\BiometricStatus;
 use App\Models\DevicePersonLink;
 use App\Models\DevicePersonState;
 use App\Models\Door;
+use App\Models\DoorAssignment;
 use App\Models\Employee;
+use App\Jobs\SyncDoorAccessJob;
 use App\Services\DeviceCredentialReconciliationService as Recon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
@@ -122,7 +125,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, Recon::IDENTITY_VERIFIED, $emp->id, 'person_number', 'high'], [$state->status, $state->device_link_status, $state->identity_status, $state->employee_id, $state->match_basis, $state->confidence]);
     }
 
-    public function test_02_normalized_employee_id_matches(): void
+    public function test_02_normalized_employee_id_is_review_candidate_only(): void
     {
         $emp = $this->employee(['employee_id' => '00042', 'hikvision_employee_no' => null, 'name' => 'Sari Dewi']);
         $this->device($this->doorA, [$this->user('42', 'SARI DEWI')]);
@@ -130,7 +133,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, '42');
-        $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, $emp->id, 'employee_id'], [$state->status, $state->device_link_status, $state->employee_id, $state->match_basis]);
+        $this->assertSame([Recon::SYNC_REVIEW, Recon::LINK_DEVICE_ONLY, null, $emp->id, 'normalized_identifier_candidate'], [$state->status, $state->device_link_status, $state->employee_id, $state->candidate_employee_id, $state->match_basis]);
     }
 
     public function test_03_card_only_match_is_kept_for_review(): void
@@ -195,7 +198,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->assertContains('nik_unverified', $this->state($this->doorA, '3001')->reasons);
     }
 
-    public function test_08_identifiers_pointing_to_different_employees_conflict(): void
+    public function test_08_higher_priority_exact_raw_identifier_wins(): void
     {
         $a = $this->employee(['source_person_number' => '4001', 'name' => 'Pegawai A']);
         $b = $this->employee(['employee_id' => '4001', 'hikvision_employee_no' => null, 'name' => 'Pegawai B']);
@@ -204,8 +207,59 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, '4001');
-        $this->assertSame([Recon::SYNC_CONFLICT, Recon::LINK_CONFLICT, null], [$state->status, $state->device_link_status, $state->employee_id]);
-        $this->assertEqualsCanonicalizing([$a->id, $b->id], $state->reasons['detail']['conflicting_employee_ids']);
+        $this->assertSame([Recon::LINK_MATCHED, $a->id, 'person_number', 'high'], [$state->device_link_status, $state->employee_id, $state->match_basis, $state->confidence]);
+        $this->assertNotSame($b->id, $state->employee_id);
+    }
+
+    public function test_exact_device_evidence_reconciles_existing_assignments_only(): void
+    {
+        Queue::fake();
+        $pending = $this->employee(['source_person_number' => '7001', 'name' => 'Pending Exact']);
+        $failed = $this->employee(['employee_id' => '7002', 'hikvision_employee_no' => null, 'name' => 'Failed Exact']);
+        $appOnly = $this->employee(['source_person_number' => '7003', 'name' => 'App Only']);
+        $nameOnly = $this->employee(['name' => 'Name Candidate']);
+        $conflictA = $this->employee(['source_person_number' => '7005', 'name' => 'Conflict A']);
+        $conflictB = $this->employee(['source_person_number' => '7005', 'name' => 'Conflict B']);
+
+        $pendingAssignment = DoorAssignment::create(['employee_id' => $pending->id, 'door_id' => $this->doorA->id, 'sync_status' => 'pending']);
+        $failedAssignment = DoorAssignment::create([
+            'employee_id' => $failed->id, 'door_id' => $this->doorA->id, 'sync_status' => 'failed',
+            'sync_attempts' => 3, 'last_sync_error' => 'previous write failed',
+        ]);
+        $appOnlyAssignment = DoorAssignment::create(['employee_id' => $appOnly->id, 'door_id' => $this->doorA->id, 'sync_status' => 'pending']);
+        $nameOnlyAssignment = DoorAssignment::create(['employee_id' => $nameOnly->id, 'door_id' => $this->doorA->id, 'sync_status' => 'pending']);
+        $conflictAssignment = DoorAssignment::create(['employee_id' => $conflictA->id, 'door_id' => $this->doorA->id, 'sync_status' => 'pending']);
+
+        $this->device($this->doorA, [
+            $this->user('7001', 'Pending Exact'),
+            $this->user('7002', 'Failed Exact'),
+            $this->user('DEVICE-ONLY', 'Unknown Person'),
+            $this->user('NAME-ONLY', 'Name Candidate'),
+            $this->user('7005', 'Conflict A'),
+        ]);
+
+        $this->reconcile([$this->doorA->id]);
+
+        $this->assertSame(['synced', null, null], [$pendingAssignment->fresh()->sync_status, $pendingAssignment->fresh()->last_sync_error, $pendingAssignment->fresh()->last_synced_at]);
+        $this->assertSame(['synced', 3, null, null], [$failedAssignment->fresh()->sync_status, $failedAssignment->fresh()->sync_attempts, $failedAssignment->fresh()->last_sync_error, $failedAssignment->fresh()->last_synced_at]);
+        $this->assertSame('pending', $appOnlyAssignment->fresh()->sync_status);
+        $this->assertSame('pending', $nameOnlyAssignment->fresh()->sync_status);
+        $this->assertSame('pending', $conflictAssignment->fresh()->sync_status);
+        $this->assertSame(5, DoorAssignment::count(), 'Device-only observations never create assignments');
+        $this->assertSame([Recon::LINK_CONFLICT, null], [$this->state($this->doorA, '7005')->device_link_status, $this->state($this->doorA, '7005')->employee_id]);
+        $this->assertSame([Recon::LINK_DEVICE_ONLY, null, $nameOnly->id], [$this->state($this->doorA, 'NAME-ONLY')->device_link_status, $this->state($this->doorA, 'NAME-ONLY')->employee_id, $this->state($this->doorA, 'NAME-ONLY')->candidate_employee_id]);
+        $this->assertSame(2, ActivityLog::where('action', 'assignment_reconciled_from_device')->count());
+        $this->assertStringContainsString('read-only device reconciliation', ActivityLog::where('action', 'assignment_reconciled_from_device')->firstOrFail()->description);
+        Queue::assertNotPushed(SyncDoorAccessJob::class);
+        foreach ($this->sent as [$method, $url]) {
+            $this->assertSame('POST', $method);
+            $this->assertMatchesRegularExpression('#/ISAPI/AccessControl/(UserInfo|CardInfo)/Search#', $url);
+        }
+
+        $this->reconcile([$this->doorA->id]);
+
+        $this->assertSame(2, ActivityLog::where('action', 'assignment_reconciled_from_device')->count(), 'Rerun does not duplicate reconciliation audits');
+        Queue::assertNotPushed(SyncDoorAccessJob::class);
     }
 
     // ---- 9–11: card & fingerprint ------------------------------------------------------
