@@ -229,4 +229,20 @@ class EmployeeEditOrganizationReactivityTest extends TestCase
         $this->assertStringContainsString('<select id="empBuilding" onchange="onEmployeeOrganizationChange()">', file_get_contents(resource_path('views/dashboard.blade.php')));
         $this->assertStringContainsString('<select id="empDivision" onchange="onEmployeeOrganizationChange()">', file_get_contents(resource_path('views/dashboard.blade.php')));
     }
+
+    public function test_form_separates_organization_structure_from_legacy_fields(): void
+    {
+        $blade = file_get_contents(resource_path('views/dashboard.blade.php'));
+        $structure = strpos($blade, '>Struktur Organisasi</div>');
+        $legacy = strpos($blade, '>Data Lama (sebelum struktur organisasi)</div>');
+        $this->assertNotFalse($structure);
+        $this->assertNotFalse($legacy);
+        // Gedung/Divisi/Posisi sit under the structure heading, Departemen/Jabatan under the legacy one.
+        $this->assertTrue($structure < strpos($blade, 'id="empBuilding"') && strpos($blade, 'id="empPosition"') < $legacy);
+        $this->assertTrue($legacy < strpos($blade, '<label>Departemen (data lama)</label>') && $legacy < strpos($blade, '<label>Jabatan (teks bebas)</label>'));
+        // Same element ids, so saveEmployee() and the cascade are unchanged.
+        foreach (['empDept', 'empRole', 'empBuilding', 'empDivision', 'empPosition'] as $id) {
+            $this->assertSame(1, substr_count($blade, "id=\"{$id}\""));
+        }
+    }
 }
