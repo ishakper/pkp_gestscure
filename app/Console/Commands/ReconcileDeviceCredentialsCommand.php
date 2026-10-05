@@ -21,11 +21,14 @@ class ReconcileDeviceCredentialsCommand extends Command
         $run = $service->run(null, $doorIds, max(1, (int) $this->option('limit')));
 
         $this->info("Run #{$run->id}: {$run->status} (read-only)");
+        $value = fn ($v) => $v === null ? '-' : $v; // '-' = not reported / not verified, never 0
         $this->table(
-            ['Door', 'Status', 'Users', 'Cards', 'FP', 'Matched', 'Device-only', 'App-only', 'Conflict', 'Review', 'Error'],
+            ['Door', 'Status', 'Users', 'Cards', 'FP', 'Device matched', 'Identity verified', 'Identity unverified', 'Identity review', 'Synced', 'Partial', 'Review', 'Device-only', 'App-only', 'Conflict', 'FP unknown', 'Error'],
             collect($run->summary['doors'] ?? [])->map(fn ($d) => [
-                $d['door_code'], $d['status'], $d['users_on_device'] ?? '-', $d['cards_on_device'] ?? '-', $d['fingerprints_on_device'] ?? '-',
-                $d['matched'] ?? '-', $d['device_only'] ?? '-', $d['app_only'] ?? '-', $d['conflicts'] ?? '-', $d['review'] ?? '-', $d['error'] ?? '',
+                $d['door_code'], $d['status'], $value($d['users_on_device']), $value($d['cards_on_device']), $value($d['fingerprints_on_device']),
+                $value($d['device_matched']), $value($d['identity_verified']), $value($d['identity_unverified']), $value($d['identity_review']),
+                $value($d['synced']), $value($d['partial']), $value($d['review']), $value($d['device_only']), $value($d['app_only']),
+                $value($d['conflicts']), $value($d['fingerprint_unknown']), $d['error'] ?? '',
             ])->all()
         );
 

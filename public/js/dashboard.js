@@ -1276,7 +1276,8 @@ const DEVICE_FP_BADGES = {
     NOT_ENROLLED: ['badge-dim', 'FP belum di perangkat', 'Perangkat terjangkau dan tidak menyimpan sidik jari'],
     CONFLICT: ['badge-danger', 'FP konflik', 'Aplikasi mencatat sidik jari, perangkat tidak menyimpannya'],
     DEVICE_UNREACHABLE: ['badge-warning', 'FP: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
-    UNKNOWN: ['badge-dim', 'FP belum diverifikasi', 'Belum ada data perangkat untuk sidik jari'],
+    // null fingerprint count = the device did not report it: unknown, never "not enrolled".
+    UNKNOWN: ['badge-dim', 'FP tidak diketahui', 'Perangkat belum diverifikasi atau tidak melaporkan jumlah sidik jari'],
 };
 const SYNC_STATUS_BADGES = {
     SYNCED: ['badge-success', 'Tersinkron'],
@@ -4882,6 +4883,9 @@ function canUseDeviceReconciliation() {
 }
 
 const RECON_ROW_STATUS = {
+    SYNCED: ['badge-success', 'Tersinkron'],
+    PARTIAL: ['badge-warning', 'Partial'],
+    CONFLICT: ['badge-danger', 'Konflik'],
     MATCHED: ['badge-success', 'Cocok'],
     APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
     DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
@@ -4892,6 +4896,27 @@ const RECON_ROW_STATUS = {
     DEVICE_UNREACHABLE: ['badge-warning', 'Offline'],
     UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
 };
+// Device link (identifier evidence) and identity (HR verification) are separate answers.
+const RECON_LINK_BADGES = {
+    MATCHED: ['badge-success', 'Terhubung'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CONFLICT: ['badge-danger', 'Konflik pengenal'],
+    UNKNOWN: ['badge-dim', 'Belum diketahui'],
+};
+const RECON_IDENTITY_BADGES = {
+    VERIFIED: ['badge-success', 'Terverifikasi'],
+    UNVERIFIED: ['badge-dim', 'NIK belum terverifikasi'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    CONFLICT: ['badge-danger', 'Konflik'],
+};
+
+function reconPairBadge(map, status) {
+    if (!status) return '<span class="badge badge-dim" title="Jalankan Refresh dari Perangkat untuk memperbarui">—</span>';
+    const [cls, label] = map[status] || ['badge-dim', status];
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
 const RECON_ACCESS_LABELS = {
     GRANTED: 'Granted', NOT_GRANTED: 'Not Granted', FAILED: 'Failed', UNKNOWN: 'Unknown', DEVICE_UNREACHABLE: 'Device Unreachable',
 };
@@ -4906,6 +4931,8 @@ const RECON_REASON_LABELS = {
     card_shared_by_multiple_employees: 'Kartu tercatat pada lebih dari satu pengguna',
     link_disagrees_with_identifier: 'Tautan manual berbeda dengan pengenal perangkat',
     marked_for_review: 'Ditandai perlu verifikasi oleh admin',
+    card_mismatch: 'Kartu di perangkat tidak sesuai catatan aplikasi',
+    fingerprint_conflict: 'Aplikasi mencatat sidik jari, perangkat melaporkan 0',
     ignored_by_admin: 'Diabaikan oleh admin',
 };
 
@@ -4972,11 +4999,17 @@ function renderDeviceReconciliation(data) {
                     <div style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0.5rem;">${escapeHtml(d.name || '')}</div>
                     <div style="font-size:0.78rem;display:grid;grid-template-columns:1fr auto;gap:0.15rem 0.5rem;">
                         <span>Pengguna di perangkat</span><b>${val(d.users_on_device)}</b>
-                        <span>Cocok</span><b>${val(d.matched)}</b>
+                        <span>Kartu / FP di perangkat</span><b>${val(d.cards_on_device)} / ${val(d.fingerprints_on_device)}</b>
+                        <span>Device matched</span><b>${val(d.device_matched)}</b>
+                        <span>Identity verified</span><b>${val(d.identity_verified)}</b>
+                        <span>Identity unverified</span><b>${val(d.identity_unverified)}</b>
+                        <span>Identity perlu verifikasi</span><b>${val(d.identity_review)}</b>
+                        <span>Tersinkron / Partial</span><b>${val(d.synced)} / ${val(d.partial)}</b>
                         <span>Hanya perangkat</span><b>${val(d.device_only)}</b>
                         <span>Hanya aplikasi</span><b>${val(d.app_only)}</b>
                         <span>Konflik</span><b>${val(d.conflicts)}</b>
-                        <span>Perlu verifikasi</span><b>${val(d.review)}</b>
+                        <span>Perlu verifikasi (match)</span><b>${val(d.review)}</b>
+                        <span>Biometrik tidak diketahui</span><b>${val(d.fingerprint_unknown)}</b>
                     </div>
                     <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${d.last_verified_at ? 'Terakhir: ' + escapeHtml(formatDateTime(d.last_verified_at)) : 'Belum pernah dibaca'}</div>
                     ${d.error ? `<div style="font-size:0.72rem;color:#fbbf24;margin-top:0.25rem;">${escapeHtml(d.error)}</div>` : ''}
@@ -5030,8 +5063,8 @@ function renderDeviceReconciliation(data) {
                         <td>${reconCardBadge(r.card_status)}</td>
                         <td>${reconFpBadge(r.fingerprint_status)}</td>
                         <td>${devices}</td>
-                        <td>${escapeHtml(r.app_status || '-')}</td>
-                        <td>${escapeHtml(r.device_status || '-')}</td>
+                        <td>${reconPairBadge(RECON_IDENTITY_BADGES, r.identity_status)}<br><small>${escapeHtml(r.app_status || '-')}</small></td>
+                        <td>${reconPairBadge(RECON_LINK_BADGES, r.device_link_status)}<br><small>${escapeHtml(r.device_status || '-')}</small></td>
                         <td>${reconStatusBadge(r.sync_status)}</td>
                         <td>${r.last_verified_at ? escapeHtml(formatDateTime(r.last_verified_at)) : '—'}</td>
                         <td style="text-align:right;">${action}</td>
@@ -5116,6 +5149,8 @@ async function openReconEmployeeDetail(employeeId) {
                 ['Person Number', escapeHtml(app.person_number || '-')],
                 ['Kartu tercatat', escapeHtml((app.card_masks || []).join(', ') || (verification.app_recorded?.card ? 'Ya (tanpa nomor)' : 'Tidak'))],
                 ['Fingerprint tercatat di aplikasi', verification.app_recorded?.fingerprint ? 'Ya' : 'Tidak'],
+                ['Device link', reconPairBadge(RECON_LINK_BADGES, verification.device_link_status)],
+                ['Identity', reconPairBadge(RECON_IDENTITY_BADGES, verification.identity_status)],
                 ['Status sinkron', reconStatusBadge(verification.sync_status)],
             ])}
             <strong style="color:#fff;display:block;margin-top:0.75rem;">Perangkat (orang, kartu, sidik jari)</strong>
@@ -5142,11 +5177,15 @@ async function openReconDevicePersonDetail(stateId) {
                 ['Nama di perangkat', escapeHtml(st.device_name || '-')],
                 ['Kartu', `${reconCardBadge(st.card_status)} ${st.card_count != null ? Number(st.card_count) : '—'} ${escapeHtml((st.card_masks || []).join(', '))}`],
                 ['Sidik jari', `${reconFpBadge(st.fingerprint_status)} ${st.fingerprint_count != null ? Number(st.fingerprint_count) : '—'}`],
-                ['Status', reconStatusBadge(st.status)],
+                ['Device link', reconPairBadge(RECON_LINK_BADGES, st.device_link_status)],
+                ['Identity', reconPairBadge(RECON_IDENTITY_BADGES, st.identity_status)],
+                ['Status sinkron', reconStatusBadge(st.status)],
                 ['Dasar kecocokan / keyakinan', `${escapeHtml(st.match_basis || '-')} / ${escapeHtml(st.confidence || 'none')}`],
                 ['Terhubung ke', employee ? `${escapeHtml(employee.name)} (${escapeHtml(employee.employee_id || '-')})` : '—'],
                 ['Kandidat (nama saja)', candidate ? `${escapeHtml(candidate.name)} (${escapeHtml(candidate.employee_id || '-')})` : '—'],
-                ['Pengguna yang bertentangan', (conflicts || []).map(c => `${escapeHtml(c.name)} (${escapeHtml(c.employee_id || '-')})`).join(', ') || '—'],
+                ['Pengguna yang bertentangan', (conflicts || []).length
+                    ? (conflicts || []).map(c => `#${Number(c.id)} ${escapeHtml(c.name)} · User ID ${escapeHtml(c.employee_id || '-')} · NIK ${escapeHtml(c.nik || '-')} · Person No ${escapeHtml(c.source_person_number || c.hikvision_employee_no || '-')}`).join('<br>')
+                    : '—'],
                 ['Catatan', escapeHtml(reconReasons(st.reasons)) || '—'],
                 ['Keputusan terakhir', decision ? `${escapeHtml(decision.decision)} oleh ${escapeHtml(decision.decided_by || '-')}${decision.note ? ' · ' + escapeHtml(decision.note) : ''}` : '—'],
             ])}`;
@@ -5157,7 +5196,8 @@ async function openReconDevicePersonDetail(stateId) {
         if (select && source && source.options.length > 1) {
             select.innerHTML = `<option value="">-- Pilih Karyawan --</option>` + Array.from(source.options).filter(o => o.value).map(o => o.outerHTML).join('');
         }
-        if (select) select.value = String(employee?.id || candidate?.id || '');
+        // Only an existing link is preselected; a name or conflict candidate must be chosen by the admin.
+        if (select) select.value = String(employee?.id || '');
         document.getElementById('reconDecisionNote').value = '';
         panel.style.display = 'block';
     } catch (err) {

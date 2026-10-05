@@ -102,14 +102,13 @@ class DeviceReconciliationController extends Controller
             'card_masks' => $s->card_masks,
             'fingerprint_count' => $s->fingerprint_count,
             'face_count' => $s->face_count,
-            'status' => $s->status,
             'card_status' => $s->card_status,
             'fingerprint_status' => $s->fingerprint_status,
             'match_basis' => $s->match_basis,
             'confidence' => $s->confidence,
             'reasons' => $s->reasons,
             'last_verified_at' => $s->last_verified_at?->toIso8601String(),
-        ])->values();
+        ] + DeviceCredentialReconciliationService::stateStatuses($s))->values();
 
         return response()->json(['success' => true, 'data' => [
             'app' => [
@@ -142,13 +141,15 @@ class DeviceReconciliationController extends Controller
         $conflictIds = (array) data_get($state->reasons, 'detail.conflicting_employee_ids', []);
 
         return response()->json(['success' => true, 'data' => [
-            'state' => $state->only(['id', 'door_id', 'device_employee_no', 'device_name', 'device_enabled', 'card_count', 'card_masks', 'fingerprint_count', 'face_count', 'present_on_device', 'status', 'card_status', 'fingerprint_status', 'match_basis', 'confidence', 'reasons']) + [
+            'state' => $state->only(['id', 'door_id', 'device_employee_no', 'device_name', 'device_enabled', 'card_count', 'card_masks', 'fingerprint_count', 'face_count', 'present_on_device', 'card_status', 'fingerprint_status', 'match_basis', 'confidence', 'reasons']) + DeviceCredentialReconciliationService::stateStatuses($state) + [
                 'door_code' => $state->door?->door_id,
                 'last_verified_at' => $state->last_verified_at?->toIso8601String(),
             ],
             'employee' => $state->employee,
             'candidate' => $state->candidate,
-            'conflicting_employees' => Employee::query()->whereIn('id', $conflictIds)->get(['id', 'employee_id', 'name', 'nik']),
+            // Every employee an identifier points to, so the admin can decide manually.
+            'conflicting_employees' => Employee::query()->whereIn('id', $conflictIds)->orderBy('id')
+                ->get(['id', 'employee_id', 'name', 'nik', 'source_person_number', 'hikvision_employee_no', 'employment_status']),
             'decision' => $link ? $link->only(['decision', 'employee_id', 'note', 'updated_at']) + ['decided_by' => $link->decider?->name] : null,
         ]]);
     }
@@ -214,7 +215,7 @@ class DeviceReconciliationController extends Controller
                 DevicePersonLink::REVIEW => 'Ditandai perlu verifikasi.',
                 default => 'Data perangkat diabaikan.',
             },
-            'data' => ['link' => $link->only(['decision', 'employee_id', 'note']), 'state' => $state->only(['id', 'status', 'employee_id', 'card_status', 'fingerprint_status', 'match_basis', 'confidence', 'reasons'])],
+            'data' => ['link' => $link->only(['decision', 'employee_id', 'note']), 'state' => $state->only(['id', 'status', 'device_link_status', 'identity_status', 'employee_id', 'card_status', 'fingerprint_status', 'match_basis', 'confidence', 'reasons'])],
         ]);
     }
 }
