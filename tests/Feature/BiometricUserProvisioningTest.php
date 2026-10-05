@@ -131,11 +131,7 @@ class BiometricUserProvisioningTest extends TestCase
     /** @test */
     public function test_build_user_info_payload_matches_hikvision_isapi_specification(): void
     {
-        $payload = $this->service->buildUserInfoPayload($this->employee, $this->doorB, [
-            'userType' => 'normal',
-            'closeDelay' => 7,
-            'userVerifyMode' => 'cardOrFaceOrFp',
-        ]);
+        $payload = $this->service->buildUserInfoPayload($this->employee, $this->doorB);
 
         $this->assertArrayHasKey('UserInfo', $payload);
         $userInfo = $payload['UserInfo'];
@@ -143,12 +139,16 @@ class BiometricUserProvisioningTest extends TestCase
         $this->assertEquals('EMP-100234', $userInfo['employeeNo']);
         $this->assertEquals('Ahmad Fauzi', $userInfo['name']);
         $this->assertEquals('normal', $userInfo['userType']);
-        $this->assertEquals(7, $userInfo['closeDelay']);
-        $this->assertEquals('cardOrFaceOrFp', $userInfo['userVerifyMode']);
+        $this->assertFalse($userInfo['closeDelayEnabled']);
+        $this->assertEquals('card', $userInfo['userVerifyMode']);
         $this->assertTrue($userInfo['Valid']['enable']);
         $this->assertEquals('local', $userInfo['Valid']['timeType']);
+        $this->assertEquals('1', $userInfo['doorRight']);
         $this->assertEquals(1, $userInfo['RightPlan'][0]['doorNo']);
         $this->assertEquals('1', $userInfo['RightPlan'][0]['planTemplateNo']);
+        $this->assertArrayNotHasKey('closeDelay', $userInfo);
+        $this->assertArrayNotHasKey('maxSwipeTime', $userInfo);
+        $this->assertArrayNotHasKey('normalScheduleNum', $userInfo);
     }
 
     /** @test */

@@ -1113,8 +1113,8 @@ class HikvisionIsapiService
                 'employeeNo' => $employeeNo,
                 'name' => (string) $employee->name,
                 'userType' => $options['userType'] ?? 'normal',
-                'closeDelay' => (int) ($options['closeDelay'] ?? 5),
-                'userVerifyMode' => $options['userVerifyMode'] ?? 'cardOrFaceOrFp',
+                'closeDelayEnabled' => (bool) ($options['closeDelayEnabled'] ?? false),
+                'userVerifyMode' => $options['userVerifyMode'] ?? 'card',
                 'Valid' => [
                     'enable' => true,
                     'beginTime' => $options['beginTime'] ?? now()->subDay()->format('Y-m-d\TH:i:s'),
@@ -1128,8 +1128,6 @@ class HikvisionIsapiService
                         'planTemplateNo' => (string) ($options['planTemplateNo'] ?? '1'),
                     ],
                 ],
-                'maxSwipeTime' => (int) ($options['maxSwipeTime'] ?? 0),
-                'normalScheduleNum' => (int) ($options['normalScheduleNum'] ?? 0),
             ],
         ];
     }
