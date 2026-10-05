@@ -243,7 +243,7 @@ class BiometricUserProvisioningTest extends TestCase
     {
         $service = $this->mockProvisioningSteps(
             ['status' => true],
-            ['status' => true],
+            ['status' => true, 'provisioning_status' => 'already_present', 'idempotent' => true],
             [
                 'status' => false,
                 'statusCode' => 404,
