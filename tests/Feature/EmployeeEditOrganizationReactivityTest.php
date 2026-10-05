@@ -186,4 +186,47 @@ class EmployeeEditOrganizationReactivityTest extends TestCase
         $this->assertStringNotContainsString('door_assign', $this->functionBody('renderEmployeeOrganizationOptions'));
         $this->assertStringNotContainsString('door_assign', $this->functionBody('employeeOrganizationPayload'));
     }
+
+    // d295ef8: choosing a Gedung rendered Divisi from the cached lookup only. A division
+    // created after the modal opened (another tab/admin, within the 30 s window) kept the
+    // child on a disabled "Belum ada data divisi". Reproduced in Chromium; now the change
+    // re-reads the masters with a loading state on the dependent level.
+    public function test_changing_building_or_division_refreshes_stale_masters_with_loading_state(): void
+    {
+        $change = $this->functionBody('onEmployeeOrganizationChange');
+        $this->assertStringContainsString('refreshEmployeeOrganizationAfterChange();', $change);
+        $this->assertLessThan(strpos($change, 'refreshEmployeeOrganizationAfterChange();'), strpos($change, 'employeeOrganizationForm.selection = readEmployeeOrganizationSelection();'), 'The refresh uses the selection after the cascade reset');
+
+        $refresh = $this->functionBody('refreshEmployeeOrganizationAfterChange');
+        $this->assertStringContainsString("if (!building) return; // nothing below Gedung can be chosen yet", $refresh);
+        $this->assertStringContainsString('if (organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt <= ORGANIZATION_CHANGE_FRESH_MS) return;', $refresh);
+        $this->assertStringContainsString("document.getElementById(division ? 'empPosition' : 'empDivision')", $refresh);
+        $this->assertStringContainsString("'Memuat data posisi...' : 'Memuat data divisi...'", $refresh);
+        $this->assertStringContainsString("setEmployeeOrganizationState('refreshing');", $refresh);
+        $this->assertStringContainsString('ensureOrganizationLookup({ maxAgeMs: ORGANIZATION_CHANGE_FRESH_MS })', $refresh);
+        $this->assertStringContainsString('if (seq !== employeeOrganizationForm.seq) return; // a newer change/open owns the form', $refresh);
+        $this->assertStringContainsString('renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, employeeOrganizationForm.legacy);', $refresh);
+        // A failed refresh still leaves the selects usable (cached data), never stuck on loading.
+        $this->assertLessThan(strpos($refresh, '.then('), strpos($refresh, '.catch('));
+    }
+
+    public function test_change_refresh_window_prevents_bursts_and_does_not_block_saving(): void
+    {
+        $this->assertSame(1, preg_match('/const ORGANIZATION_CHANGE_FRESH_MS = (\d+);/', $this->script(), $m));
+        $this->assertGreaterThanOrEqual(3000, (int) $m[1], 'Switching buildings repeatedly sends at most one lookup per window');
+        $this->assertSame(1, substr_count($this->script(), "apiFetch('/user-management/organization/lookup')"));
+        // "refreshing" keeps Gedung usable and its value in the payload; only loading/error hold it back.
+        $this->assertStringContainsString("if (orgState === 'loading' || orgState === 'error') return {};", $this->functionBody('employeeOrganizationPayload'));
+    }
+
+    public function test_building_with_no_divisions_shows_empty_state_not_choose_building(): void
+    {
+        $render = $this->functionBody('renderEmployeeOrganizationOptions');
+        // The child is blocked only when no Gedung is selected; an empty master is an empty state.
+        $this->assertStringContainsString("buildingId ? '' : 'Pilih gedung terlebih dahulu'", $render);
+        $this->assertStringContainsString("allDivisions.length ? 'Belum ada divisi untuk gedung ini' : 'Belum ada data divisi'", $render);
+        $this->assertStringContainsString("const buildingId = document.getElementById('empBuilding')?.value || '';", $render);
+        $this->assertStringContainsString('<select id="empBuilding" onchange="onEmployeeOrganizationChange()">', file_get_contents(resource_path('views/dashboard.blade.php')));
+        $this->assertStringContainsString('<select id="empDivision" onchange="onEmployeeOrganizationChange()">', file_get_contents(resource_path('views/dashboard.blade.php')));
+    }
 }

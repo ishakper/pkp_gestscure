@@ -833,6 +833,11 @@ async function checkAllDoors(btn) {
 // ORGANIZATION_LOOKUP_FRESH_MS, so masters created in another tab or by another admin show
 // up without a page reload. A failed lookup is retried on the next open.
 const ORGANIZATION_LOOKUP_FRESH_MS = 30000;
+// Choosing a Gedung/Divisi re-reads the masters when the cache is older than this, so a
+// division or position created after the modal opened (another tab or admin) appears instead
+// of the child staying on "Belum ada data ...". In-flight lookups are shared: at most one
+// request per window however often the user switches.
+const ORGANIZATION_CHANGE_FRESH_MS = 5000;
 let organizationLookupPromise = null;
 let organizationLookupLoadedAt = 0;
 
@@ -962,6 +967,32 @@ function onEmployeeOrganizationChange() {
     });
     // Children that no longer belong to the chosen parent were reset by the render.
     employeeOrganizationForm.selection = readEmployeeOrganizationSelection();
+    refreshEmployeeOrganizationAfterChange();
+}
+
+function refreshEmployeeOrganizationAfterChange() {
+    const { building, division } = employeeOrganizationForm.selection;
+    if (!building) return; // nothing below Gedung can be chosen yet
+    if (organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt <= ORGANIZATION_CHANGE_FRESH_MS) return;
+
+    const seq = ++employeeOrganizationForm.seq; // supersedes any older open/refresh render
+    // Loading is shown on the level that depends on the change; Gedung stays usable and the
+    // form still saves the chosen values ("refreshing" does not hold back the payload).
+    const child = document.getElementById(division ? 'empPosition' : 'empDivision');
+    if (child) {
+        child.innerHTML = `<option value="">${division ? 'Memuat data posisi...' : 'Memuat data divisi...'}</option>`;
+        child.disabled = true;
+    }
+    setEmployeeOrganizationState('refreshing');
+
+    return ensureOrganizationLookup({ maxAgeMs: ORGANIZATION_CHANGE_FRESH_MS })
+        .catch(err => showToast(`Data divisi/posisi gagal dimuat ulang: ${err.message}`, 'warning'))
+        .then(() => {
+            if (seq !== employeeOrganizationForm.seq) return; // a newer change/open owns the form
+            renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, employeeOrganizationForm.legacy);
+            employeeOrganizationForm.selection = readEmployeeOrganizationSelection();
+            setEmployeeOrganizationState('ready');
+        });
 }
 
 function loadEmployeeOrganizationOptions(selected = {}, legacy = {}, { keepTouched = false } = {}) {
