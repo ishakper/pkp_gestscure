@@ -60,10 +60,12 @@ class EmployeeResource extends JsonResource
             ],
             'device_verification' => $this->when($this->relationLoaded('deviceStates'), fn () => $this->deviceVerification($request)),
             'door_assign' => $doors->map(fn ($door) => [
+                'id' => $door->id,
                 'door_id' => $door->door_id,
                 'door_name' => ($door->name ?? $door->door_name)." ({$door->location})",
                 'sync_status' => $door->pivot->sync_status ?? 'pending',
                 'last_sync_error' => $door->pivot->last_sync_error ?? null,
+                'last_synced_at' => $door->pivot->last_synced_at ? \Illuminate\Support\Carbon::parse($door->pivot->last_synced_at)->toIso8601String() : null,
             ]),
             'created_at' => $this->created_at?->toIso8601String(),
         ];

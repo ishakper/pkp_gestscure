@@ -1825,8 +1825,8 @@
                         <th>Nama Pengguna</th>
                         <th>Departemen</th>
                         <th>Jabatan &amp; Status</th>
-                        <th>Status Biometrik</th>
-                        <th>Akses Pintu (Sync Status)</th>
+                        <th>Status Perangkat &amp; Catatan Aplikasi</th>
+                        <th>Hak Akses Pintu</th>
                         <th style="text-align: right;">Aksi</th>
                     </tr>
                 </thead>
@@ -1875,8 +1875,8 @@
                         <th>Nama Pengguna</th>
                         <th>Departemen</th>
                         <th>Jabatan &amp; Status</th>
-                        <th>Status Biometrik</th>
-                        <th>Akses Pintu (Sync Status)</th>
+                        <th>Status Perangkat &amp; Catatan Aplikasi</th>
+                        <th>Hak Akses Pintu</th>
                         <th style="text-align: right;">Aksi</th>
                     </tr>
                 </thead>
@@ -4216,7 +4216,7 @@
 
         <form id="doorAssignForm" onsubmit="submitDoorAssignment(event)">
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-                Pilih terminal pintu yang diizinkan untuk diakses oleh karyawan ini. Perubahan akan langsung disinkronkan ke hardware melalui ISAPI job queue.
+                Pilih terminal pintu yang diizinkan untuk diakses oleh karyawan ini. Menyimpan di sini menjadwalkan sinkronisasi ke perangkat; status baru menjadi <strong>Aktif di perangkat</strong> setelah perangkat mengonfirmasi.
             </p>
 
             <div class="door-checkboxes-grid" id="doorCheckboxesContainer">
@@ -4247,6 +4247,9 @@
         </div>
         <form id="employeeForm" onsubmit="saveEmployee(event)">
             <input type="hidden" id="empDbId">
+            <div id="empAppOnlyNotice" role="note" style="border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.08);color:#e0f2fe;border-radius:.6rem;padding:.6rem .75rem;font-size:.82rem;margin-bottom:.9rem;">
+                ℹ️ Perubahan ini hanya memperbarui data aplikasi. Sinkronisasi akses/perangkat dilakukan melalui <strong>Kelola Akses</strong>.
+            </div>
             <div class="form-row">
                 <label>User ID (Kode Identitas)</label>
                 <input type="text" id="empUserId" placeholder="USR-1001" required>
