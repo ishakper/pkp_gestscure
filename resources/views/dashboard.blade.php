@@ -4263,8 +4263,17 @@
                 <label>Nomor Kartu RFID</label>
                 <input type="text" id="empCardNo" placeholder="CARD-1001">
             </div>
+            <!-- Organization structure (master data from Setup Gedung) -->
+            <div class="form-section-title" style="margin:1rem 0 0.35rem;font-weight:700;color:#e2e8f0;">Struktur Organisasi</div>
+            <small style="display:block;margin-bottom:0.5rem;color:#94a3b8;">Gedung → Divisi → Posisi dari data master Setup Gedung. Ini yang dipakai untuk filter gedung dan laporan.</small>
+            <div class="form-row"><label>Gedung</label><select id="empBuilding" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Gedung</option></select></div>
+            <div class="form-row"><label>Divisi</label><select id="empDivision" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Divisi</option></select></div>
+            <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
+            <!-- Legacy free-text fields kept for existing records; not part of the structure above -->
+            <div class="form-section-title" style="margin:1rem 0 0.35rem;font-weight:700;color:#e2e8f0;">Data Lama (sebelum struktur organisasi)</div>
+            <small style="display:block;margin-bottom:0.5rem;color:#94a3b8;">Kolom lama Departemen dan Jabatan, tetap disimpan untuk kompatibilitas. Tidak menentukan Gedung/Divisi/Posisi.</small>
             <div class="form-row">
-                <label>Departemen</label>
+                <label>Departemen (data lama)</label>
                 <select id="empDept">
                     <option value="IT Support">IT Support</option>
                     <option value="Produksi">Produksi</option>
@@ -4274,14 +4283,11 @@
                 </select>
             </div>
             <div class="form-row">
-                <label>Jabatan</label>
+                <label>Jabatan (teks bebas)</label>
                 <input type="text" id="empRole" placeholder="Staff / Operator / Supervisor" required>
             </div>
             <div class="form-row"><label>Email</label><input type="email" id="empEmail" placeholder="name@company.com"></div>
             <div class="form-row"><label>Telepon</label><input type="text" id="empPhone" placeholder="08..."></div>
-            <div class="form-row"><label>Gedung</label><select id="empBuilding" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Gedung</option></select></div>
-            <div class="form-row"><label>Divisi</label><select id="empDivision" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Divisi</option></select></div>
-            <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
             <div class="form-row"><label>Tipe / Status Kerja</label><div style="display:flex;gap:.5rem"><select id="empEmploymentType"><option value="">Pilih Tipe</option><option>PERMANENT</option><option>CONTRACT</option><option>OUTSOURCE</option></select><select id="empEmploymentStatus"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div></div>
             <div class="form-row"><label>Tanggal Masuk</label><input type="date" id="empHireDate"></div>            <div class="form-row">
                 <label>Credential tercatat di aplikasi</label>
