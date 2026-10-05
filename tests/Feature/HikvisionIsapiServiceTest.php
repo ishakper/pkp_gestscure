@@ -188,6 +188,7 @@ XML;
 
         Http::fake(function (HttpRequest $request) {
             $this->assertStringEndsWith('/AccessControl/CardInfo/Record?format=json', $request->url());
+            $this->assertSame('POST', $request->method());
             $this->assertSame([
                 'CardInfo' => [
                     'employeeNo' => 'USR-1001',

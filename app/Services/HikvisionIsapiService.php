@@ -596,7 +596,7 @@ class HikvisionIsapiService
     }
 
     /**
-     * Push / Synchronize user RFID card info to terminal via /AccessControl/CardInfo/Record (PUT).
+     * Push / Synchronize user RFID card info to terminal via /AccessControl/CardInfo/Record (POST).
      * In mock mode, directly invokes HikvisionMockController.
      */
     public function syncCardUser(string $employeeNo, string $cardNo, ?string $employeeName = null, ?Door $door = null): array
@@ -648,7 +648,7 @@ class HikvisionIsapiService
         $url = $this->buildUrl('/AccessControl/CardInfo/Record?format=json', $door);
 
         try {
-            $response = $this->buildHttpClient($door)->put($url, $payload);
+            $response = $this->buildHttpClient($door)->post($url, $payload);
             $json = $response->json() ?? [];
 
             if ($response->successful()) {
