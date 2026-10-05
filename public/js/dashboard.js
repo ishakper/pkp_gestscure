@@ -1167,28 +1167,22 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
 
     const html = employees.map(emp => {
         // Credential badges: device truth from reconciliation, app-recorded flags labelled as such.
-        const { fpBadge, cardBadge, syncBadge } = employeeCredentialBadges(emp);
+        const { fpBadge, cardBadge, syncBadge, appBadge } = employeeCredentialBadges(emp);
 
-        // Door Assignment Badges
+        // Hak Akses Pintu: app assignment + device sync state, never marked active before the device confirms.
         let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
         if (emp.door_assign && emp.door_assign.length > 0) {
             doorBadges = emp.door_assign.map(d => {
-                let badgeCls = 'badge-pending';
-                let icon = '⏳';
-                let tooltip = `Status: ${d.sync_status}`;
-
-                if (d.sync_status === 'synced') {
-                    badgeCls = 'badge-synced';
-                    icon = '✓';
-                } else if (d.sync_status === 'failed') {
-                    badgeCls = 'badge-failed';
-                    icon = '✕';
-                    tooltip = d.last_sync_error ? `Error: ${d.last_sync_error}` : 'Sinkronisasi gagal ke hardware';
-                }
+                const [badgeCls, icon, label] = doorAccessSyncLabel(d.sync_status);
+                const tooltip = [
+                    `${d.door_id}: ${label}`,
+                    d.last_synced_at ? `Terakhir sinkron: ${formatDateTime(d.last_synced_at)}` : 'Belum pernah tersinkron',
+                    d.sync_status === 'failed' && d.last_sync_error ? `Error: ${d.last_sync_error}` : '',
+                ].filter(Boolean).join(' · ');
 
                 return `
-                    <span class="badge ${badgeCls} sync-pill" title="${tooltip}">
-                        ${icon} ${d.door_id}: ${d.sync_status}
+                    <span class="badge ${badgeCls} sync-pill" title="${escapeHtml(tooltip)}">
+                        ${icon} ${escapeHtml(d.door_id)}: ${label}
                     </span>
                 `;
             }).join(' ');
@@ -1228,10 +1222,15 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
                     </div>
                 </td>
                 <td>
-                    <div class="bio-pill-group">
-                        ${fpBadge}
-                        ${cardBadge}
-                        ${syncBadge}
+                    <div class="cred-groups" style="display:flex;flex-direction:column;gap:.35rem;">
+                        <div class="cred-group" data-group="device">
+                            <small style="display:block;color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.03em;">Status Perangkat</small>
+                            <div class="bio-pill-group">${fpBadge}${cardBadge}${syncBadge}</div>
+                        </div>
+                        <div class="cred-group" data-group="app">
+                            <small style="display:block;color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.03em;">Catatan Aplikasi</small>
+                            <div class="bio-pill-group">${appBadge || '<span class="badge badge-dim">—</span>'}</div>
+                        </div>
                     </div>
                 </td>
                 <td>
@@ -1241,8 +1240,8 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
                 </td>
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
-                        <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Atur Akses Pintu Fisik">
-                            🚪 Akses
+                        <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Kelola akses pintu & lihat status sinkronisasi perangkat">
+                            🚪 Kelola Akses
                         </button>
                         <button class="btn-sm btn-edit" onclick="openEditEmployeeModal(${empId})" title="Edit Profil & Biometrik">
                             ✏️ Edit
@@ -1290,6 +1289,18 @@ const SYNC_STATUS_BADGES = {
     UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
 };
 
+// Door access = app assignment + device sync. Only the device confirming the write (synced)
+// counts as "Aktif di perangkat"; saving an employee or an assignment never sets it.
+const DOOR_ACCESS_SYNC_LABELS = {
+    pending: ['badge-pending', '⏳', 'Menunggu sinkronisasi'],
+    synced: ['badge-synced', '✓', 'Aktif di perangkat'],
+    failed: ['badge-failed', '✕', 'Sinkronisasi gagal'],
+};
+
+function doorAccessSyncLabel(status) {
+    return DOOR_ACCESS_SYNC_LABELS[status] || ['badge-pending', '⏳', escapeHtml(status || 'Menunggu sinkronisasi')];
+}
+
 function credentialBadge([cls, label, title]) {
     return `<span class="badge ${cls}" title="${escapeHtml(title || label)}">${escapeHtml(label)}</span>`;
 }
@@ -1318,7 +1329,8 @@ function employeeCredentialBadges(emp) {
     return {
         fpBadge: credentialBadge(DEVICE_FP_BADGES[fpStatus]),
         cardBadge: credentialBadge(DEVICE_CARD_BADGES[cardStatus]),
-        syncBadge: syncBadge + appBadge,
+        syncBadge,
+        appBadge,
     };
 }
 
@@ -1430,6 +1442,7 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
 
     // Get currently assigned door IDs / codes
     const assignedDoorIds = (employee.door_assign || []).map(d => d.door_id);
+    const deviceDoors = employee.device_verification?.doors || [];
 
     container.innerHTML = doors.map(door => {
         const isChecked = assignedDoorIds.includes(door.door_id) || assignedDoorIds.includes(door.id);
@@ -1439,7 +1452,7 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
         const operationalDoor = state.doors.find(item => String(item.door_id) === String(door.door_id));
         const isOnline = operationalDoor && (operationalDoor.connection_status === 'online' || operationalDoor.status === 'online');
         const assignment = (employee.door_assign || []).find(item => String(item.door_id) === String(door.door_id));
-        const syncLabel = assignment ? escapeHtml(assignment.sync_status || 'pending') : 'not assigned';
+        const reconciled = deviceDoors.find(item => Number(item.door_id) === Number(door.id));
 
         return `
             <label class="door-checkbox-card ${isChecked ? 'selected' : ''}">
@@ -1447,12 +1460,40 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
                 <div class="checkbox-door-info">
                     <div class="checkbox-door-code">${safeDoorId}</div>
                     <div class="checkbox-door-name">${safeDoorName}</div>
-                    <div class="checkbox-door-loc">${safeDoorLoc}</div>
-                    <div class="checkbox-door-loc">${isOnline ? '🟢 Online' : '🔴 Offline'} · Sync: ${syncLabel}</div>
+                    <div class="checkbox-door-loc">${safeDoorLoc} · ${isOnline ? '🟢 Online' : '🔴 Offline'}</div>
+                    ${doorAccessDetail(assignment, reconciled)}
                 </div>
             </label>
         `;
     }).join('');
+}
+
+// Per door: what the app has assigned, what the sync queue reports, and what the last read-only
+// device reconciliation saw. Three separate facts; none is derived from another.
+function doorAccessDetail(assignment, reconciled) {
+    const row = (label, value) => `<div class="checkbox-door-loc door-access-detail"><span style="color:var(--text-muted);">${label}:</span> ${value}</div>`;
+    const [, icon, syncLabel] = assignment ? doorAccessSyncLabel(assignment.sync_status) : [null, '', ''];
+    // Reconciliation reads people/cards, not access schedules: say "orang ada di perangkat",
+    // not "Granted", so it never reads as if the pending assignment were already active.
+    const presence = {
+        GRANTED: 'orang ada di perangkat',
+        NOT_GRANTED: 'orang tidak ada di perangkat',
+        FAILED: 'sinkronisasi gagal',
+        UNKNOWN: 'belum diketahui',
+        DEVICE_UNREACHABLE: 'perangkat tidak terjangkau',
+    };
+    const reconLabel = reconciled
+        ? `${escapeHtml((RECON_ROW_STATUS[reconciled.status] || [null, reconciled.status])[1] || '-')} · ${escapeHtml(presence[reconciled.access_status] || reconciled.access_status || '-')}`
+        : 'Belum diverifikasi';
+
+    return [
+        row('Assignment aplikasi', assignment ? 'Ditetapkan' : 'Belum ditetapkan'),
+        row('Status sinkron', assignment ? `${icon} ${syncLabel}` : '—'),
+        assignment?.sync_status === 'failed' && assignment.last_sync_error ? row('Error', escapeHtml(assignment.last_sync_error)) : '',
+        row('Rekonsiliasi perangkat', reconLabel),
+        row('Terakhir sinkron', assignment?.last_synced_at ? escapeHtml(formatDateTime(assignment.last_synced_at)) : '—'),
+        row('Terakhir diverifikasi', reconciled?.verified_at ? escapeHtml(formatDateTime(reconciled.verified_at)) : '—'),
+    ].join('');
 }
 
 async function submitDoorAssignment(e) {
@@ -1478,7 +1519,7 @@ async function submitDoorAssignment(e) {
         });
 
         if (res.status === 'success') {
-            showToast(`Akses pintu berhasil diperbarui untuk ${state.selectedEmployeeForAssign.name}.`, 'success');
+            showToast(`Akses pintu ${state.selectedEmployeeForAssign.name} disimpan. Sinkronisasi ke perangkat dijadwalkan; status menjadi Aktif di perangkat setelah perangkat mengonfirmasi.`, 'success');
             closeModal('doorAssignModal');
             markAccessViewsStale();
             await loadEmployees();
@@ -1667,7 +1708,9 @@ async function saveEmployee(e) {
     try {
         const res = await apiFetch(endpoint, { method, body: JSON.stringify(payload) });
         if (res.status === 'success') {
-            showToast(id ? 'Data karyawan berhasil diperbarui!' : 'Karyawan baru berhasil ditambahkan!', 'success');
+            showToast(id
+                ? 'Data karyawan disimpan (data aplikasi). Status perangkat dan akses pintu tidak berubah; kelola lewat Kelola Akses.'
+                : 'Karyawan baru berhasil ditambahkan!', 'success');
             closeModal('employeeModal');
             if (id) patchEmployeeRow(res.data);
             markAccessViewsStale();
