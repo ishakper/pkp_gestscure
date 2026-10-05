@@ -1207,7 +1207,10 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
                 const [badgeCls, icon, label] = doorAccessSyncLabel(d.sync_status);
                 const tooltip = [
                     `${d.door_id}: ${label}`,
-                    d.last_synced_at ? `Terakhir sinkron: ${formatDateTime(d.last_synced_at)}` : 'Belum pernah tersinkron',
+                    d.last_synced_at
+                        ? `Terakhir sinkron: ${formatDateTime(d.last_synced_at)}`
+                        // 51b4162: read-only reconciliation can confirm an assignment from exact device evidence without a provisioning write.
+                        : (d.sync_status === 'synced' ? 'Dikonfirmasi dari rekonsiliasi perangkat (read-only)' : 'Belum pernah tersinkron'),
                     d.sync_status === 'failed' && d.last_sync_error ? `Error: ${d.last_sync_error}` : '',
                 ].filter(Boolean).join(' · ');
 
@@ -1522,7 +1525,9 @@ function doorAccessDetail(assignment, reconciled) {
         row('Status sinkron', assignment ? `${icon} ${syncLabel}` : '—'),
         assignment?.sync_status === 'failed' && assignment.last_sync_error ? row('Error', escapeHtml(assignment.last_sync_error)) : '',
         row('Rekonsiliasi perangkat', reconLabel),
-        row('Terakhir sinkron', assignment?.last_synced_at ? escapeHtml(formatDateTime(assignment.last_synced_at)) : '—'),
+        row('Terakhir sinkron', assignment?.last_synced_at
+            ? escapeHtml(formatDateTime(assignment.last_synced_at))
+            : (assignment?.sync_status === 'synced' ? '— (dikonfirmasi dari rekonsiliasi perangkat)' : '—')),
         row('Terakhir diverifikasi', reconciled?.verified_at ? escapeHtml(formatDateTime(reconciled.verified_at)) : '—'),
     ].join('');
 }
@@ -5006,6 +5011,10 @@ const RECON_REASON_LABELS = {
     link_disagrees_with_identifier: 'Tautan manual berbeda dengan pengenal perangkat',
     marked_for_review: 'Ditandai perlu verifikasi oleh admin',
     card_mismatch: 'Kartu di perangkat tidak sesuai catatan aplikasi',
+    normalized_identifier_candidate: 'Kandidat dari pengenal yang dinormalisasi (mis. 00001 = 1), perlu dicek admin',
+    ambiguous_normalized_identifier: 'Pengenal yang dinormalisasi cocok dengan lebih dari satu pengguna',
+    duplicate_exact_raw_identifier: 'Pengenal yang sama persis dipakai lebih dari satu pengguna',
+    cards_point_to_different_employees: 'Kartu di perangkat milik pengguna berbeda',
     fingerprint_conflict: 'Aplikasi mencatat sidik jari, perangkat melaporkan 0',
     ignored_by_admin: 'Diabaikan oleh admin',
 };

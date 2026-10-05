@@ -147,4 +147,17 @@ class EmployeeAppVsDeviceUxTest extends TestCase
         $this->assertStringContainsString("GRANTED: 'orang ada di perangkat',", $detail, 'Presence on the device is not presented as granted access');
         $this->assertStringContainsString("'Belum diverifikasi'", $detail);
     }
+
+    // 51b4162: read-only reconciliation may set an assignment to synced from exact device
+    // evidence without last_synced_at; the UI must not call that "never synced".
+    public function test_synced_without_last_synced_at_is_shown_as_confirmed_by_reconciliation(): void
+    {
+        $render = $this->functionBody('renderEmployeesTable');
+        $this->assertStringContainsString("(d.sync_status === 'synced' ? 'Dikonfirmasi dari rekonsiliasi perangkat (read-only)' : 'Belum pernah tersinkron')", $render);
+        $this->assertStringContainsString("(assignment?.sync_status === 'synced' ? '— (dikonfirmasi dari rekonsiliasi perangkat)' : '—')", $this->functionBody('doorAccessDetail'));
+
+        foreach (['normalized_identifier_candidate', 'ambiguous_normalized_identifier', 'duplicate_exact_raw_identifier', 'cards_point_to_different_employees'] as $reason) {
+            $this->assertMatchesRegularExpression("/\\n    {$reason}: '[^']+',/", $this->script(), "Reason {$reason} has a label");
+        }
+    }
 }
