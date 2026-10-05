@@ -14,6 +14,12 @@ class ActivityLog extends Model
         'action',
         'subject_type',
         'subject_id',
+        'assignment_id',
+        'employee_id',
+        'door_id',
+        'failed_step',
+        'status_code',
+        'error',
         'description',
         'timestamp',
     ];

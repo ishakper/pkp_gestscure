@@ -1231,11 +1231,23 @@ class HikvisionIsapiService
      */
     public function provisionEmployeeAccess(Door $door, Employee $employee, array $options = []): array
     {
+        if (strtoupper(trim((string) $employee->employment_status)) !== 'ACTIVE') {
+            return [
+                'status' => false,
+                'statusCode' => 422,
+                'failed_step' => null,
+                'message' => 'Provisioning diblok karena employee tidak ACTIVE.',
+                'error' => 'Employee employment_status is not ACTIVE',
+                'steps' => [],
+            ];
+        }
+
         // 1. Device online check
         if (!$this->pingDevice($door)) {
             return [
                 'status' => false,
                 'statusCode' => 503,
+                'failed_step' => null,
                 'message' => "Perangkat pintu {$door->door_id} ({$door->device_ip}) tidak dapat dijangkau / offline",
                 'error' => "Perangkat pintu {$door->door_id} offline",
                 'steps' => [
@@ -1253,6 +1265,7 @@ class HikvisionIsapiService
             return [
                 'status' => false,
                 'statusCode' => $userInfoRes['statusCode'] ?? 500,
+                'failed_step' => 'USER_INFO',
                 'message' => "Gagal provisioning UserInfo di terminal {$door->door_id}",
                 'error' => $userInfoRes['error'] ?? 'UserInfo setup failed',
                 'steps' => [
@@ -1278,6 +1291,7 @@ class HikvisionIsapiService
                 return [
                     'status' => false,
                     'statusCode' => $cardRes['statusCode'] ?? 500,
+                    'failed_step' => 'CARD_SYNC',
                     'message' => "Gagal provisioning kartu ({$employee->card_no}) di terminal {$door->door_id}",
                     'error' => $cardRes['error'] ?? 'Card synchronization failed',
                     'steps' => [
@@ -1296,6 +1310,7 @@ class HikvisionIsapiService
             return [
                 'status' => false,
                 'statusCode' => $rightRes['statusCode'] ?? 500,
+                'failed_step' => 'ACCESS_RIGHT',
                 'message' => "Gagal provisioning rencana hak akses pintu {$door->door_id}",
                 'error' => $rightRes['error'] ?? 'UserRightPlan setup failed',
                 'steps' => [
@@ -1310,6 +1325,7 @@ class HikvisionIsapiService
         return [
             'status' => true,
             'statusCode' => 200,
+            'failed_step' => null,
             'message' => "Berhasil mem-provisioning profil dan biometrik untuk {$employee->name} ke pintu {$door->door_id}",
             'error' => null,
             'steps' => [

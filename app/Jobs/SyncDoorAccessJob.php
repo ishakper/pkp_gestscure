@@ -16,8 +16,7 @@ class SyncDoorAccessJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
-    public int $backoff = 5; // Seconds to wait between retries
+    public int $tries = 1;
 
     protected int $assignmentId;
 
@@ -46,6 +45,19 @@ class SyncDoorAccessJob implements ShouldQueue
         $employee = $assignment->employee;
         $door = $assignment->door;
 
+        if (strtoupper(trim((string) $employee->employment_status)) !== 'ACTIVE') {
+            $error = 'Provisioning blocked: employee employment_status is not ACTIVE.';
+            $assignment->update([
+                'sync_status' => 'failed',
+                'last_sync_error' => $error,
+                'failed_step' => null,
+                'last_sync_status_code' => 'INACTIVE',
+            ]);
+            $this->auditFailure($assignment, null, 'INACTIVE', $error, 'sync_door_blocked');
+
+            return;
+        }
+
         Log::info("Processing SyncDoorAccessJob for Employee {$employee->employee_id} -> Door {$door->door_id} (Attempt: " . ($assignment->sync_attempts + 1) . ")");
 
         // Increment attempts count
@@ -58,16 +70,10 @@ class SyncDoorAccessJob implements ShouldQueue
             $assignment->update([
                 'sync_status' => 'failed',
                 'last_sync_error' => $errorMsg,
+                'failed_step' => null,
+                'last_sync_status_code' => '503',
             ]);
-            
-            ActivityLog::create([
-                'admin_id' => auth()->id() ?? null,
-                'action' => 'sync_door_failed',
-                'subject_type' => 'DoorAssignment',
-                'subject_id' => $assignment->id,
-                'description' => "Sync failed: {$errorMsg}",
-                'timestamp' => now(),
-            ]);
+            $this->auditFailure($assignment, null, '503', $errorMsg);
 
             return;
         }
@@ -75,18 +81,27 @@ class SyncDoorAccessJob implements ShouldQueue
         // Provision User Profile, Biometric/Card, and Access Rights
         $provisionResult = $isapiService->provisionEmployeeAccess($door, $employee);
         if (!$provisionResult['status']) {
-            $errorMsg = $provisionResult['error'] ?? 'Biometric user provisioning failed';
+            $failedStep = $provisionResult['failed_step'] ?? null;
+            $statusCode = $this->safeStatusCode($provisionResult['statusCode'] ?? null);
+            $safeError = $statusCode ?? 'Provisioning failed without status code';
+            $errorMsg = $failedStep ? "{$failedStep}: {$safeError}" : $safeError;
             $assignment->update([
                 'sync_status' => 'failed',
                 'last_sync_error' => $errorMsg,
+                'failed_step' => $failedStep,
+                'last_sync_status_code' => $statusCode,
             ]);
-            throw new \Exception($errorMsg);
+            $this->auditFailure($assignment, $failedStep, $statusCode, $safeError);
+
+            return;
         }
 
         // Successfully synced
         $assignment->update([
             'sync_status' => 'synced',
             'last_sync_error' => null,
+            'failed_step' => null,
+            'last_sync_status_code' => null,
             'last_synced_at' => now(),
             'user_info_synced_at' => now(),
             'card_synced_at' => !empty($employee->card_no) ? now() : null,
@@ -109,17 +124,40 @@ class SyncDoorAccessJob implements ShouldQueue
         if ($assignment) {
             $assignment->update([
                 'sync_status' => 'failed',
-                'last_sync_error' => $exception->getMessage(),
+                'last_sync_error' => 'JOB: unexpected worker failure',
+                'failed_step' => null,
+                'last_sync_status_code' => null,
             ]);
-            
-            ActivityLog::create([
-                'admin_id' => null,
-                'action' => 'sync_door_max_retries_failed',
-                'subject_type' => 'DoorAssignment',
-                'subject_id' => $assignment->id,
-                'description' => "Sync failed after maximum retries for assignment ID {$assignment->id}: {$exception->getMessage()}",
-                'timestamp' => now(),
-            ]);
+            $this->auditFailure($assignment, null, null, 'Unexpected worker failure', 'sync_door_job_failed');
         }
+    }
+
+    private function auditFailure(DoorAssignment $assignment, ?string $failedStep, ?string $statusCode, string $error, string $action = 'sync_door_failed'): void
+    {
+        ActivityLog::create([
+            'admin_id' => auth()->id() ?? null,
+            'action' => $action,
+            'subject_type' => 'DoorAssignment',
+            'subject_id' => $assignment->id,
+            'assignment_id' => $assignment->id,
+            'employee_id' => $assignment->employee_id,
+            'door_id' => $assignment->door_id,
+            'failed_step' => $failedStep,
+            'status_code' => $statusCode,
+            'error' => $error,
+            'description' => sprintf('Door sync failed. FAILED_STEP=%s STATUS_CODE=%s ERROR=%s', $failedStep ?? 'NONE', $statusCode ?? 'NONE', $error),
+            'timestamp' => now(),
+        ]);
+    }
+
+    private function safeStatusCode(mixed $statusCode): ?string
+    {
+        if (!is_int($statusCode) && !is_string($statusCode)) {
+            return null;
+        }
+
+        $statusCode = trim((string) $statusCode);
+
+        return preg_match('/^(?:\d{3}|0x[0-9a-f]+)$/i', $statusCode) ? $statusCode : null;
     }
 }
