@@ -1059,15 +1059,8 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
     }
 
     const html = employees.map(emp => {
-        // Biometric Badges
-        const hasFp = emp.biometric_status?.fingerprint_enrolled;
-        const hasCard = emp.biometric_status?.card_enrolled || emp.card_registered === 'YES';
-        const fpBadge = hasFp
-            ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
-            : `<span class="badge badge-dim" title="Status sidik jari tidak diketahui">FP Unknown</span>`;
-        const cardBadge = hasCard
-            ? `<span class="badge badge-info" title="Kartu terdaftar"><span class="badge-dot"></span> Kartu</span>`
-            : `<span class="badge badge-dim" title="Status kartu tidak diketahui">Card Unknown</span>`;
+        // Credential badges: device truth from reconciliation, app-recorded flags labelled as such.
+        const { fpBadge, cardBadge, syncBadge } = employeeCredentialBadges(emp);
 
         // Door Assignment Badges
         let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
@@ -1131,6 +1124,7 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
                     <div class="bio-pill-group">
                         ${fpBadge}
                         ${cardBadge}
+                        ${syncBadge}
                     </div>
                 </td>
                 <td>
@@ -1156,6 +1150,73 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
     }).join('');
 
     targets.forEach(t => t.innerHTML = html);
+}
+
+// Device-verified states come only from read-only device reconciliation
+// (employee.device_verification). The form checkboxes are app records and never count as
+// "enrolled on device"; UNKNOWN stays UNKNOWN until a device has been read.
+const DEVICE_CARD_BADGES = {
+    MATCHED: ['badge-success', 'Kartu ✓ perangkat', 'Kartu terverifikasi di perangkat dan cocok dengan aplikasi'],
+    DEVICE_FOUND: ['badge-info', 'Kartu di perangkat', 'Perangkat menyimpan kartu; aplikasi belum punya nomor kartu untuk dibandingkan'],
+    MISMATCH: ['badge-danger', 'Kartu beda', 'Kartu di perangkat berbeda dengan kartu di aplikasi'],
+    APP_RECORDED: ['badge-dim', 'Kartu tercatat di aplikasi', 'Tercatat di aplikasi, belum terverifikasi di perangkat'],
+    NONE: ['badge-dim', 'Tanpa kartu', 'Tidak ada kartu di aplikasi maupun di perangkat'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Kartu: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
+    UNKNOWN: ['badge-dim', 'Kartu belum diverifikasi', 'Belum ada data perangkat untuk kartu ini'],
+};
+const DEVICE_FP_BADGES = {
+    ENROLLED_ON_DEVICE: ['badge-success', 'FP ✓ perangkat', 'Sidik jari terverifikasi di perangkat'],
+    NOT_ENROLLED: ['badge-dim', 'FP belum di perangkat', 'Perangkat terjangkau dan tidak menyimpan sidik jari'],
+    CONFLICT: ['badge-danger', 'FP konflik', 'Aplikasi mencatat sidik jari, perangkat tidak menyimpannya'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'FP: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
+    UNKNOWN: ['badge-dim', 'FP belum diverifikasi', 'Belum ada data perangkat untuk sidik jari'],
+};
+const SYNC_STATUS_BADGES = {
+    SYNCED: ['badge-success', 'Tersinkron'],
+    PARTIAL: ['badge-warning', 'Partial'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CONFLICT: ['badge-danger', 'Konflik'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Perangkat offline'],
+    UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
+};
+
+function credentialBadge([cls, label, title]) {
+    return `<span class="badge ${cls}" title="${escapeHtml(title || label)}">${escapeHtml(label)}</span>`;
+}
+
+function employeeCredentialBadges(emp) {
+    const verification = emp.device_verification || null;
+    const appCard = Boolean(verification?.app_recorded?.card ?? (emp.card_registered === true || emp.biometric_status?.card_enrolled));
+    const appFp = Boolean(verification?.app_recorded?.fingerprint ?? emp.biometric_status?.fingerprint_enrolled);
+
+    let cardStatus = verification?.card_status || (appCard ? 'APP_RECORDED' : 'UNKNOWN');
+    if (!DEVICE_CARD_BADGES[cardStatus]) cardStatus = 'UNKNOWN';
+    const fpStatus = DEVICE_FP_BADGES[verification?.fingerprint_status] ? verification.fingerprint_status : 'UNKNOWN';
+
+    let fpBadge = credentialBadge(DEVICE_FP_BADGES[fpStatus]);
+    if (appFp && fpStatus === 'UNKNOWN') {
+        fpBadge = credentialBadge(['badge-dim', 'FP tercatat di aplikasi', 'Tercatat di aplikasi, belum terverifikasi di perangkat']);
+    }
+
+    const sync = verification?.sync_status;
+    const syncBadge = sync && sync !== 'UNVERIFIED' && SYNC_STATUS_BADGES[sync]
+        ? credentialBadge([SYNC_STATUS_BADGES[sync][0], SYNC_STATUS_BADGES[sync][1], `Status sinkron perangkat: ${SYNC_STATUS_BADGES[sync][1]}`])
+        : '';
+
+    return { fpBadge, cardBadge: credentialBadge(DEVICE_CARD_BADGES[cardStatus]), syncBadge };
+}
+
+// Replace one employee in the current page with the saved record so the row reflects the
+// update immediately; the follow-up loadEmployees() re-applies filters and pagination.
+function patchEmployeeRow(updated) {
+    if (!updated || updated.id == null) return false;
+    const index = state.employees.findIndex(e => Number(e.id) === Number(updated.id));
+    if (index === -1) return false;
+    state.employees[index] = updated;
+    renderEmployeesTable(state.employees);
+    return true;
 }
 
 function handleDeleteEmployeeBtn(id, btn) {
@@ -1371,11 +1432,13 @@ function openAddEmployeeModal() {
     document.getElementById('empName').value = '';
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
+    setSelectValuePreserving(document.getElementById('empDept'), '');
     ['empEmail','empPhone','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
     loadEmployeeOrganizationOptions();
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
-    document.getElementById('empFp').checked = true;
-    document.getElementById('empCard').checked = true;
+    // New employees have nothing recorded yet; enrollment is confirmed by the device, not by default.
+    document.getElementById('empFp').checked = false;
+    document.getElementById('empCard').checked = false;
     document.getElementById('employeeModal').classList.add('active');
 }
 
@@ -1389,8 +1452,10 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empNik').value = emp.nik;
     document.getElementById('empName').value = emp.name;
     document.getElementById('empCardNo').value = '';
-    document.getElementById('empCardNo').placeholder = emp.card_registered === 'YES' ? 'Kartu terdaftar; isi hanya untuk mengganti' : 'Nomor kartu baru';
-    document.getElementById('empDept').value = emp.department;
+    document.getElementById('empCardNo').placeholder = emp.card_registered === true ? 'Kartu tercatat; isi hanya untuk mengganti' : 'Nomor kartu baru';
+    // Imported employees carry departments outside the fixed list ("Belum Ditentukan", "IT", ...).
+    // Without an option the select posts "" and the update fails validation.
+    setSelectValuePreserving(document.getElementById('empDept'), emp.department);
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
     loadEmployeeOrganizationOptions({ building: emp.building?.id || '', division: emp.division?.id || '', position: emp.position?.id || '' });
@@ -1398,6 +1463,17 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
     document.getElementById('employeeModal').classList.add('active');
+}
+
+function setSelectValuePreserving(select, value) {
+    if (!select) return;
+    select.querySelectorAll('option[data-preserved]').forEach(o => o.remove());
+    if (value && ![...select.options].some(o => o.value === value)) {
+        const option = new Option(`${value} (data saat ini)`, value);
+        option.dataset.preserved = '1';
+        select.add(option, 0);
+    }
+    select.value = value || select.options[0]?.value || '';
 }
 
 async function saveEmployee(e) {
@@ -1421,6 +1497,11 @@ async function saveEmployee(e) {
         payload.card_no = rawCardInput;
     }
 
+    // An untouched legacy department is left as stored instead of being rewritten.
+    if (id && document.getElementById('empDept').selectedOptions[0]?.dataset.preserved) {
+        delete payload.department;
+    }
+
     const method = id ? 'PUT' : 'POST';
     const endpoint = id ? `/user-management/employees/${id}` : '/user-management/employees';
 
@@ -1429,6 +1510,7 @@ async function saveEmployee(e) {
         if (res.status === 'success') {
             showToast(id ? 'Data karyawan berhasil diperbarui!' : 'Karyawan baru berhasil ditambahkan!', 'success');
             closeModal('employeeModal');
+            if (id) patchEmployeeRow(res.data);
             await loadEmployees();
         }
     } catch (err) {
@@ -4619,6 +4701,333 @@ function switchAccessSubTab(subTab, btn) {
 
     const activeEl = document.getElementById(subs[subTab]);
     if (activeEl) activeEl.style.display = 'block';
+
+    // Loaded only when the Credential Center is opened, never on dashboard boot.
+    if (subTab === 'credentials' && canUseDeviceReconciliation()) {
+        const section = document.getElementById('deviceReconciliationSection');
+        if (section) section.style.display = 'block';
+        loadDeviceReconciliation();
+    }
+}
+
+// ==========================================
+// Reconciliation Center (device ↔ app, read-only towards devices)
+// ==========================================
+const RECON_FRESH_MS = 30000;
+const reconState = { tab: 'all', page: 1, loadedAt: 0, seq: 0, searchTimer: null, rows: [] };
+
+function canUseDeviceReconciliation() {
+    return window.APP_CONFIG?.admin?.role === 'super_admin'; // mirrors DeviceReconciliationController
+}
+
+const RECON_ROW_STATUS = {
+    MATCHED: ['badge-success', 'Cocok'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CARD_MISMATCH: ['badge-danger', 'Kartu beda'],
+    BIOMETRIC_MISMATCH: ['badge-danger', 'FP beda'],
+    IDENTITY_CONFLICT: ['badge-danger', 'Konflik identitas'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Offline'],
+    UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
+};
+const RECON_ACCESS_LABELS = {
+    GRANTED: 'Granted', NOT_GRANTED: 'Not Granted', FAILED: 'Failed', UNKNOWN: 'Unknown', DEVICE_UNREACHABLE: 'Device Unreachable',
+};
+const RECON_REASON_LABELS = {
+    device_name_missing: 'Nama di perangkat kosong / "-"',
+    name_mismatch: 'Nama di perangkat berbeda dengan aplikasi',
+    nik_unverified: 'NIK di aplikasi belum terverifikasi',
+    matched_by_card_only: 'Hanya cocok berdasarkan kartu',
+    name_only_candidate: 'Kandidat hanya berdasarkan nama (bukan bukti identitas)',
+    ambiguous_name: 'Nama cocok dengan lebih dari satu pengguna',
+    identifiers_point_to_different_employees: 'Pengenal menunjuk ke pengguna berbeda',
+    card_shared_by_multiple_employees: 'Kartu tercatat pada lebih dari satu pengguna',
+    link_disagrees_with_identifier: 'Tautan manual berbeda dengan pengenal perangkat',
+    marked_for_review: 'Ditandai perlu verifikasi oleh admin',
+    ignored_by_admin: 'Diabaikan oleh admin',
+};
+
+function reconStatusBadge(status) {
+    const [cls, label] = RECON_ROW_STATUS[status] || SYNC_STATUS_BADGES[status] || ['badge-dim', status || '-'];
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function reconCardBadge(status) {
+    return credentialBadge(DEVICE_CARD_BADGES[status] || DEVICE_CARD_BADGES.UNKNOWN);
+}
+
+function reconFpBadge(status) {
+    return credentialBadge(DEVICE_FP_BADGES[status] || DEVICE_FP_BADGES.UNKNOWN);
+}
+
+function reconReasons(reasons) {
+    const list = Array.isArray(reasons) ? reasons : Object.values(reasons || {}).filter(r => typeof r === 'string');
+    return list.map(r => RECON_REASON_LABELS[r] || r).join('; ');
+}
+
+async function loadDeviceReconciliation(force = false) {
+    if (!canUseDeviceReconciliation()) return;
+    if (!force && Date.now() - reconState.loadedAt < RECON_FRESH_MS) return;
+    reconState.loadedAt = Date.now();
+    const seq = ++reconState.seq;
+    const tbody = document.getElementById('reconTableBody');
+
+    const params = new URLSearchParams({ tab: reconState.tab, page: String(reconState.page), per_page: '20' });
+    const search = document.getElementById('reconSearch')?.value.trim() || '';
+    if (search) params.set('search', search);
+
+    try {
+        const res = await apiFetch(`/access/reconciliation?${params.toString()}`);
+        if (seq !== reconState.seq || !res?.success) return;
+        renderDeviceReconciliation(res.data);
+    } catch (err) {
+        if (seq !== reconState.seq) return;
+        reconState.loadedAt = 0;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="error-td">Gagal memuat rekonsiliasi: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderDeviceReconciliation(data) {
+    const lastRun = document.getElementById('reconLastRun');
+    if (lastRun) {
+        lastRun.textContent = data.last_run
+            ? `Pembacaan terakhir #${data.last_run.id} (${data.last_run.status}) · ${formatDateTime(data.last_run.finished_at || data.last_run.started_at)} · read-only`
+            : 'Belum pernah membaca perangkat. Klik "Refresh dari Perangkat".';
+    }
+
+    const summary = document.getElementById('reconDeviceSummary');
+    if (summary) {
+        summary.innerHTML = (data.devices || []).map(d => {
+            const offline = d.status === 'DEVICE_UNREACHABLE';
+            const unverified = d.status === 'UNVERIFIED';
+            const val = v => (v === null || v === undefined ? '—' : escapeHtml(String(v)));
+            return `
+                <div class="recon-device-card" style="border:1px solid var(--border-color);border-radius:0.75rem;padding:0.75rem;">
+                    <div style="display:flex;justify-content:space-between;gap:0.5rem;align-items:center;">
+                        <strong style="color:#fff;">${escapeHtml(d.door_code || '-')}</strong>
+                        ${offline ? '<span class="badge badge-warning">Device Unreachable</span>' : (unverified ? '<span class="badge badge-dim">Belum diverifikasi</span>' : '<span class="badge badge-success">Online</span>')}
+                    </div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0.5rem;">${escapeHtml(d.name || '')}</div>
+                    <div style="font-size:0.78rem;display:grid;grid-template-columns:1fr auto;gap:0.15rem 0.5rem;">
+                        <span>Pengguna di perangkat</span><b>${val(d.users_on_device)}</b>
+                        <span>Cocok</span><b>${val(d.matched)}</b>
+                        <span>Hanya perangkat</span><b>${val(d.device_only)}</b>
+                        <span>Hanya aplikasi</span><b>${val(d.app_only)}</b>
+                        <span>Konflik</span><b>${val(d.conflicts)}</b>
+                        <span>Perlu verifikasi</span><b>${val(d.review)}</b>
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${d.last_verified_at ? 'Terakhir: ' + escapeHtml(formatDateTime(d.last_verified_at)) : 'Belum pernah dibaca'}</div>
+                    ${d.error ? `<div style="font-size:0.72rem;color:#fbbf24;margin-top:0.25rem;">${escapeHtml(d.error)}</div>` : ''}
+                    <button type="button" class="btn-secondary" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.72rem;" onclick="runDeviceReconciliation(${Number(d.door_id)}, this)">Refresh dari Perangkat</button>
+                </div>`;
+        }).join('');
+    }
+
+    const counts = data.counts || {};
+    document.querySelectorAll('#reconTabs [data-recon-tab]').forEach(btn => {
+        const tab = btn.dataset.reconTab;
+        btn.classList.toggle('active', tab === reconState.tab);
+        const base = btn.textContent.replace(/\s*\(\d+\)$/, '');
+        btn.textContent = counts[tab] !== undefined ? `${base} (${counts[tab]})` : base;
+    });
+
+    const unlinked = document.getElementById('reconUnlinkedBody');
+    if (unlinked) {
+        const rows = data.unlinked || [];
+        unlinked.innerHTML = rows.length === 0
+            ? '<tr><td colspan="9" class="empty-td">Tidak ada data perangkat yang belum terhubung.</td></tr>'
+            : rows.map(r => `
+                <tr>
+                    <td><strong>${escapeHtml(r.person_number || '-')}</strong></td>
+                    <td>${escapeHtml(r.name || '-')}</td>
+                    <td>${reconCardBadge(r.card_status)}${r.card_count != null ? ` <small>(${Number(r.card_count)})</small>` : ''}</td>
+                    <td>${r.fingerprint_count != null ? Number(r.fingerprint_count) : '—'}</td>
+                    <td>${escapeHtml((r.devices || []).map(d => d.door_code).join(', '))}</td>
+                    <td>${r.candidate ? `${escapeHtml(r.candidate.name)} <small>(${escapeHtml(r.candidate.employee_id || '-')})</small>` : '—'}</td>
+                    <td>${escapeHtml(r.confidence || 'none')}</td>
+                    <td>${reconStatusBadge(r.devices?.[0]?.status)}</td>
+                    <td style="text-align:right;"><button type="button" class="btn-sm btn-edit" onclick="openReconDevicePersonDetail(${Number(r.state_id)})">Detail Perbandingan</button></td>
+                </tr>`).join('');
+    }
+
+    reconState.rows = data.rows || [];
+    const tbody = document.getElementById('reconTableBody');
+    if (tbody) {
+        tbody.innerHTML = reconState.rows.length === 0
+            ? '<tr><td colspan="11" class="empty-td">Tidak ada data untuk filter ini.</td></tr>'
+            : reconState.rows.map(r => {
+                const devices = (r.devices || []).map(d => `<span class="badge badge-dim" title="${escapeHtml(RECON_ACCESS_LABELS[d.access_status] || d.access_status || '')}">${escapeHtml(d.door_code || '-')}: ${escapeHtml((RECON_ROW_STATUS[d.status] || [null, d.status])[1])}</span>`).join(' ') || '—';
+                const action = r.kind === 'employee'
+                    ? `<button type="button" class="btn-sm btn-edit" onclick="openReconEmployeeDetail(${Number(r.employee_id)})">Detail Perbandingan</button>`
+                    : `<button type="button" class="btn-sm btn-edit" onclick="openReconDevicePersonDetail(${Number(r.state_id)})">Detail / Hubungkan</button>`;
+                return `
+                    <tr data-recon-key="${escapeHtml(r.key)}">
+                        <td><strong>${escapeHtml(r.name || '-')}</strong><br><small>${escapeHtml(r.user_id || (r.kind === 'device' ? 'Data perangkat' : '-'))}</small></td>
+                        <td>${escapeHtml(r.nik || '-')}<br><small>${escapeHtml(r.person_number || '-')}</small></td>
+                        <td>${escapeHtml(r.credential || '-')}</td>
+                        <td>${reconCardBadge(r.card_status)}</td>
+                        <td>${reconFpBadge(r.fingerprint_status)}</td>
+                        <td>${devices}</td>
+                        <td>${escapeHtml(r.app_status || '-')}</td>
+                        <td>${escapeHtml(r.device_status || '-')}</td>
+                        <td>${reconStatusBadge(r.sync_status)}</td>
+                        <td>${r.last_verified_at ? escapeHtml(formatDateTime(r.last_verified_at)) : '—'}</td>
+                        <td style="text-align:right;">${action}</td>
+                    </tr>`;
+            }).join('');
+    }
+
+    const pager = document.getElementById('reconPagination');
+    if (pager) {
+        const p = data.pagination || { current_page: 1, last_page: 1, total_records: 0 };
+        pager.innerHTML = `
+            <small style="color:var(--text-muted);">Halaman ${p.current_page} / ${p.last_page} · ${p.total_records} baris</small>
+            <button type="button" class="btn-secondary" ${p.current_page <= 1 ? 'disabled' : ''} onclick="goReconciliationPage(${p.current_page - 1})">‹</button>
+            <button type="button" class="btn-secondary" ${p.current_page >= p.last_page ? 'disabled' : ''} onclick="goReconciliationPage(${p.current_page + 1})">›</button>`;
+    }
+}
+
+function setReconciliationTab(tab) {
+    reconState.tab = tab;
+    reconState.page = 1;
+    loadDeviceReconciliation(true);
+}
+
+function goReconciliationPage(page) {
+    reconState.page = Math.max(1, Number(page) || 1);
+    loadDeviceReconciliation(true);
+}
+
+function debounceReconciliationSearch() {
+    clearTimeout(reconState.searchTimer);
+    reconState.searchTimer = setTimeout(() => { reconState.page = 1; loadDeviceReconciliation(true); }, 400);
+}
+
+async function runDeviceReconciliation(doorId, button) {
+    if (!canUseDeviceReconciliation() || button?.disabled) return;
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Membaca perangkat...'; }
+    try {
+        const res = await apiFetch('/access/reconciliation/run', {
+            method: 'POST',
+            body: JSON.stringify(doorId ? { door_id: doorId } : {}),
+        });
+        showToast(res?.message || 'Data perangkat dibaca ulang.', res?.data?.run?.status === 'completed' ? 'success' : 'warning');
+        await loadDeviceReconciliation(true);
+    } catch (err) {
+        showToast(`Gagal membaca perangkat: ${err.message}`, 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
+    }
+}
+
+function reconDetailTable(rows) {
+    return `<table style="margin-top:0.5rem;"><tbody>${rows.map(([k, v]) => `<tr><th style="width:38%;">${escapeHtml(k)}</th><td>${v}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function openReconEmployeeDetail(employeeId) {
+    const body = document.getElementById('reconDetailBody');
+    document.getElementById('reconDecisionPanel').style.display = 'none';
+    if (body) body.innerHTML = 'Memuat...';
+    openModal('modalReconDetail');
+    try {
+        const res = await apiFetch(`/access/reconciliation/employees/${Number(employeeId)}`);
+        const { app, verification, device_states: states } = res.data;
+        const doors = (verification.doors || []).map(d => {
+            const st = (states || []).find(s => s.door_id === d.door_id);
+            return `<tr>
+                <td>${escapeHtml(st?.door_code || String(d.door_id))}</td>
+                <td>${d.assigned_in_app ? 'Ya' : 'Tidak'}</td>
+                <td>${reconStatusBadge(d.status)}</td>
+                <td>${escapeHtml(RECON_ACCESS_LABELS[d.access_status] || d.access_status)}</td>
+                <td>${escapeHtml(st?.device_employee_no || '-')} / ${escapeHtml(st?.device_name || '-')}</td>
+                <td>${reconCardBadge(d.card_status)} ${escapeHtml((st?.card_masks || []).join(', '))}</td>
+                <td>${reconFpBadge(d.fingerprint_status)}${st?.fingerprint_count != null ? ` (${Number(st.fingerprint_count)})` : ''}</td>
+                <td>${escapeHtml(reconReasons(st?.reasons))}</td>
+            </tr>`;
+        }).join('');
+        body.innerHTML = `
+            <strong style="color:#fff;">Aplikasi (identitas, NIK, otorisasi)</strong>
+            ${reconDetailTable([
+                ['Nama', escapeHtml(app.name || '-')],
+                ['User ID / NIK', `${escapeHtml(app.employee_id || '-')} / ${escapeHtml(app.nik || '-')}`],
+                ['Person Number', escapeHtml(app.person_number || '-')],
+                ['Kartu tercatat', escapeHtml((app.card_masks || []).join(', ') || (verification.app_recorded?.card ? 'Ya (tanpa nomor)' : 'Tidak'))],
+                ['Fingerprint tercatat di aplikasi', verification.app_recorded?.fingerprint ? 'Ya' : 'Tidak'],
+                ['Status sinkron', reconStatusBadge(verification.sync_status)],
+            ])}
+            <strong style="color:#fff;display:block;margin-top:0.75rem;">Perangkat (orang, kartu, sidik jari)</strong>
+            <table style="margin-top:0.5rem;"><thead><tr><th>Pintu</th><th>Assignment</th><th>Status</th><th>Akses</th><th>Person / Nama</th><th>Kartu</th><th>FP</th><th>Catatan</th></tr></thead>
+            <tbody>${doors || '<tr><td colspan="8" class="empty-td">Belum ada akses pintu atau data perangkat.</td></tr>'}</tbody></table>`;
+    } catch (err) {
+        if (body) body.innerHTML = `<span class="error-td">Gagal memuat detail: ${escapeHtml(err.message)}</span>`;
+    }
+}
+
+async function openReconDevicePersonDetail(stateId) {
+    const body = document.getElementById('reconDetailBody');
+    const panel = document.getElementById('reconDecisionPanel');
+    panel.style.display = 'none';
+    if (body) body.innerHTML = 'Memuat...';
+    openModal('modalReconDetail');
+    try {
+        const res = await apiFetch(`/access/reconciliation/device-persons/${Number(stateId)}`);
+        const { state: st, employee, candidate, conflicting_employees: conflicts, decision } = res.data;
+        body.innerHTML = `
+            <strong style="color:#fff;">Perangkat ${escapeHtml(st.door_code || '')}</strong>
+            ${reconDetailTable([
+                ['Person Number', escapeHtml(st.device_employee_no)],
+                ['Nama di perangkat', escapeHtml(st.device_name || '-')],
+                ['Kartu', `${reconCardBadge(st.card_status)} ${st.card_count != null ? Number(st.card_count) : '—'} ${escapeHtml((st.card_masks || []).join(', '))}`],
+                ['Sidik jari', `${reconFpBadge(st.fingerprint_status)} ${st.fingerprint_count != null ? Number(st.fingerprint_count) : '—'}`],
+                ['Status', reconStatusBadge(st.status)],
+                ['Dasar kecocokan / keyakinan', `${escapeHtml(st.match_basis || '-')} / ${escapeHtml(st.confidence || 'none')}`],
+                ['Terhubung ke', employee ? `${escapeHtml(employee.name)} (${escapeHtml(employee.employee_id || '-')})` : '—'],
+                ['Kandidat (nama saja)', candidate ? `${escapeHtml(candidate.name)} (${escapeHtml(candidate.employee_id || '-')})` : '—'],
+                ['Pengguna yang bertentangan', (conflicts || []).map(c => `${escapeHtml(c.name)} (${escapeHtml(c.employee_id || '-')})`).join(', ') || '—'],
+                ['Catatan', escapeHtml(reconReasons(st.reasons)) || '—'],
+                ['Keputusan terakhir', decision ? `${escapeHtml(decision.decision)} oleh ${escapeHtml(decision.decided_by || '-')}${decision.note ? ' · ' + escapeHtml(decision.note) : ''}` : '—'],
+            ])}`;
+
+        document.getElementById('reconDecisionStateId').value = st.id;
+        const select = document.getElementById('reconLinkEmployee');
+        const source = document.getElementById('crdEmployeeId');
+        if (select && source && source.options.length > 1) {
+            select.innerHTML = `<option value="">-- Pilih Karyawan --</option>` + Array.from(source.options).filter(o => o.value).map(o => o.outerHTML).join('');
+        }
+        if (select) select.value = String(employee?.id || candidate?.id || '');
+        document.getElementById('reconDecisionNote').value = '';
+        panel.style.display = 'block';
+    } catch (err) {
+        if (body) body.innerHTML = `<span class="error-td">Gagal memuat detail: ${escapeHtml(err.message)}</span>`;
+    }
+}
+
+async function submitReconciliationDecision(decision, button) {
+    const stateId = document.getElementById('reconDecisionStateId').value;
+    const employeeId = document.getElementById('reconLinkEmployee').value;
+    if (!stateId || button?.disabled) return;
+    if (decision === 'LINKED' && !employeeId) {
+        showToast('Pilih pengguna yang akan dihubungkan.', 'warning');
+        return;
+    }
+    if (button) button.disabled = true;
+    try {
+        const payload = { decision, note: document.getElementById('reconDecisionNote').value || null };
+        if (decision === 'LINKED') payload.employee_id = Number(employeeId);
+        const res = await apiFetch(`/access/reconciliation/device-persons/${Number(stateId)}/decision`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        showToast(res?.message || 'Keputusan disimpan.', 'success');
+        closeModal('modalReconDetail');
+        await loadDeviceReconciliation(true);
+    } catch (err) {
+        showToast(`Gagal menyimpan keputusan: ${err.message}`, 'error');
+    } finally {
+        if (button) button.disabled = false;
+    }
 }
 
 async function loadAccessMetrics() {
@@ -8502,6 +8911,11 @@ Object.assign(window, {
     loadAttendanceReport,
     loadCredentials,
     loadDashboardBuildings,
+    loadDeviceReconciliation,
+    openReconDevicePersonDetail,
+    openReconEmployeeDetail,
+    runDeviceReconciliation,
+    submitReconciliationDecision,
     loadDeviceSyncs,
     loadEmoneyCards,
     loadEmployees,

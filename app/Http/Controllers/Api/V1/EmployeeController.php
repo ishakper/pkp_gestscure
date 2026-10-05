@@ -62,7 +62,7 @@ class EmployeeController extends Controller
     public function index(Request $request)
     {
         $admin = $request->user();
-        $baseQuery = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position', 'supervisor']);
+        $baseQuery = Employee::with(['biometricStatus', 'doors', 'building', 'division', 'position', 'supervisor', 'deviceStates']);
         
         // Apply authorization scope
         if ($admin && $admin->isBuildingAdmin() && $admin->assigned_building) {
@@ -326,7 +326,7 @@ class EmployeeController extends Controller
             new OA\Response(response: 404, description: 'Karyawan tidak ditemukan')
         ]
     )]
-    public function show($id) { $employee=$this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position']); $this->authorize('view',$employee); return response()->json(['status'=>'success','data'=>new EmployeeResource($employee)]); }
+    public function show($id) { $employee=$this->findEmployeeByIdentifier($id)->load(['biometricStatus','doors','building','division','position','deviceStates']); $this->authorize('view',$employee); return response()->json(['status'=>'success','data'=>new EmployeeResource($employee)]); }
 
     #[OA\Put(
         path: '/user-management/employees/{id}',
@@ -364,12 +364,19 @@ class EmployeeController extends Controller
     {
         $employee=$this->findEmployeeByIdentifier($id)->load('biometricStatus'); $this->authorize('update',$employee);
         $values=$request->safe()->only(self::EMPLOYEE_FIELDS); $employee->update($values);
-        if ($employee->biometricStatus) { $employee->biometricStatus->update(['has_fingerprint'=>$request->has('fingerprint_enrolled')?(bool)$request->fingerprint_enrolled:$employee->biometricStatus->has_fingerprint,'fingerprint_enrolled'=>$request->has('fingerprint_enrolled')?(bool)$request->fingerprint_enrolled:$employee->biometricStatus->fingerprint_enrolled,'card_enrolled'=>$request->has('card_enrolled')?(bool)$request->card_enrolled:$employee->biometricStatus->card_enrolled]); }
+        // App-recorded credential flags. Imported employees have no biometric_statuses row, which
+        // used to drop these flags silently while the save still reported success.
+        if ($request->has('fingerprint_enrolled') || $request->has('card_enrolled')) {
+            $biometric = $employee->biometricStatus ?? $employee->biometricStatus()->make(['has_fingerprint' => false, 'card_enrolled' => false]);
+            if ($request->has('fingerprint_enrolled')) { $biometric->fingerprint_enrolled = (bool) $request->fingerprint_enrolled; }
+            if ($request->has('card_enrolled')) { $biometric->card_enrolled = (bool) $request->card_enrolled; }
+            $biometric->save();
+        }
         if (in_array(strtoupper((string)$employee->employment_status), ['INACTIVE', 'RESIGNED', 'TERMINATED'], true)) {
             app(\App\Services\AccessProvisioningService::class)->revokeEmployeeAccess($employee, 'Status karyawan diubah ke ' . $employee->employment_status, $request->user());
         }
         $this->audit($request,'update_employee',$employee,'Updated employee master record');
-        return response()->json(['status'=>'success','message'=>'Data karyawan berhasil diperbarui','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position']))]);
+        return response()->json(['status'=>'success','message'=>'Data karyawan berhasil diperbarui','data'=>new EmployeeResource($employee->load(['biometricStatus','doors','building','division','position','deviceStates']))]);
     }
 
     #[OA\Delete(
