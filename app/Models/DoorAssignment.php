@@ -15,6 +15,8 @@ class DoorAssignment extends Model
         'sync_status',
         'sync_attempts',
         'last_sync_error',
+        'failed_step',
+        'last_sync_status_code',
         'last_synced_at',
         'user_info_synced_at',
         'card_synced_at',
