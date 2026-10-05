@@ -612,7 +612,7 @@ class HikvisionIsapiService
         // 1. Mock Mode: Direct Internal Controller Invocation
         if ($this->isMockMode()) {
             try {
-                $request = Request::create('/api/mock/isapi/AccessControl/CardInfo/Record', 'PUT', $payload);
+                $request = Request::create('/api/mock/isapi/AccessControl/CardInfo/Record', 'POST', $payload);
                 $mockController = app(HikvisionMockController::class);
                 $jsonResponse = $mockController->syncCard($request);
                 $data = $jsonResponse->getData(true) ?? [];
@@ -645,6 +645,42 @@ class HikvisionIsapiService
         }
 
         // 2. Real Physical Device Mode
+        $inspection = $this->inspectCardProvisioningState((string) $employeeNo, (string) $cardNo, $door);
+        if (!$inspection['status']) {
+            return $inspection;
+        }
+
+        if ($inspection['state'] === 'already_present') {
+            return [
+                'status' => true,
+                'statusCode' => 200,
+                'provisioning_status' => 'already_present',
+                'idempotent' => true,
+                'data' => null,
+                'error' => null,
+            ];
+        }
+
+        if ($inspection['state'] === 'credential_conflict') {
+            return [
+                'status' => false,
+                'statusCode' => 409,
+                'provisioning_status' => 'conflict',
+                'data' => null,
+                'error' => 'Card credential is assigned to a different employee on device.',
+            ];
+        }
+
+        if ($inspection['state'] === 'employee_card_review') {
+            return [
+                'status' => false,
+                'statusCode' => 409,
+                'provisioning_status' => 'review',
+                'data' => null,
+                'error' => 'Employee already has a different or incompatible card on device.',
+            ];
+        }
+
         $url = $this->buildUrl('/AccessControl/CardInfo/Record?format=json', $door);
 
         try {
@@ -676,6 +712,94 @@ class HikvisionIsapiService
                 'statusCode' => 500,
                 'data' => null,
                 'error' => "ISAPI Connection Error: " . $e->getMessage(),
+            ];
+        }
+    }
+
+    private function inspectCardProvisioningState(string $employeeNo, string $cardNo, ?Door $door): array
+    {
+        $url = $this->buildUrl('/AccessControl/CardInfo/Search?format=json', $door);
+        $searchId = str_replace('-', '', (string) Str::uuid());
+        $position = 0;
+        $totalMatches = 0;
+        $exactMatch = false;
+        $cardConflict = false;
+        $employeeCardReview = false;
+
+        try {
+            $client = $this->buildHttpClient($door);
+
+            do {
+                $response = $client->post($url, [
+                    'CardInfoSearchCond' => [
+                        'searchID' => $searchId,
+                        'searchResultPosition' => $position,
+                        'maxResults' => 10,
+                    ],
+                ]);
+                $json = $response->json() ?? [];
+
+                if (!$response->successful()) {
+                    $error = $json['ResponseStatus'] ?? $json;
+
+                    return [
+                        'status' => false,
+                        'statusCode' => $response->status(),
+                        'provisioning_status' => 'search_failed',
+                        'data' => null,
+                        'error' => $error['errorMsg'] ?? $error['statusString'] ?? 'CardInfo search failed.',
+                    ];
+                }
+
+                $container = $json['CardInfoSearch'] ?? $json;
+                $rows = $container['CardInfo'] ?? [];
+                if (isset($rows['cardNo']) || isset($rows['employeeNo'])) {
+                    $rows = [$rows];
+                }
+                $rows = array_values(array_filter($rows, 'is_array'));
+
+                foreach ($rows as $card) {
+                    $deviceEmployeeNo = trim((string) ($card['employeeNo'] ?? ''));
+                    $deviceCardNo = trim((string) ($card['cardNo'] ?? ''));
+                    $cardType = trim((string) ($card['cardType'] ?? 'normalCard'));
+                    $sameEmployee = hash_equals($employeeNo, $deviceEmployeeNo);
+                    $sameCard = hash_equals($cardNo, $deviceCardNo);
+
+                    if ($sameCard && !$sameEmployee) {
+                        $cardConflict = true;
+                    } elseif ($sameEmployee && !$sameCard) {
+                        $employeeCardReview = true;
+                    } elseif ($sameEmployee && $sameCard) {
+                        if ($cardType === '' || strcasecmp($cardType, 'normalCard') === 0) {
+                            $exactMatch = true;
+                        } else {
+                            $employeeCardReview = true;
+                        }
+                    }
+
+                    unset($deviceCardNo);
+                }
+
+                $numOfMatches = (int) ($container['numOfMatches'] ?? count($rows));
+                $totalMatches = (int) ($container['totalMatches'] ?? $totalMatches ?: count($rows));
+                $position += $numOfMatches;
+                $responseStatus = strtoupper((string) ($container['responseStatusStrg'] ?? ''));
+            } while ($numOfMatches > 0 && $position < $totalMatches && !in_array($responseStatus, ['OK', 'NO MATCH'], true));
+
+            $state = $cardConflict
+                ? 'credential_conflict'
+                : ($employeeCardReview ? 'employee_card_review' : ($exactMatch ? 'already_present' : 'missing'));
+
+            return ['status' => true, 'state' => $state, 'error' => null];
+        } catch (\Throwable $e) {
+            Log::error("ISAPI CardInfo search failed ({$url}): " . $e->getMessage());
+
+            return [
+                'status' => false,
+                'statusCode' => 500,
+                'provisioning_status' => 'search_failed',
+                'data' => null,
+                'error' => 'ISAPI CardInfo search request failed.',
             ];
         }
     }

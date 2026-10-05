@@ -187,6 +187,19 @@ XML;
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake(function (HttpRequest $request) {
+            if (str_contains($request->url(), '/AccessControl/CardInfo/Search')) {
+                $this->assertSame('POST', $request->method());
+
+                return Http::response([
+                    'CardInfoSearch' => [
+                        'numOfMatches' => 0,
+                        'totalMatches' => 0,
+                        'responseStatusStrg' => 'NO MATCH',
+                        'CardInfo' => [],
+                    ],
+                ], 200);
+            }
+
             $this->assertStringEndsWith('/AccessControl/CardInfo/Record?format=json', $request->url());
             $this->assertSame('POST', $request->method());
             $this->assertSame([
@@ -222,6 +235,93 @@ XML;
         $this->assertEquals(1, $result['statusCode']);
         $this->assertNull($result['error']);
         $this->assertEquals('CARD-100234', $result['data']['cardNo']);
+        Http::assertSentCount(2);
+    }
+
+    public function test_sync_card_user_returns_success_without_write_for_exact_existing_pair(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => [
+                    'numOfMatches' => 1,
+                    'totalMatches' => 1,
+                    'responseStatusStrg' => 'OK',
+                    'CardInfo' => [[
+                        'employeeNo' => 'USR-1001',
+                        'cardNo' => 'CARD-100234',
+                        'cardType' => 'normalCard',
+                    ]],
+                ],
+            ], 200),
+        ]);
+
+        $result = $this->service->syncCardUser('USR-1001', 'CARD-100234', null, $this->door);
+
+        $this->assertTrue($result['status']);
+        $this->assertSame('already_present', $result['provisioning_status']);
+        $this->assertTrue($result['idempotent']);
+        Http::assertSentCount(1);
+        Http::assertNotSent(fn (HttpRequest $request) => str_contains($request->url(), '/CardInfo/Record'));
+    }
+
+    public function test_sync_card_user_fails_when_card_belongs_to_another_employee(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => [
+                    'numOfMatches' => 1,
+                    'totalMatches' => 1,
+                    'responseStatusStrg' => 'OK',
+                    'CardInfo' => [['employeeNo' => 'OTHER', 'cardNo' => 'CARD-100234', 'cardType' => 'normalCard']],
+                ],
+            ], 200),
+        ]);
+
+        $result = $this->service->syncCardUser('USR-1001', 'CARD-100234', null, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertSame('conflict', $result['provisioning_status']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_sync_card_user_requires_review_when_employee_has_another_card(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => [
+                    'numOfMatches' => 1,
+                    'totalMatches' => 1,
+                    'responseStatusStrg' => 'OK',
+                    'CardInfo' => [['employeeNo' => 'USR-1001', 'cardNo' => 'OTHER-CARD', 'cardType' => 'normalCard']],
+                ],
+            ], 200),
+        ]);
+
+        $result = $this->service->syncCardUser('USR-1001', 'CARD-100234', null, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertSame('review', $result['provisioning_status']);
+        Http::assertSentCount(1);
+    }
+
+    public function test_sync_card_user_fails_safely_when_search_fails(): void
+    {
+        Config::set('services.hikvision.use_mock', false);
+        Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'ResponseStatus' => ['errorMsg' => 'Search unavailable'],
+            ], 500),
+        ]);
+
+        $result = $this->service->syncCardUser('USR-1001', 'CARD-100234', null, $this->door);
+
+        $this->assertFalse($result['status']);
+        $this->assertSame('search_failed', $result['provisioning_status']);
+        $this->assertSame(500, $result['statusCode']);
+        Http::assertSentCount(1);
     }
 
     /**
@@ -232,6 +332,9 @@ XML;
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => ['numOfMatches' => 0, 'totalMatches' => 0, 'responseStatusStrg' => 'NO MATCH', 'CardInfo' => []],
+            ], 200),
             '*/AccessControl/CardInfo/Record*' => Http::response([
                 'statusCode' => 4,
                 'statusString' => 'Invalid Operation',
@@ -262,6 +365,9 @@ XML;
         Config::set('services.hikvision.use_mock', false);
 
         Http::fake([
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => ['numOfMatches' => 0, 'totalMatches' => 0, 'responseStatusStrg' => 'NO MATCH', 'CardInfo' => []],
+            ], 200),
             '*/AccessControl/CardInfo/Record*' => function () {
                 throw new \Exception('Network unreachable');
             },
@@ -493,6 +599,9 @@ XML;
 
         Http::fake([
             '*/System/deviceInfo*' => Http::response(['statusCode' => 1, 'status' => 'OK'], 200),
+            '*/AccessControl/CardInfo/Search*' => Http::response([
+                'CardInfoSearch' => ['numOfMatches' => 0, 'totalMatches' => 0, 'responseStatusStrg' => 'NO MATCH', 'CardInfo' => []],
+            ], 200),
             '*/AccessControl/CardInfo/Record*' => Http::response(['statusCode' => 1, 'statusString' => 'OK'], 200),
         ]);
 
