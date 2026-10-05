@@ -3064,7 +3064,7 @@
                 <table>
                     <thead>
                         <tr>
-                            <th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>App Status</th><th>Device Status</th><th>Sync Status</th><th>Last Verified</th><th style="text-align:right;">Action</th>
+                            <th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>Identity Status</th><th>Device Link</th><th>Sync Status</th><th>Last Verified</th><th style="text-align:right;">Action</th>
                         </tr>
                     </thead>
                     <tbody id="reconTableBody">

@@ -119,7 +119,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, '1001');
-        $this->assertSame([Recon::MATCHED, $emp->id, 'person_number', 'high'], [$state->status, $state->employee_id, $state->match_basis, $state->confidence]);
+        $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, Recon::IDENTITY_VERIFIED, $emp->id, 'person_number', 'high'], [$state->status, $state->device_link_status, $state->identity_status, $state->employee_id, $state->match_basis, $state->confidence]);
     }
 
     public function test_02_normalized_employee_id_matches(): void
@@ -129,7 +129,8 @@ class DeviceCredentialReconciliationTest extends TestCase
 
         $this->reconcile();
 
-        $this->assertSame([Recon::MATCHED, $emp->id, 'employee_id'], [$this->state($this->doorA, '42')->status, $this->state($this->doorA, '42')->employee_id, $this->state($this->doorA, '42')->match_basis]);
+        $state = $this->state($this->doorA, '42');
+        $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, $emp->id, 'employee_id'], [$state->status, $state->device_link_status, $state->employee_id, $state->match_basis]);
     }
 
     public function test_03_card_only_match_is_kept_for_review(): void
@@ -140,7 +141,8 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, 'D-77');
-        $this->assertSame([Recon::REVIEW, $emp->id, 'card', 'medium', 'MATCHED'], [$state->status, $state->employee_id, $state->match_basis, $state->confidence, $state->card_status]);
+        // Low-confidence match: linked, but the match itself needs review.
+        $this->assertSame([Recon::SYNC_REVIEW, Recon::LINK_MATCHED, Recon::IDENTITY_REVIEW, $emp->id, 'card', 'medium', 'MATCHED'], [$state->status, $state->device_link_status, $state->identity_status, $state->employee_id, $state->match_basis, $state->confidence, $state->card_status]);
         $this->assertContains('matched_by_card_only', $state->reasons);
     }
 
@@ -152,7 +154,8 @@ class DeviceCredentialReconciliationTest extends TestCase
 
         $this->reconcile();
 
-        $this->assertSame([Recon::MATCHED, $emp->id, 'manual_link'], [$this->state($this->doorA, 'LEGACY-9')->status, $this->state($this->doorA, 'LEGACY-9')->employee_id, $this->state($this->doorA, 'LEGACY-9')->match_basis]);
+        $state = $this->state($this->doorA, 'LEGACY-9');
+        $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, $emp->id, 'manual_link'], [$state->status, $state->device_link_status, $state->employee_id, $state->match_basis]);
     }
 
     public function test_05_name_alone_never_links(): void
@@ -163,7 +166,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, 'UNKNOWN-5');
-        $this->assertSame([Recon::DEVICE_ONLY, null, $emp->id, 'low'], [$state->status, $state->employee_id, $state->candidate_employee_id, $state->confidence]);
+        $this->assertSame([Recon::SYNC_DEVICE_ONLY, Recon::LINK_DEVICE_ONLY, null, $emp->id, 'low'], [$state->status, $state->device_link_status, $state->employee_id, $state->candidate_employee_id, $state->confidence]);
     }
 
     // ---- 6–8: review / conflict --------------------------------------------------------
@@ -175,8 +178,9 @@ class DeviceCredentialReconciliationTest extends TestCase
 
         $this->reconcile();
 
-        $this->assertSame(Recon::REVIEW, $this->state($this->doorA, '2001')->status);
-        $this->assertSame(Recon::REVIEW, $this->state($this->doorA, '2002')->status, 'Unmatched person with no name is not silently device-only');
+        $matched = $this->state($this->doorA, '2001');
+        $this->assertSame([Recon::LINK_MATCHED, Recon::IDENTITY_REVIEW, Recon::SYNC_PARTIAL], [$matched->device_link_status, $matched->identity_status, $matched->status]);
+        $this->assertSame(Recon::SYNC_REVIEW, $this->state($this->doorA, '2002')->status, 'Unmatched person with no name is not silently device-only');
     }
 
     public function test_07_unverified_nik_needs_review(): void
@@ -186,7 +190,8 @@ class DeviceCredentialReconciliationTest extends TestCase
 
         $this->reconcile();
 
-        $this->assertSame(Recon::REVIEW, $this->state($this->doorA, '3001')->status);
+        $state = $this->state($this->doorA, '3001');
+        $this->assertSame([Recon::LINK_MATCHED, Recon::IDENTITY_UNVERIFIED, Recon::SYNC_PARTIAL], [$state->device_link_status, $state->identity_status, $state->status]);
         $this->assertContains('nik_unverified', $this->state($this->doorA, '3001')->reasons);
     }
 
@@ -199,7 +204,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, '4001');
-        $this->assertSame([Recon::IDENTITY_CONFLICT, null], [$state->status, $state->employee_id]);
+        $this->assertSame([Recon::SYNC_CONFLICT, Recon::LINK_CONFLICT, null], [$state->status, $state->device_link_status, $state->employee_id]);
         $this->assertEqualsCanonicalizing([$a->id, $b->id], $state->reasons['detail']['conflicting_employee_ids']);
     }
 
@@ -213,7 +218,8 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->reconcile();
 
         $state = $this->state($this->doorA, '5001');
-        $this->assertSame([Recon::CARD_MISMATCH, 'MISMATCH'], [$state->status, $state->card_status]);
+        $this->assertSame([Recon::SYNC_PARTIAL, Recon::LINK_MATCHED, Recon::IDENTITY_VERIFIED, 'MISMATCH'], [$state->status, $state->device_link_status, $state->identity_status, $state->card_status]);
+        $this->assertContains('card_mismatch', $state->reasons);
         $this->assertSame(['****8888'], $state->card_masks);
     }
 
@@ -225,7 +231,9 @@ class DeviceCredentialReconciliationTest extends TestCase
 
         $this->reconcile();
 
-        $this->assertSame([Recon::BIOMETRIC_MISMATCH, 'CONFLICT'], [$this->state($this->doorA, '6001')->status, $this->state($this->doorA, '6001')->fingerprint_status]);
+        $state = $this->state($this->doorA, '6001');
+        $this->assertSame([Recon::SYNC_PARTIAL, Recon::LINK_MATCHED, 'CONFLICT'], [$state->status, $state->device_link_status, $state->fingerprint_status]);
+        $this->assertContains('fingerprint_conflict', $state->reasons);
     }
 
     public function test_11_fingerprint_status_comes_from_the_device(): void
@@ -365,7 +373,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         Sanctum::actingAs($this->superAdmin);
         $other = $this->employee(['name' => 'Maya Lama']);
         $this->postJson("/api/v1/access/reconciliation/device-persons/{$orphan->id}/decision", ['decision' => 'LINKED', 'employee_id' => $other->id])->assertOk();
-        $this->assertSame([Recon::MATCHED, $other->id, 'manual_link'], [$orphan->fresh()->status, $orphan->fresh()->employee_id, $orphan->fresh()->match_basis]);
+        $this->assertSame([Recon::SYNC_SYNCED, Recon::LINK_MATCHED, $other->id, 'manual_link'], [$orphan->fresh()->status, $orphan->fresh()->device_link_status, $orphan->fresh()->employee_id, $orphan->fresh()->match_basis]);
         $this->assertSame($employeeCount + 1, Employee::count(), 'Only the employee created by this test exists; linking creates none');
     }
 
@@ -554,7 +562,7 @@ class DeviceCredentialReconciliationTest extends TestCase
     public function test_31_table_columns_and_unlinked_section(): void
     {
         $blade = $this->bladeSource();
-        $this->assertStringContainsString('<th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>App Status</th><th>Device Status</th><th>Sync Status</th><th>Last Verified</th>', $blade);
+        $this->assertStringContainsString('<th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>Identity Status</th><th>Device Link</th><th>Sync Status</th><th>Last Verified</th>', $blade);
         $this->assertStringContainsString('Data Perangkat Belum Terhubung', $blade);
         foreach (['Hubungkan ke Pengguna', 'Tandai Perlu Verifikasi', 'Abaikan', 'Refresh dari Perangkat'] as $action) {
             $this->assertStringContainsString($action, $blade);
