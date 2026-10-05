@@ -1034,6 +1034,8 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
+    // Default "Aktif": a deleted (deactivated) user leaves the list; "Semua"/"Nonaktif" still show it.
+    const statusFilter = document.getElementById('employeeStatusFilter')?.value ?? 'ACTIVE';
 
     state.employeePage = Math.max(1, Number(page) || 1);
 
@@ -1063,6 +1065,10 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
         params.set('door_id', doorFilter);
     }
 
+    if (statusFilter) {
+        params.set('employment_status', statusFilter);
+    }
+
     const url = `/user-management/employees?${params.toString()}`;
 
     try {
@@ -1075,6 +1081,12 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
         }
 
         if (res.status === 'success') {
+            // The page no longer exists (its last rows were deleted): show the last page that does.
+            const lastPage = Math.max(1, Number(res.pagination?.total_pages || 1));
+            if (res.data.length === 0 && state.employeePage > lastPage) {
+                targets.forEach(target => target.classList.remove('employee-table-loading'));
+                return loadEmployees(lastPage);
+            }
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
             state.metrics.totalUsers =
@@ -1102,7 +1114,7 @@ async function loadEmployees(page = state.employeePage, event = null, control = 
 
             renderEmployeesTable(state.employees, {
                 // Nothing at all mapped to this building (not just no search match).
-                unmappedBuilding: Boolean(state.buildingFilter) && !searchVal && !doorFilter && state.employees.length === 0,
+                unmappedBuilding: Boolean(state.buildingFilter) && !searchVal && !doorFilter && state.employees.length === 0 && statusFilter !== 'INACTIVE',
             });
             renderEmployeePagination();
 
@@ -1247,9 +1259,9 @@ function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
                         <button class="btn-sm btn-edit" onclick="openEditEmployeeModal(${empId})" title="Edit Profil & Biometrik">
                             ✏️ Edit
                         </button>
-                        <button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Pengguna">
+                        ${canDeleteEmployees() && emp.employment_status !== 'INACTIVE' ? `<button class="btn-sm btn-delete" onclick="handleDeleteEmployeeBtn(${empId}, this)" data-name="${safeName}" title="Hapus Pengguna">
                             🗑️
-                        </button>
+                        </button>` : ''}
                     </div>
                 </td>
             </tr>
@@ -1339,9 +1351,60 @@ function patchEmployeeRow(updated) {
     return true;
 }
 
+// Delete = DELETE /user-management/employees/{id}: the backend deactivates the employee
+// (employment_status INACTIVE), revokes its active access requests, credentials and e-money
+// cards, and writes an audit entry; nothing is hard-deleted. Only super_admin may do it (EmployeePolicy::delete), so the button is hidden
+// for other roles instead of letting them hit a 403.
+function canDeleteEmployees() {
+    return window.APP_CONFIG?.admin?.role === 'super_admin';
+}
+
+const employeeDelete = { id: null, inflight: false };
+
 function handleDeleteEmployeeBtn(id, btn) {
-    const name = btn ? btn.getAttribute('data-name') : 'karyawan ini';
-    deleteEmployee(id, name || 'karyawan ini');
+    openDeleteEmployeeModal(id);
+}
+
+function openDeleteEmployeeModal(id) {
+    if (!canDeleteEmployees() || employeeDelete.inflight) return;
+    const emp = state.employees.find(e => Number(e.id) === Number(id));
+    if (!emp) return;
+    employeeDelete.id = emp.id;
+    document.getElementById('employeeDeleteId').value = emp.id;
+    document.getElementById('employeeDeleteName').textContent = emp.name || '-';
+    document.getElementById('employeeDeleteIdentity').textContent = `User ID: ${emp.user_id || emp.employee_id || '-'} · NIK: ${emp.nik || '-'}`;
+    showDeleteEmployeeError('');
+    setDeleteEmployeeBusy(false);
+    openModal('employeeDeleteModal');
+}
+
+function closeDeleteEmployeeModal() {
+    if (employeeDelete.inflight) return; // the request is already sent; wait for its result
+    closeModal('employeeDeleteModal');
+}
+
+function showDeleteEmployeeError(message) {
+    const box = document.getElementById('employeeDeleteError');
+    if (!box) return;
+    box.textContent = message;
+    box.hidden = !message;
+}
+
+function setDeleteEmployeeBusy(busy) {
+    const confirmBtn = document.getElementById('employeeDeleteConfirm');
+    const cancelBtn = document.getElementById('employeeDeleteCancel');
+    if (confirmBtn) {
+        confirmBtn.disabled = busy;
+        confirmBtn.innerHTML = busy ? '<div class="spinner-sm"></div> Menghapus...' : 'Hapus Pengguna';
+    }
+    if (cancelBtn) cancelBtn.disabled = busy;
+}
+
+function deleteEmployeeErrorMessage(err) {
+    if (err?.status === 403) return 'Anda tidak berwenang menghapus pengguna ini. Hanya super admin yang dapat menghapus pengguna.';
+    if (err?.status === 404) return 'Pengguna tidak ditemukan. Data mungkin sudah dihapus; daftar akan dimuat ulang.';
+    if (err?.status === 429) return 'Terlalu banyak permintaan. Tunggu sebentar lalu coba lagi.';
+    return err?.message || 'Gagal menghapus pengguna.';
 }
 
 function handleEmployeeSearch() {
@@ -1680,17 +1743,46 @@ async function saveEmployee(e) {
     }
 }
 
-async function deleteEmployee(id, name) {
-    if (!confirm(`Apakah Anda yakin ingin menghapus data karyawan "${name}"?`)) return;
+// One DELETE per confirmation: the in-flight flag and the disabled button stop double clicks
+// and Enter repeats. The row is removed only after the backend confirms; the list, totals and
+// KPIs are then re-read once from the backend with the current filters, page and scroll.
+async function confirmDeleteEmployee(button) {
+    if (employeeDelete.inflight || !employeeDelete.id) return;
+    const id = employeeDelete.id;
+    const emp = state.employees.find(e => Number(e.id) === Number(id));
+    employeeDelete.inflight = true;
+    setDeleteEmployeeBusy(true);
+    showDeleteEmployeeError('');
 
     try {
-        const res = await apiFetch(`/user-management/employees/${id}`, { method: 'DELETE' });
-        if (res.status === 'success') {
-            showToast(`Karyawan "${name}" berhasil dinonaktifkan (Soft Deleted).`, 'success');
-            await loadEmployees();
+        const res = await apiFetch(`/user-management/employees/${Number(id)}`, { method: 'DELETE', isBackground: false });
+        if (res?.status !== 'success') throw new Error(res?.message || 'Gagal menghapus pengguna.');
+
+        employeeDelete.inflight = false;
+        closeModal('employeeDeleteModal');
+        showToast(`Pengguna "${emp?.name || id}" dihapus (dinonaktifkan); riwayat akses tetap tersimpan.`, 'success');
+
+        const statusFilter = document.getElementById('employeeStatusFilter')?.value ?? 'ACTIVE';
+        if (statusFilter === 'ACTIVE') {
+            state.employees = state.employees.filter(e => Number(e.id) !== Number(id));
+        } else {
+            state.employees = state.employees.map(e => Number(e.id) === Number(id) ? { ...e, employment_status: 'INACTIVE' } : e);
         }
+        renderEmployeesTable(state.employees);
+
+        // Last row of a page > 1 gone: go back one page instead of showing an empty page.
+        const page = state.employees.length === 0 && state.employeePage > 1 ? state.employeePage - 1 : state.employeePage;
+        markAccessViewsStale();
+        scheduleMetricCardsUpdate(true);
+        scheduleBackgroundRefresh('doors', loadDoors, 0); // door access was revoked
+        await loadEmployees(page);
     } catch (err) {
-        showToast(`Gagal menghapus karyawan: ${err.message}`, 'error');
+        // Nothing was removed on screen: the row stays as it is.
+        showDeleteEmployeeError(deleteEmployeeErrorMessage(err));
+        if (err?.status === 404) loadEmployees();
+    } finally {
+        employeeDelete.inflight = false;
+        setDeleteEmployeeBusy(false);
     }
 }
 
@@ -9098,6 +9190,7 @@ window.loadSystemHealth = loadSystemHealth;
 // in this file call inline (tests/Feature/DashboardInlineHandlerTest.php).
 Object.assign(window, {
     downloadSecureDocument,
+    confirmDeleteEmployee,
     exportAttendanceReport,
     loadAccessLogs,
     loadAccessRequests,

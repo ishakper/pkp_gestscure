@@ -1865,7 +1865,15 @@
                 <p class="section-desc">Daftar lengkap pengguna terdaftar, status biometrik, dan distribusi izin pintu</p>
                 <span style="display: block; margin-top: 0.75rem; font-size: 0.95rem; font-weight: 500;" id="employeeTotalSummary" aria-live="polite">Total Pengguna: <strong>—</strong></span>
             </div>
-            <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
+            <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+                <!-- Deleting a user deactivates it (data and access history are kept); this filter decides whether those rows are listed. -->
+                <select id="employeeStatusFilter" onchange="loadEmployees(1)" aria-label="Filter status pengguna" style="width:auto;">
+                    <option value="ACTIVE" selected>Status: Aktif</option>
+                    <option value="INACTIVE">Status: Nonaktif</option>
+                    <option value="">Semua Status</option>
+                </select>
+                <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
+            </div>
         </div>
         <div class="table-container">
             <table>
@@ -5577,6 +5585,30 @@
                 <button type="button" class="btn-secondary" onclick="submitReconciliationDecision('REVIEW', this)">Tandai Perlu Verifikasi</button>
                 <button type="button" class="btn-primary" onclick="submitReconciliationDecision('LINKED', this)">Hubungkan ke Pengguna</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- MODAL: HAPUS PENGGUNA -->
+<div class="modal-overlay" id="employeeDeleteModal">
+    <div class="modal-card" style="max-width: 480px;">
+        <div class="modal-header">
+            <h3 class="modal-title">🗑️ Hapus Pengguna</h3>
+            <button class="modal-close-btn" onclick="closeDeleteEmployeeModal()">✖</button>
+        </div>
+        <input type="hidden" id="employeeDeleteId">
+        <p style="font-size:0.9rem;color:#fff;margin-bottom:0.35rem;">Hapus pengguna berikut?</p>
+        <div style="border:1px solid var(--border-color);border-radius:0.6rem;padding:0.75rem;margin-bottom:0.75rem;">
+            <div id="employeeDeleteName" style="font-weight:700;color:#fff;">-</div>
+            <div id="employeeDeleteIdentity" style="font-size:0.8rem;color:var(--text-muted);margin-top:0.2rem;">-</div>
+        </div>
+        <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;">
+            Pengguna dinonaktifkan: permintaan akses, kredensial, dan kartu e-money yang aktif dicabut. Data karyawan dan riwayat akses tetap tersimpan (tidak dihapus permanen) dan masih bisa dilihat lewat filter Status: Nonaktif.
+        </p>
+        <div id="employeeDeleteError" class="error-message" role="alert" hidden style="margin-bottom:0.75rem;"></div>
+        <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
+            <button type="button" class="btn-secondary" id="employeeDeleteCancel" onclick="closeDeleteEmployeeModal()">Batal</button>
+            <button type="button" class="btn-primary" id="employeeDeleteConfirm" onclick="confirmDeleteEmployee(this)" style="background:#ef4444;border-color:#dc2626;">Hapus Pengguna</button>
         </div>
     </div>
 </div>
