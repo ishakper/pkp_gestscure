@@ -422,7 +422,7 @@ class DeviceCredentialReconciliationService
     public static function cardStatus(?int $deviceCount, ?array $deviceHashes, array $appHashes, bool $appRecordsCard): string
     {
         if ($deviceCount === null && $deviceHashes === null) {
-            return $appRecordsCard ? self::CARD_APP_RECORDED : self::UNKNOWN;
+            return self::UNKNOWN; // the device did not report cards: no evidence either way
         }
         $deviceCount ??= count($deviceHashes ?? []);
 
@@ -562,8 +562,13 @@ class DeviceCredentialReconciliationService
         if ($statuses !== [] && array_unique($statuses) === [self::DEVICE_UNREACHABLE]) {
             return self::DEVICE_UNREACHABLE;
         }
+        // Only a reachable device that holds no card is evidence; otherwise the card stays UNKNOWN
+        // whatever the app records.
+        if (in_array(self::CARD_NONE, $statuses, true) || in_array(self::CARD_APP_RECORDED, $statuses, true)) {
+            return $appRecordsCard ? self::CARD_APP_RECORDED : self::CARD_NONE;
+        }
 
-        return $appRecordsCard ? self::CARD_APP_RECORDED : (in_array(self::CARD_NONE, $statuses, true) ? self::CARD_NONE : self::UNKNOWN);
+        return self::UNKNOWN;
     }
 
     public static function aggregateFingerprint(array $statuses): string

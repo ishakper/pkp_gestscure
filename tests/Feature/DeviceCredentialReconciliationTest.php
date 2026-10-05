@@ -433,7 +433,8 @@ class DeviceCredentialReconciliationTest extends TestCase
         $data = $this->putJson("/api/v1/user-management/employees/{$emp->id}", ['fingerprint_enrolled' => true, 'card_enrolled' => true])->assertOk()->json('data');
 
         $this->assertSame('UNKNOWN', $data['device_verification']['fingerprint_status']);
-        $this->assertSame('APP_RECORDED', $data['device_verification']['card_status']);
+        // No device has been read: the card stays UNKNOWN even though the app records one.
+        $this->assertSame('UNKNOWN', $data['device_verification']['card_status']);
         $this->assertSame('UNVERIFIED', $data['device_verification']['sync_status']);
         $this->assertSame(['card' => true, 'fingerprint' => true], $data['device_verification']['app_recorded']);
     }
@@ -479,9 +480,10 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->assertStringNotContainsString('Card Unknown', $this->script());
         $this->assertStringContainsString('employeeCredentialBadges(emp)', $this->functionBody('renderEmployeesTable'));
         $badges = $this->functionBody('employeeCredentialBadges');
-        $this->assertStringContainsString('verification?.card_status', $badges);
-        $this->assertStringContainsString('verification?.fingerprint_status', $badges);
-        $this->assertStringContainsString("'FP tercatat di aplikasi'", $badges);
+        $this->assertStringContainsString('const verified = Boolean(verification?.last_verified_at);', $badges);
+        $this->assertStringContainsString("verified && DEVICE_CARD_BADGES[verification.card_status] ? verification.card_status : 'UNKNOWN'", $badges);
+        $this->assertStringContainsString("verified && DEVICE_FP_BADGES[verification.fingerprint_status] ? verification.fingerprint_status : 'UNKNOWN'", $badges);
+        $this->assertStringContainsString('`Tercatat di aplikasi: ${recorded.join(\', \')}`', $badges);
     }
 
     public function test_25_save_patches_the_row_then_reloads_once_with_filters(): void
