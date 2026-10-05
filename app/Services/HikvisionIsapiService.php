@@ -1094,6 +1094,37 @@ class HikvisionIsapiService
         }
     }
 
+    private function unsupportedAccessRightSignal(array $result): ?string
+    {
+        $values = $result;
+        if (isset($result['error']) && is_string($result['error'])) {
+            $decodedError = json_decode($result['error'], true);
+            if (is_array($decodedError)) {
+                $values['decoded_error'] = $decodedError;
+            }
+        }
+
+        $unsupported = false;
+        $unsupportedCode = false;
+        array_walk_recursive($values, static function ($value, $key) use (&$unsupported, &$unsupportedCode): void {
+            if (!is_scalar($value)) {
+                return;
+            }
+
+            $value = (string) $value;
+            if (strcasecmp((string) $key, 'subStatusCode') === 0 && strcasecmp($value, 'notSupport') === 0) {
+                $unsupported = true;
+            }
+
+            if (in_array(strtolower((string) $key), ['errormsg', 'errorcode', 'error'], true)
+                && strcasecmp($value, '0x40000001') === 0) {
+                $unsupportedCode = true;
+            }
+        });
+
+        return $unsupportedCode ? '0x40000001' : ($unsupported ? 'notSupport' : null);
+    }
+
     /**
      * Build Hikvision ISAPI UserInfo payload for biometric/user profile provisioning.
      * Compatible with /ISAPI/AccessControl/UserInfo/SetUp?format=json
@@ -1300,19 +1331,28 @@ class HikvisionIsapiService
         // 4. Step 3: UserRightPlan SetUp
         $rightRes = $this->setUserAccessRight($door, $employee);
         if (!$rightRes['status']) {
-            return [
-                'status' => false,
-                'statusCode' => $rightRes['statusCode'] ?? 500,
-                'failed_step' => 'ACCESS_RIGHT',
-                'message' => "Gagal provisioning rencana hak akses pintu {$door->door_id}",
-                'error' => $rightRes['error'] ?? 'UserRightPlan setup failed',
-                'steps' => [
-                    'device_ping' => true,
-                    'user_info' => $userInfoRes,
-                    'card_sync' => $cardRes,
-                    'access_right' => $rightRes,
-                ],
-            ];
+            $unsupportedSignal = $this->unsupportedAccessRightSignal($rightRes);
+            if ($unsupportedSignal !== null) {
+                $rightRes = [
+                    'status' => 'skipped_unsupported',
+                    'supported' => false,
+                    'error' => $unsupportedSignal,
+                ];
+            } else {
+                return [
+                    'status' => false,
+                    'statusCode' => $rightRes['statusCode'] ?? 500,
+                    'failed_step' => 'ACCESS_RIGHT',
+                    'message' => "Gagal provisioning rencana hak akses pintu {$door->door_id}",
+                    'error' => $rightRes['error'] ?? 'UserRightPlan setup failed',
+                    'steps' => [
+                        'device_ping' => true,
+                        'user_info' => $userInfoRes,
+                        'card_sync' => $cardRes,
+                        'access_right' => $rightRes,
+                    ],
+                ];
+            }
         }
 
         return [

@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Sanctum\Sanctum;
+use Mockery;
 use Tests\TestCase;
 
 class BiometricUserProvisioningTest extends TestCase
@@ -216,6 +217,116 @@ class BiometricUserProvisioningTest extends TestCase
         $this->assertTrue($res['steps']['user_info']['status']);
         $this->assertTrue($res['steps']['card_sync']['status']);
         $this->assertTrue($res['steps']['access_right']['status']);
+    }
+
+    /** @test */
+    public function test_provision_employee_access_succeeds_when_access_right_is_supported(): void
+    {
+        $service = $this->mockProvisioningSteps(
+            ['status' => true],
+            ['status' => true],
+            ['status' => true]
+        );
+
+        $res = $service->provisionEmployeeAccess($this->doorB, $this->employee);
+
+        $this->assertTrue($res['status']);
+        $this->assertNull($res['failed_step']);
+        $this->assertTrue($res['steps']['access_right']['status']);
+    }
+
+    /**
+     * @test
+     * @dataProvider unsupportedAccessRightSignals
+     */
+    public function test_provision_employee_access_skips_unsupported_access_right(array $responseStatus, string $expectedError): void
+    {
+        $service = $this->mockProvisioningSteps(
+            ['status' => true],
+            ['status' => true],
+            [
+                'status' => false,
+                'statusCode' => 404,
+                'error' => json_encode([
+                    'ResponseStatus' => $responseStatus,
+                ]),
+            ]
+        );
+
+        $res = $service->provisionEmployeeAccess($this->doorB, $this->employee);
+
+        $this->assertTrue($res['status']);
+        $this->assertNull($res['failed_step']);
+        $this->assertSame([
+            'status' => 'skipped_unsupported',
+            'supported' => false,
+            'error' => $expectedError,
+        ], $res['steps']['access_right']);
+    }
+
+    public static function unsupportedAccessRightSignals(): array
+    {
+        return [
+            'subStatusCode' => [['subStatusCode' => 'notSupport'], 'notSupport'],
+            'errorMsg' => [['errorMsg' => '0x40000001'], '0x40000001'],
+        ];
+    }
+
+    /** @test */
+    public function test_provision_employee_access_fails_for_other_access_right_errors(): void
+    {
+        $service = $this->mockProvisioningSteps(
+            ['status' => true],
+            ['status' => true],
+            ['status' => false, 'statusCode' => 500, 'error' => 'Device busy']
+        );
+
+        $res = $service->provisionEmployeeAccess($this->doorB, $this->employee);
+
+        $this->assertFalse($res['status']);
+        $this->assertSame('ACCESS_RIGHT', $res['failed_step']);
+        $this->assertSame('Device busy', $res['error']);
+    }
+
+    /** @test */
+    public function test_provision_employee_access_still_fails_at_user_info(): void
+    {
+        $service = Mockery::mock(HikvisionIsapiService::class)->makePartial();
+        $service->shouldReceive('pingDevice')->once()->andReturnTrue();
+        $service->shouldReceive('setUserInfo')->once()->andReturn(['status' => false, 'statusCode' => 400, 'error' => 'Invalid employeeNo']);
+        $service->shouldNotReceive('syncCardUser');
+        $service->shouldNotReceive('setUserAccessRight');
+
+        $res = $service->provisionEmployeeAccess($this->doorB, $this->employee);
+
+        $this->assertFalse($res['status']);
+        $this->assertSame('USER_INFO', $res['failed_step']);
+    }
+
+    /** @test */
+    public function test_provision_employee_access_still_fails_at_card_sync(): void
+    {
+        $service = Mockery::mock(HikvisionIsapiService::class)->makePartial();
+        $service->shouldReceive('pingDevice')->once()->andReturnTrue();
+        $service->shouldReceive('setUserInfo')->once()->andReturn(['status' => true]);
+        $service->shouldReceive('syncCardUser')->once()->andReturn(['status' => false, 'statusCode' => 400, 'error' => 'Invalid card']);
+        $service->shouldNotReceive('setUserAccessRight');
+
+        $res = $service->provisionEmployeeAccess($this->doorB, $this->employee);
+
+        $this->assertFalse($res['status']);
+        $this->assertSame('CARD_SYNC', $res['failed_step']);
+    }
+
+    private function mockProvisioningSteps(array $userInfo, array $cardSync, array $accessRight): HikvisionIsapiService
+    {
+        $service = Mockery::mock(HikvisionIsapiService::class)->makePartial();
+        $service->shouldReceive('pingDevice')->once()->andReturnTrue();
+        $service->shouldReceive('setUserInfo')->once()->andReturn($userInfo);
+        $service->shouldReceive('syncCardUser')->once()->andReturn($cardSync);
+        $service->shouldReceive('setUserAccessRight')->once()->andReturn($accessRight);
+
+        return $service;
     }
 
     /** @test */
