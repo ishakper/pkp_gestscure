@@ -39,6 +39,19 @@ class ImportSqliteToPgsqlCommand extends Command
     private const TARGET = 'import_target';
     private const MIGRATIONS = 'migrations';
 
+    /**
+     * Historical production migrations that are known to be no-op metadata
+     * only. They may exist in SQLite history even though the canonical
+     * migration is the one present in current code.
+     *
+     * The legacy entry is ignored only when the canonical migration exists
+     * on BOTH source and target.
+     */
+    private const LEGACY_SOURCE_ONLY_MIGRATIONS = [
+        '2026_09_19_161737_add_card_number_hash_to_credential_records'
+            => '2026_09_18_153235_add_card_number_hash_to_credential_records_table',
+    ];
+
     /** @var array<string, array<string, array{type: string, nullable: bool, max: ?int, default: ?string}>> */
     private array $targetColumns = [];
 
@@ -289,6 +302,16 @@ class ImportSqliteToPgsqlCommand extends Command
             $this->errors[] = 'the target has no migrations; run php artisan migrate against the empty target first';
         }
         foreach (array_diff($sourceNames, $targetNames) as $name) {
+            $canonical = self::LEGACY_SOURCE_ONLY_MIGRATIONS[$name] ?? null;
+
+            if ($canonical !== null
+                && in_array($canonical, $sourceNames, true)
+                && in_array($canonical, $targetNames, true)) {
+                $this->warnings[] = "legacy no-op migration {$name} exists only in source history; canonical {$canonical} is present on both source and target";
+
+                continue;
+            }
+
             $this->errors[] = "migration {$name} ran on the source but not on the target (code version mismatch)";
         }
         foreach (array_diff($targetNames, $sourceNames) as $name) {

@@ -52,6 +52,25 @@ class ImportSqliteToPgsqlCommandTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_known_legacy_noop_migration_is_tolerated_when_canonical_exists_on_both_sides(): void
+    {
+        $pdo = new PDO('sqlite:'.$this->sourcePath);
+        $batch = (int) $pdo->query('select max(batch) from migrations')->fetchColumn();
+
+        $pdo->prepare('insert into migrations (migration, batch) values (?, ?)')
+            ->execute([
+                '2026_09_19_161737_add_card_number_hash_to_credential_records',
+                $batch + 1,
+            ]);
+
+        $this->artisan('db:import-sqlite-to-pgsql', ['--source-path' => $this->sourcePath])
+            ->expectsOutputToContain('legacy no-op migration 2026_09_19_161737_add_card_number_hash_to_credential_records')
+            ->expectsOutputToContain('Preflight passed. Dry run only')
+            ->assertExitCode(0);
+
+        $this->assertSame(0, DB::table('employees')->count());
+    }
+
     public function test_dry_run_writes_nothing(): void
     {
         $this->artisan('db:import-sqlite-to-pgsql', ['--source-path' => $this->sourcePath])
