@@ -35,17 +35,24 @@ class AccessProvisioningPolicy
             return true; // Full canonical building scope enforced by AccessProvisioningService.
         }
 
+        // access_requests.employee_id and employees.supervisor_id point at employees.id, so they
+        // are matched against the admin's linked employee, never against the admin's own id.
         if (in_array(strtolower((string)$admin->role), ['employee', 'intern'], true)) {
-            return ($request->employee_id && $request->employee_id === $admin->id) ||
-                   ($request->requested_by && $request->requested_by === $admin->id);
+            return $this->sameKey($request->employee_id, $admin->employee_id) ||
+                   $this->sameKey($request->requested_by, $admin->id);
         }
 
         if (strtolower((string)$admin->role) === 'supervisor') {
-            return ($request->employee && $request->employee->supervisor_id === $admin->id) ||
-                   ($request->requested_by === $admin->id);
+            return ($request->employee && $this->sameKey($request->employee->supervisor_id, $admin->employee_id)) ||
+                   $this->sameKey($request->requested_by, $admin->id);
         }
 
         return false;
+    }
+
+    private function sameKey($left, $right): bool
+    {
+        return $left !== null && $right !== null && (string)$left === (string)$right;
     }
 
     public function createRequest(Admin $admin): bool

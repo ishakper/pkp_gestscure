@@ -17,7 +17,7 @@ use Illuminate\Support\Facades\Log;
 class ProductionNormalizationService
 {
     /**
-     * Known dummy employee person_no range: USR-1001 through USR-1012.
+     * Known dummy employee code range (employees.employee_id): USR-1001 through USR-1012.
      */
     private const DUMMY_PERSON_NOS = [
         'USR-1001', 'USR-1002', 'USR-1003', 'USR-1004', 'USR-1005', 'USR-1006',
@@ -32,7 +32,7 @@ class ProductionNormalizationService
     public function auditReal96Normalization(): array
     {
         $all_employees = Employee::count();
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('employee_id', self::DUMMY_PERSON_NOS)->get();
         $dummy_count = $dummy_employees->count();
         $real_count = $all_employees - $dummy_count;
 
@@ -76,7 +76,7 @@ class ProductionNormalizationService
             return ['status' => 'NOT_AUTHORIZED', 'message' => 'Requires explicit authorization'];
         }
 
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('employee_id', self::DUMMY_PERSON_NOS)->get();
         $dummy_ids = $dummy_employees->pluck('id')->toArray();
 
         $results = [
@@ -162,8 +162,8 @@ class ProductionNormalizationService
         }
 
         // Get all real employees
-        $eligible_employees = Employee::whereNotIn('person_no', self::DUMMY_PERSON_NOS)
-            ->where('is_active', true)
+        $eligible_employees = Employee::whereNotIn('employee_id', self::DUMMY_PERSON_NOS)
+            ->activeEmployment()
             ->get();
 
         // Get all doors in Building B

@@ -48,6 +48,16 @@ class Employee extends Model
         'last_reconciled_at' => 'datetime',
     ];
 
+    /**
+     * Employees whose employment is active. The table has no is_active flag; a missing status is
+     * treated as active (same rule as AttendanceProcessor), and UPPER keeps legacy lowercase
+     * values matching on PostgreSQL, where string comparison is case-sensitive.
+     */
+    public function scopeActiveEmployment($query)
+    {
+        return $query->where(fn ($q) => $q->whereNull('employment_status')->orWhereRaw('UPPER(employment_status) = ?', ['ACTIVE']));
+    }
+
     public function getRoleAttribute()
     {
         return $this->attributes['role'] ?? $this->attributes['role_jabatan'] ?? 'Staff';

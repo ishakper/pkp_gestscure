@@ -318,6 +318,103 @@ class AccessProvisioningTest extends TestCase
         $otherRes->assertStatus(403);
     }
 
+    public function test_self_service_view_matches_linked_employee_not_admin_id(): void
+    {
+        // Fixed ids so the admin's own id equals a *different* employee's id. Comparing
+        // access_requests.employee_id with admins.id would grant the wrong request.
+        $own = $this->employeeWithId(5001, 'EMP-SELF-OWN');
+        $other = $this->employeeWithId(5002, 'EMP-SELF-OTHER');
+        $employeeAdmin = $this->adminWithId(5002, 'employee', $own->id);
+
+        $ownRequest = $this->requestFor($own, 'REQ-SELF-OWN');
+        $otherRequest = $this->requestFor($other, 'REQ-SELF-OTHER');
+
+        Sanctum::actingAs($employeeAdmin);
+
+        $this->getJson("/api/v1/access/requests/{$ownRequest->id}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.request_number', 'REQ-SELF-OWN');
+        $this->getJson("/api/v1/access/requests/{$otherRequest->id}")->assertStatus(403);
+    }
+
+    public function test_supervisor_view_matches_linked_employee_not_admin_id(): void
+    {
+        $supervisor = $this->employeeWithId(6001, 'EMP-SPV');
+        $otherSupervisor = $this->employeeWithId(6003, 'EMP-SPV-OTHER');
+        $report = $this->employeeWithId(6002, 'EMP-SPV-REPORT', $supervisor->id);
+        $otherReport = $this->employeeWithId(6004, 'EMP-SPV-OTHER-REPORT', $otherSupervisor->id);
+        $supervisorAdmin = $this->adminWithId(6003, 'supervisor', $supervisor->id);
+
+        $reportRequest = $this->requestFor($report, 'REQ-SPV-REPORT');
+        $otherRequest = $this->requestFor($otherReport, 'REQ-SPV-OTHER');
+
+        Sanctum::actingAs($supervisorAdmin);
+
+        $this->getJson("/api/v1/access/requests/{$reportRequest->id}")
+            ->assertStatus(200)
+            ->assertJsonPath('data.request_number', 'REQ-SPV-REPORT');
+        $this->getJson("/api/v1/access/requests/{$otherRequest->id}")->assertStatus(403);
+    }
+
+    public function test_self_service_admin_without_linked_employee_sees_only_own_submissions(): void
+    {
+        $employee = $this->employeeWithId(7001, 'EMP-UNLINKED-TARGET');
+        $unlinkedAdmin = $this->adminWithId(7002, 'employee', null);
+
+        $foreignRequest = $this->requestFor($employee, 'REQ-UNLINKED-FOREIGN');
+        $submitted = $this->requestFor($employee, 'REQ-UNLINKED-SUBMITTED', $unlinkedAdmin->id);
+
+        Sanctum::actingAs($unlinkedAdmin);
+
+        $this->getJson("/api/v1/access/requests/{$foreignRequest->id}")->assertStatus(403);
+        $this->getJson("/api/v1/access/requests/{$submitted->id}")->assertStatus(200);
+    }
+
+    private function employeeWithId(int $id, string $code, ?int $supervisorId = null): Employee
+    {
+        $employee = new Employee();
+        $employee->forceFill([
+            'id' => $id,
+            'employee_id' => $code,
+            'nik' => 'NIK-' . $id,
+            'name' => 'Pegawai ' . $code,
+            'department' => 'IT',
+            'role' => 'Staff',
+            'employment_status' => 'ACTIVE',
+            'supervisor_id' => $supervisorId,
+        ])->save();
+
+        return $employee;
+    }
+
+    private function adminWithId(int $id, string $role, ?int $employeeId): Admin
+    {
+        $admin = new Admin();
+        $admin->forceFill([
+            'id' => $id,
+            'name' => 'Admin ' . $id,
+            'email' => "admin{$id}@pkp.co.id",
+            'password' => Hash::make('password'),
+            'role' => $role,
+            'employee_id' => $employeeId,
+        ])->save();
+
+        return $admin;
+    }
+
+    private function requestFor(Employee $employee, string $number, ?int $requestedBy = null): AccessRequest
+    {
+        return AccessRequest::create([
+            'request_number' => $number,
+            'employee_id' => $employee->id,
+            'building_name' => 'Kantor Pusat PKP',
+            'business_reason' => 'Pengajuan akses',
+            'status' => 'PENDING_APPROVAL',
+            'requested_by' => $requestedBy,
+            'valid_from' => Carbon::today()->toDateString(),
+        ]);
+    }
+
     public function test_rejection_of_access_request_stores_reason_and_audits(): void
     {
         $superadmin = Admin::create([

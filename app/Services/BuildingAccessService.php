@@ -70,15 +70,15 @@ class BuildingAccessService
     /**
      * Get eligible employees for access (non-dummy).
      *
-     * Dummy employees are those with person_no in USR-1001 to USR-1012 range.
+     * Dummy employees are those with employee_id (employee code) in USR-1001 to USR-1012 range.
      */
     protected function getEligibleEmployees(): Collection
     {
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereNotIn('person_no', $dummyPersonNos)
-            ->where('is_active', true)
+        return Employee::whereNotIn('employee_id', $dummyPersonNos)
+            ->activeEmployment()
             ->get();
     }
 
@@ -90,6 +90,6 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereIn('person_no', $dummyPersonNos)->count();
+        return Employee::whereIn('employee_id', $dummyPersonNos)->count();
     }
 }
