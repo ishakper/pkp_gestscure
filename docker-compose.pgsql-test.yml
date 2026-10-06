@@ -1,0 +1,49 @@
+# PostgreSQL 16 for running the test suite against pgsql (SQLite -> PostgreSQL preparation).
+# Test-only: this is NOT the production database and nothing here touches database.sqlite.
+#
+#   export DB_PASSWORD='<choose-a-local-password>'
+#   docker compose -f docker-compose.pgsql-test.yml up -d postgres
+#   docker compose -f docker-compose.pgsql-test.yml run --rm tests
+#   docker compose -f docker-compose.pgsql-test.yml down -v
+#
+# DB_PASSWORD is read from the environment only and has no default.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: securegate_test
+      POSTGRES_USER: securegate
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in the environment}
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securegate -d securegate_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    networks:
+      - securegate-pgsql-test
+
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: verification
+    image: pkp-securegate-verify:pgsql-test
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: testing
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_DATABASE: securegate_test
+      DB_USERNAME: securegate
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in the environment}
+    entrypoint: ["php", "vendor/bin/phpunit", "-c", "phpunit.pgsql.xml"]
+    networks:
+      - securegate-pgsql-test
+
+networks:
+  securegate-pgsql-test:
+    driver: bridge

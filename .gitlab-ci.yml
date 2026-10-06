@@ -177,6 +177,36 @@ test_suite:
     paths:
       - storage/logs/laravel.log
 
+# PostgreSQL 16 matrix leg: same suite against a throwaway postgres:16-alpine
+# container on a private network. Never touches the production SQLite file.
+# allow_failure until the PostgreSQL cut-over is approved; the SQLite leg above
+# remains the gate.
+test_suite_pgsql:
+  stage: test
+  tags:
+    - Sandbox
+  rules:
+    - if: $CI_COMMIT_BRANCH
+  allow_failure: true
+  needs:
+    - build_verification_image
+  variables:
+    PG_NET: securegate-pgsql-${CI_JOB_ID}
+    PG_NAME: securegate-pgsql-${CI_JOB_ID}
+  script:
+    - PG_TEST_PASSWORD="$(head -c 18 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')"
+    # Own tag, so test_suite's cleanup of the shared verification tag cannot race this job.
+    - docker tag pkp-securegate-verify:${IMAGE_TAG} "pkp-securegate-verify:${PG_NAME}" || docker build --target verification -t "pkp-securegate-verify:${PG_NAME}" .
+    - docker network create "$PG_NET"
+    - docker run -d --name "$PG_NAME" --network "$PG_NET" --network-alias postgres --tmpfs /var/lib/postgresql/data -e POSTGRES_DB=securegate_test -e POSTGRES_USER=securegate -e POSTGRES_PASSWORD="$PG_TEST_PASSWORD" postgres:16-alpine
+    - for i in $(seq 1 30); do docker exec "$PG_NAME" pg_isready -U securegate -d securegate_test && break; sleep 2; done
+    - |
+      docker run --rm --network "$PG_NET" -e APP_ENV=testing -e DB_PASSWORD="$PG_TEST_PASSWORD" "pkp-securegate-verify:${PG_NAME}" vendor/bin/phpunit -c phpunit.pgsql.xml --colors=never
+  after_script:
+    - docker rm -f securegate-pgsql-${CI_JOB_ID} 2>/dev/null || true
+    - docker network rm securegate-pgsql-${CI_JOB_ID} 2>/dev/null || true
+    - docker image rm pkp-securegate-verify:securegate-pgsql-${CI_JOB_ID} 2>/dev/null || true
+
 # ------------------------------------------------------------------------------
 # Stage 4: Security & Secret Hygiene
 # ------------------------------------------------------------------------------

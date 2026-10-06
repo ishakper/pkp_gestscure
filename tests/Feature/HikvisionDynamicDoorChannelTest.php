@@ -4,12 +4,14 @@ namespace Tests\Feature;
 
 use App\Models\Door;
 use App\Services\HikvisionIsapiService;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class HikvisionDynamicDoorChannelTest extends TestCase
 {
-    use DatabaseMigrations;
+    // RefreshDatabase, not DatabaseMigrations: several migrations are intentionally
+    // irreversible, and PostgreSQL refuses the rollback DatabaseMigrations runs after each test.
+    use RefreshDatabase;
 
     private HikvisionIsapiService $service;
 
