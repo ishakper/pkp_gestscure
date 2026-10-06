@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Door;
 use App\Services\HikvisionIsapiService;
+use App\Support\DbKey;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -36,7 +37,7 @@ class RegisterHikvisionWebhookCommand extends Command
         $this->info('================================================================================');
 
         $doorId = strtoupper($this->argument('door_id'));
-        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->first();
+        $door = Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->first();
 
         $deviceIp = $door && !empty($door->device_ip) 
             ? $door->device_ip 

@@ -65,12 +65,18 @@ class DeviceOnboardingTest extends TestCase
     {
         $admin = $this->createAdmin('super_admin');
         $building = Building::create(['code' => 'BLD-TEST', 'name' => 'Gedung Test R&D', 'is_active' => true]);
+        $floorId = \Illuminate\Support\Facades\DB::table('floors')->insertGetId([
+            'building_id' => $building->id,
+            'code' => 'BLD-TEST-L2',
+            'name' => 'Lantai 2',
+            'floor_number' => '2',
+        ]);
 
         $response = $this->actingAs($admin)->postJson('/api/v1/admin/doors/onboard', [
             'door_id' => 'DOOR-005',
             'name' => 'Pintu Lab R&D Lt 2',
             'building_id' => $building->id,
-            'floor_id' => 2,
+            'floor_id' => $floorId,
             'device_ip' => '192.168.90.20',
             'gateway' => '192.168.90.1',
             'isapi_username' => 'admin',
