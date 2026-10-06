@@ -291,7 +291,7 @@ class FacilityConfigurationController extends Controller
     {
         $this->authorizePermission($request, 'device.manage');
         
-        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->firstOrFail();
+        $door = Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->firstOrFail();
 
         $data = $request->validate([
             'device_ip' => ['required', 'ip'],
