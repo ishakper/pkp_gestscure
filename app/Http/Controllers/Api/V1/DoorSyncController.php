@@ -8,6 +8,7 @@ use App\Models\ActivityLog;
 use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Services\PortalAccess;
+use App\Support\DbKey;
 use Illuminate\Http\Request;
 use OpenApi\Attributes as OA;
 
@@ -149,14 +150,14 @@ class DoorSyncController extends Controller
             ], 422);
         }
 
-        $employee = \App\Models\Employee::where('id', $empIdentifier)
-            ->orWhere('employee_id', $empIdentifier)
+        $employee = \App\Models\Employee::where('employee_id', $empIdentifier)
             ->orWhere('employee_id', 'USR-' . $empIdentifier)
+            ->when(DbKey::isValid($empIdentifier), fn ($q) => $q->orWhere('id', $empIdentifier))
             ->firstOrFail();
 
         $doorArray = is_array($doorInputs) ? $doorInputs : [$doorInputs];
         $doors = collect($doorArray)->map(function ($doorInput) {
-            return Door::where('door_id', $doorInput)->orWhere('id', $doorInput)->firstOrFail();
+            return Door::where('door_id', $doorInput)->when(DbKey::isValid($doorInput), fn ($q) => $q->orWhere('id', $doorInput))->firstOrFail();
         });
         $doors->each(fn (Door $door) => $this->authorize('physicalControl', $door));
         $assignedDoors = [];
@@ -258,9 +259,9 @@ class DoorSyncController extends Controller
             ], 422);
         }
 
-        $employee = \App\Models\Employee::where('id', $empIdentifier)
-            ->orWhere('employee_id', $empIdentifier)
+        $employee = \App\Models\Employee::where('employee_id', $empIdentifier)
             ->orWhere('employee_id', 'USR-' . $empIdentifier)
+            ->when(DbKey::isValid($empIdentifier), fn ($q) => $q->orWhere('id', $empIdentifier))
             ->firstOrFail();
 
         $doorInput = $request->input('door_id') ?? $request->input('door_ids');
@@ -270,7 +271,7 @@ class DoorSyncController extends Controller
         if ($doorInput) {
             $doorArray = is_array($doorInput) ? $doorInput : [$doorInput];
             $doorDbIds = \App\Models\Door::whereIn('door_id', $doorArray)
-                ->orWhereIn('id', $doorArray)
+                ->orWhereIn('id', DbKey::filter($doorArray))
                 ->pluck('id');
             $query->whereIn('door_id', $doorDbIds);
         }
@@ -371,13 +372,13 @@ class DoorSyncController extends Controller
             }
 
             try {
-                $employee = \App\Models\Employee::where('id', $empIdentifier)
-                    ->orWhere('employee_id', $empIdentifier)
+                $employee = \App\Models\Employee::where('employee_id', $empIdentifier)
                     ->orWhere('employee_id', 'USR-' . $empIdentifier)
+                    ->when(DbKey::isValid($empIdentifier), fn ($q) => $q->orWhere('id', $empIdentifier))
                     ->firstOrFail();
 
                 $door = Door::where('door_id', $doorIdentifier)
-                    ->orWhere('id', $doorIdentifier)
+                    ->when(DbKey::isValid($doorIdentifier), fn ($q) => $q->orWhere('id', $doorIdentifier))
                     ->firstOrFail();
 
                 $this->authorize('physicalControl', $door);

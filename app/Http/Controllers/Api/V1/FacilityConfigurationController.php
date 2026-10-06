@@ -9,6 +9,7 @@ use App\Models\Door;
 use App\Models\Zone;
 use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
+use App\Support\DbKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -193,7 +194,7 @@ class FacilityConfigurationController extends Controller
     public function updateDoor(Request $request, string $doorId): JsonResponse
     {
         $this->authorizePermission($request, 'device.manage');
-        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->firstOrFail();
+        $door = Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->firstOrFail();
         $data = $this->validateDoor($request, $door);
         $building = Building::findOrFail($data['building_id']);
         $door->update($this->doorPayload($data, $building));
@@ -291,7 +292,7 @@ class FacilityConfigurationController extends Controller
             'door_id' => ['required', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('doors', 'door_id')],
             'name' => ['required', 'string', 'max:120'],
             'building_id' => ['required', 'integer', 'exists:buildings,id'],
-            'floor_id' => ['nullable', 'integer'],
+            'floor_id' => ['nullable', 'integer', Rule::exists('floors', 'id')->where(fn ($query) => $query->where('building_id', $request->integer('building_id')))],
             'zone_id' => ['nullable', 'integer', Rule::exists('zones', 'id')->where(fn ($query) => $query->where('building_id', $request->integer('building_id')))],
             'device_ip' => ['required', 'ip', Rule::unique('doors', 'device_ip')],
             'gateway' => ['nullable', 'ip'],

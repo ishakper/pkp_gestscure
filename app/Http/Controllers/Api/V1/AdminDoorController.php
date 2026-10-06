@@ -10,6 +10,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
+use App\Support\DbKey;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -213,7 +214,7 @@ class AdminDoorController extends Controller
     )]
     public function overrideStatus(Request $request, $door_id)
     {
-        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->when(DbKey::isValid($door_id), fn ($q) => $q->orWhere('id', $door_id))->firstOrFail();
 
         $this->authorize('overrideStatus', $door);
 
@@ -267,7 +268,7 @@ class AdminDoorController extends Controller
     )]
     public function openDoor(Request $request, $door_id, HikvisionIsapiService $isapiService)
     {
-        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->when(DbKey::isValid($door_id), fn ($q) => $q->orWhere('id', $door_id))->firstOrFail();
 
         if ($request->user() && method_exists($this, 'authorize')) {
             $this->authorize('open', $door);
@@ -341,7 +342,7 @@ class AdminDoorController extends Controller
     )]
     public function checkConnection(Request $request, $door_id, HikvisionIsapiService $isapiService)
     {
-        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->when(DbKey::isValid($door_id), fn ($q) => $q->orWhere('id', $door_id))->firstOrFail();
 
         $this->authorize('physicalControl', $door);
 
