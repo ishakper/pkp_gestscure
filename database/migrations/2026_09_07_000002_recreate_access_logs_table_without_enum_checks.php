@@ -9,6 +9,18 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Only SQLite needs the rebuild to shed its enum CHECK constraints. On other drivers
+        // 2026_09_04_000006 already creates every column as a plain string, and the
+        // rename/copy below relies on SQLite-only quoting and index naming.
+        if (DB::getDriverName() !== 'sqlite') {
+            // Keep the event_type index the SQLite rebuild adds, so both schemas match.
+            if (DB::getDriverName() === 'pgsql') {
+                DB::statement('CREATE INDEX IF NOT EXISTS access_logs_event_type_index ON access_logs (event_type)');
+            }
+
+            return;
+        }
+
         Schema::disableForeignKeyConstraints();
 
         if (Schema::hasTable('access_logs')) {
