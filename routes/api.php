@@ -41,8 +41,12 @@ Route::prefix('v1')->group(function () {
 
         Route::prefix('card-access')->group(function () {
             Route::get('/overview', [CardAccessController::class, 'overview']);
+            Route::get('/access-catalog', [CardAccessController::class, 'accessCatalog']);
+            Route::get('/device-sync', [CardAccessController::class, 'deviceSync']);
             Route::get('/activity', [CardAccessController::class, 'activity']);
             Route::get('/cards', [CardAccessController::class, 'cards']);
+            Route::get('/employees/{employee}/access-assignment', [CardAccessController::class, 'accessAssignment']);
+            Route::get('/employees/{employee}/diagnostics', [CardAccessController::class, 'diagnostics']);
             Route::get('/employees/{employee}', [CardAccessController::class, 'employee']);
             Route::get('/employees/{employee}/audit', [CardAccessController::class, 'audit']);
         });

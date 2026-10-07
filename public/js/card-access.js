@@ -361,6 +361,10 @@
         };
         adapter.getAttentionQueue = () => adapter.listCards({ attention: true, perPage: 10 }).then(r => r.items);
         adapter.getEmployeeAccess = (id) => get('/card-access/employees/' + encodeURIComponent(id)).then(res => normalizeRecord(res && res.data));
+        adapter.getAccessCatalog = () => get('/card-access/access-catalog').then(res => res && res.data);
+        adapter.getAccessAssignment = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/access-assignment').then(res => res && res.data);
+        adapter.listDeviceSync = (q) => get('/card-access/device-sync' + qs(q || {})).then(res => ({ items: arr(res && res.data).map(normalizeRecord), meta: res && res.meta }));
+        adapter.getDiagnostics = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/diagnostics').then(res => res && res.data);
         adapter.getAuditHistory = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/audit').then(res => arr(res && res.data).map(normalizeAuditItem));
         // Existing facility endpoint (organization.view).
         adapter.listBuildings = () => get('/admin/buildings').then(res => arr(res && res.data).map(b => ({ id: b.id, name: b.name })));
