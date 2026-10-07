@@ -205,4 +205,32 @@ class CardAccessReadApiTest extends TestCase
             $this->assertStringNotContainsString($needle, $json);
         }
     }
+
+    public function test_identity_conflict_never_uses_verification_as_sync_status(): void
+    {
+        [$admin, $employee, $door] = $this->cardAccessFixture();
+        \App\Models\DevicePersonState::create(['door_id' => $door->id, 'employee_id' => $employee->id, 'device_employee_no' => 'DEV-CONFLICT', 'present_on_device' => true, 'status' => 'MATCH', 'identity_status' => 'CONFLICT', 'device_link_status' => 'SYNCED', 'card_status' => 'MATCH']);
+        Sanctum::actingAs($admin);
+        $response = $this->getJson("/api/v1/card-access/employees/{$employee->id}/diagnostics")->assertOk();
+        $this->assertNotSame('NEEDS_VERIFICATION', $response->json('data.sync_status'));
+    }
+
+    public function test_identity_conflict_still_requires_verification(): void
+    {
+        [$admin, $employee, $door] = $this->cardAccessFixture();
+        \App\Models\DevicePersonState::create(['door_id' => $door->id, 'employee_id' => $employee->id, 'device_employee_no' => 'DEV-CONFLICT-2', 'present_on_device' => true, 'status' => 'MATCH', 'identity_status' => 'CONFLICT', 'device_link_status' => 'SYNCED', 'card_status' => 'MATCH']);
+        Sanctum::actingAs($admin);
+        $response = $this->getJson("/api/v1/card-access/employees/{$employee->id}")->assertOk();
+        $response->assertJsonPath('data.verification', 'NEEDS_VERIFICATION');
+    }
+
+    public function test_historical_observed_state_does_not_claim_device_online(): void
+    {
+        [$admin, $employee, $door] = $this->cardAccessFixture();
+        $door->update(['health_status' => null, 'connection_status' => 'offline']);
+        \App\Models\DevicePersonState::create(['door_id' => $door->id, 'employee_id' => $employee->id, 'device_employee_no' => 'DEV-HISTORICAL', 'present_on_device' => true, 'status' => 'MATCH', 'device_link_status' => 'SYNCED', 'card_status' => 'MATCH']);
+        Sanctum::actingAs($admin);
+        $response = $this->getJson("/api/v1/card-access/employees/{$employee->id}")->assertOk();
+        $this->assertNotSame('ONLINE', $response->json('data.device.device_status'));
+    }
 }
