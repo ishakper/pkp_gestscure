@@ -917,7 +917,7 @@
         // Outside preview, every mutating action waits for the next Contract Lock.
         this.locked = !this.adapter.mutationsSimulated;
         this.toast = options.toast || function () {};
-        this.state = { tab: 'overview', filters: { search: '', building_id: '', cardStatus: '', syncStatus: '', verification: '', page: 1, perPage: 25 }, syncFilter: '' };
+        this.state = { tab: 'overview', filters: { search: '', building_id: '', cardStatus: '', syncStatus: '', verification: '', page: 1, perPage: 25 }, syncFilter: '', syncPage: 1, syncPerPage: 25 };
         this.hosts = this.ensureHosts();
         this.render();
         root.addEventListener('click', e => this.onClick(e));
@@ -1116,13 +1116,25 @@
         el.innerHTML = '<div class="table-container ca-table-container"><div class="table-toolbar"><div class="toolbar-left ats-subnav ca-subnav" style="display:flex;gap:0.4rem">' +
             chips.map(c => '<button type="button" class="subnav-btn' + (c === this.state.syncFilter ? ' active' : '') + '" style="padding:0.4rem 0.8rem;font-size:0.78rem" data-ca-action="sync-filter" data-status="' + c + '">' + (c ? esc(SYNC[c].label) : 'Semua') + '</button>').join('') +
             '</div></div><div class="ca-table-wrap"><table class="ca-table"><thead><tr><th>Employee</th><th>Application State</th><th>Hikvision State</th><th class="ca-col-optional">Credential</th><th class="ca-col-optional">Access</th><th>Verification</th><th class="ca-col-optional">Last Verified</th><th>Action</th></tr></thead><tbody data-ca-slot="rows">' + TableSkeleton(8, 4) + '</tbody></table></div>' +
-            '<div class="ca-card-list" data-ca-slot="cards"></div></div>' +
+            '<div class="ca-card-list" data-ca-slot="cards"></div><div class="ca-table-foot" data-ca-slot="sync-foot"></div></div>' +
             '<div class="ca-dim">Application State = data SecureGate. Hikvision State = hasil baca perangkat. Verification = konfirmasi fisik. Ketiganya tidak pernah digabung.</div>';
         const rows = el.querySelector('[data-ca-slot="rows"]');
         const cards = el.querySelector('[data-ca-slot="cards"]');
-        this.adapter.listDeviceSync({ status: this.state.syncFilter }).then(res => {
+        const foot = el.querySelector('[data-ca-slot="sync-foot"]');
+        this.adapter.listDeviceSync({ status: this.state.syncFilter, page: this.state.syncPage, per_page: this.state.syncPerPage }).then(res => {
             const items = Array.isArray(res) ? res : arr(res && res.items);
             this._syncRecords = items;
+            const meta = (res && res.meta) || {};
+            const page = Number(meta.page || this.state.syncPage || 1);
+            const perPage = Number(meta.per_page || this.state.syncPerPage || 25);
+            const total = Number(meta.total || 0);
+            const lastPage = Number(meta.last_page || Math.max(1, Math.ceil(total / perPage)));
+            this.state.syncPage = page;
+            const from = total ? (page - 1) * perPage + 1 : 0;
+            const to = Math.min(page * perPage, total);
+            foot.innerHTML = '<span>Menampilkan ' + from + '–' + to + ' dari ' + esc(total) + '</span>' +
+                '<span style="display:flex;gap:0.4rem"><button type="button" class="btn-secondary btn-sm" data-ca-action="sync-page" data-dir="-1"' + (page <= 1 ? ' disabled' : '') + '>‹ Sebelumnya</button>' +
+                '<button type="button" class="btn-secondary btn-sm" data-ca-action="sync-page" data-dir="1"' + (page >= lastPage ? ' disabled' : '') + '>Berikutnya ›</button></span>';
             if (!items.length) {
                 const empty = EmptyState(this.state.syncFilter === 'FAILED' ? 'NO_SYNC_FAILURES' : 'NO_RESULTS');
                 rows.innerHTML = '<tr><td colspan="8">' + empty + '</td></tr>';
@@ -1592,7 +1604,8 @@
             case 'filters-open': return this.panel('cards').querySelector('[data-ca-slot="filters"]').classList.add('open');
             case 'filters-close': return this.panel('cards').querySelector('[data-ca-slot="filters"]').classList.remove('open');
             case 'page': this.state.filters.page += Number(t.dataset.dir); return this.loadCards();
-            case 'sync-filter': this.state.syncFilter = t.dataset.status; return this.loadSync();
+            case 'sync-filter': this.state.syncFilter = t.dataset.status; this.state.syncPage = 1; return this.loadSync();
+            case 'sync-page': this.state.syncPage = Math.max(1, this.state.syncPage + Number(t.dataset.dir)); return this.loadSync();
             case 'view': return this.openDrawer(id);
             case 'drawer-close': return this.closeDrawer();
             case 'modal-close': return this.closeModal();
