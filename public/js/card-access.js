@@ -361,7 +361,14 @@
         };
         adapter.getAttentionQueue = () => adapter.listCards({ attention: true, perPage: 10 }).then(r => r.items);
         adapter.getEmployeeAccess = (id) => get('/card-access/employees/' + encodeURIComponent(id)).then(res => normalizeRecord(res && res.data));
-        adapter.getAccessCatalog = () => get('/card-access/access-catalog').then(res => res && res.data);
+         adapter.getAccessCatalog = () => get('/card-access/access-catalog').then(res => {
+             const d = (res && res.data) || {};
+             const rawBuildings = arr(d.buildings);
+             const buildings = rawBuildings.map(b => typeof b === 'string' ? b : b && b.name).filter(Boolean);
+             const doors = {};
+             rawBuildings.forEach(b => { if (typeof b === 'string') { doors[b] = []; return; } const name = b && b.name; if (!name) return; doors[name] = arr(b.doors).map(door => typeof door === 'string' ? door : door && (door.name || door.door_id)).filter(Boolean); });
+             return { buildings, doors, profiles: arr(d.profiles) };
+         });
         adapter.getAccessAssignment = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/access-assignment').then(res => res && res.data);
         adapter.listDeviceSync = (q) => get('/card-access/device-sync' + qs(q || {})).then(res => ({ items: arr(res && res.data).map(normalizeRecord), meta: res && res.meta }));
         adapter.getDiagnostics = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/diagnostics').then(res => res && res.data);
@@ -1061,7 +1068,7 @@
         const p = this._perm;
         const slot = this.panel('permissions').querySelector('[data-ca-slot="matrix"]');
         if (!slot) return;
-        slot.innerHTML = AccessPermissionMatrix(this._catalog, p.draft, p.focus, p.original);
+        slot.innerHTML = AccessPermissionMatrix(this._catalog, p.draft, p.focus, p.original, { readOnly: true });
         const added = p.draft.doors.filter(d => !p.original.doors.includes(d)).length;
         const removed = p.original.doors.filter(d => !p.draft.doors.includes(d)).length;
         const bChanged = p.draft.buildings.length !== p.original.buildings.length || p.draft.buildings.some(b => !p.original.buildings.includes(b));
