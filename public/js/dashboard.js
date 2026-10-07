@@ -2381,6 +2381,8 @@ function switchTab(tabId, btn) {
     }
 }
 
+window.switchTab = switchTab;
+
 // ==========================================
 // Floating Logo & Sidebar Controller
 // ==========================================

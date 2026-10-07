@@ -1091,7 +1091,8 @@
             '<div class="ca-dim">Application State = data SecureGate. Hikvision State = hasil baca perangkat. Verification = konfirmasi fisik. Ketiganya tidak pernah digabung.</div>';
         const rows = el.querySelector('[data-ca-slot="rows"]');
         const cards = el.querySelector('[data-ca-slot="cards"]');
-        this.adapter.listDeviceSync({ status: this.state.syncFilter }).then(items => {
+        this.adapter.listDeviceSync({ status: this.state.syncFilter }).then(res => {
+            const items = Array.isArray(res) ? res : arr(res && res.items);
             this._syncRecords = items;
             if (!items.length) {
                 const empty = EmptyState(this.state.syncFilter === 'FAILED' ? 'NO_SYNC_FAILURES' : 'NO_RESULTS');
