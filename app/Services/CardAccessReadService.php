@@ -174,7 +174,7 @@ class CardAccessReadService
         $states = \App\Models\DevicePersonState::query()->where('employee_id', $employee->id)->get();
         $failed = $assignments->contains('sync_status', 'failed');
         $pending = $assignments->contains(fn ($assignment) => $assignment->sync_status !== 'synced');
-        $conflict = in_array($employee->credential_status, ['conflict', 'needs_verification'], true) || $states->contains(fn ($state) => in_array($state->status, ['CONFLICT', 'REVIEW', 'IDENTITY_CONFLICT', 'CARD_MISMATCH'], true));
+        $conflict = in_array($employee->credential_status, ['conflict', 'needs_verification'], true) || $states->contains(fn ($state) => in_array(strtoupper((string) ($state->identity_status ?: $state->status)), ['CONFLICT', 'REVIEW', 'IDENTITY_CONFLICT', 'CARD_MISMATCH'], true));
         $deviceMissing = $hasCredential && $assignments->isNotEmpty() && $states->isNotEmpty() && $states->where('present_on_device', true)->isEmpty();
         $disabled = strtoupper((string) $employee->employment_status) !== 'ACTIVE';
         $revoked = !$credential && $employee->credentials->where('credential_type', 'CARD')->where('status', 'REVOKED')->isNotEmpty();
@@ -198,13 +198,18 @@ private function deviceSummary(Employee $employee): array
             'device_card_masked' => $states->flatMap(fn ($state) => (array) $state->card_masks)->filter()->first(),
             'device_access' => $states->map(fn ($state) => ['door_id' => $state->door?->door_id, 'status' => strtoupper((string) ($state->device_link_status ?: $state->status))])->values()->all(),
             'device_person' => $states->map(fn ($state) => filled(trim((string) $state->device_name)) ? trim((string) $state->device_name) : null)->filter()->values()->first(),
-            'sync_status' => $failed ? 'FAILED' : ($conflict ? 'NEEDS_VERIFICATION' : ($present->count() === $states->count() ? 'SYNCED' : 'PARTIAL')),
-            'device_status' => 'ONLINE',
+            'sync_status' => $failed ? 'FAILED' : ($present->count() === $states->count() ? 'SYNCED' : 'PARTIAL'),
+            'device_status' => $this->deviceHealthStatus($states),
             'last_sync_at' => $employee->doorAssignments->max('last_synced_at')?->toIso8601String(),
             'last_verified_at' => $states->max('last_verified_at')?->toIso8601String(),
             'error' => $failed ? 'DEVICE_SYNC_FAILED' : null,
         ];
-    }    private function needsAttention(array $state): bool { return $state['lifecycle_state'] === 'NEEDS_VERIFICATION' || in_array($state['sync_status'], ['FAILED', 'PARTIAL', 'UNKNOWN'], true); }
+    }    private function deviceHealthStatus($states): string
+    {
+        $statuses = $states->map(fn ($state) => strtoupper((string) ($state->door?->health_status ?: $state->door?->connection_status)))->filter(fn ($status) => $status !== '')->unique();
+        return $statuses->count() === 1 ? $statuses->first() : 'UNKNOWN';
+    }
+    private function needsAttention(array $state): bool { return $state['lifecycle_state'] === 'NEEDS_VERIFICATION' || in_array($state['sync_status'], ['FAILED', 'PARTIAL', 'UNKNOWN'], true); }
     private function healthKey(array $state): string { return $state['lifecycle_state'] === 'NEEDS_VERIFICATION' ? 'NEEDS_VERIFICATION' : ($state['sync_status'] === 'FAILED' ? 'SYNC_FAILED' : ($state['sync_status'] === 'UNKNOWN' ? 'OFFLINE' : ($state['sync_status'] === 'SYNCED' ? 'HEALTHY' : 'WARNING'))); }
     private function mask(string $value): string { return '••••' . substr(strtoupper(trim($value)), -4); }
     private function maskedFromDescription(?string $description): ?string { return null; }
