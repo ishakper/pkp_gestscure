@@ -3050,7 +3050,7 @@
                         <button type="button" class="btn-primary" id="reconRunAllBtn" onclick="runDeviceReconciliation(null, this)" title="Membaca data pengguna/kartu/sidik jari dari perangkat. Tidak ada data yang ditulis ke perangkat.">⟳ Refresh dari Perangkat</button>
                     </div>
                 </div>
-                <div id="reconDeviceSummary" class="recon-device-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0.75rem;padding:0 1rem 1rem;"></div>
+                <style>.recon-device-grid > .recon-device-card { flex: 0 0 calc((100% - 36px) / 4); min-width: 300px; scroll-snap-align: start; } @media (max-width: 1200px) { .recon-device-grid > .recon-device-card { flex-basis: 360px; } } @media (max-width: 768px) { .recon-device-grid > .recon-device-card { flex-basis: 88vw; min-width: 280px; } }</style><div id="reconDeviceSummary" class="recon-device-grid" style="display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;padding:0 1rem 1rem;scrollbar-gutter:stable;"></div>
 
                 <div style="padding:0 1rem 1rem;">
                     <strong style="color:#fff;">Data Perangkat Belum Terhubung</strong>
