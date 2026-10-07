@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\AdminDoorController;
 use App\Http\Controllers\Api\V1\AttendanceReportController;
 use App\Http\Controllers\Api\V1\FacilityConfigurationController;
 use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CardAccessController;
 use App\Http\Controllers\Api\V1\DoorSyncController;
 use App\Http\Controllers\Api\V1\EmployeeController;
 use App\Http\Controllers\Api\V1\IsapiWebhookController;
@@ -36,6 +37,14 @@ Route::prefix('v1')->group(function () {
             Route::post('/logout', [AuthController::class, 'logout']);
             Route::post('/device-token', [AuthController::class, 'issueDeviceToken']);
             Route::post('/change-password', [AuthController::class, 'changePassword']);
+        });
+
+        Route::prefix('card-access')->group(function () {
+            Route::get('/overview', [CardAccessController::class, 'overview']);
+            Route::get('/activity', [CardAccessController::class, 'activity']);
+            Route::get('/cards', [CardAccessController::class, 'cards']);
+            Route::get('/employees/{employee}', [CardAccessController::class, 'employee']);
+            Route::get('/employees/{employee}/audit', [CardAccessController::class, 'audit']);
         });
 
         // System Accounts Endpoints
