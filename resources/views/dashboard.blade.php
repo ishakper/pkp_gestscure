@@ -18,7 +18,7 @@
         $cardAccessEnabled = $cardAccessMode !== 'off' && in_array('credential.view', $permissions ?? [], true);
     @endphp
     @if($cardAccessEnabled)
-    <link rel="stylesheet" href="/css/card-access.css">
+    <link rel="stylesheet" href="/css/card-access.css?v={{ @filemtime(public_path('css/card-access.css')) ?: '1' }}">
     @endif
     <script>
         (function() {
@@ -6187,7 +6187,7 @@
 </script>
 <script src="/js/dashboard.js?v={{ @filemtime(public_path('js/dashboard.js')) ?: '1' }}"></script>
 @if($cardAccessEnabled)
-<script src="/js/card-access.js"></script>
+<script src="/js/card-access.js?v={{ @filemtime(public_path('js/card-access.js')) ?: '1' }}"></script>
 @endif
 
 </body>
