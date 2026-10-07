@@ -5056,9 +5056,13 @@ async function loadDeviceReconciliation(force = false) {
     if (search) params.set('search', search);
 
     try {
-        const res = await apiFetch(`/access/reconciliation?${params.toString()}`);
+        const [res, buildingsRes, doorsRes] = await Promise.all([
+            apiFetch(`/access/reconciliation?${params.toString()}`),
+            apiFetch('/admin/buildings'),
+            apiFetch('/admin/doors'),
+        ]);
         if (seq !== reconState.seq || !res?.success) return;
-        renderDeviceReconciliation(res.data);
+        renderDeviceReconciliation(Object.assign({}, res.data, { buildings: buildingsRes?.data || [], doors: doorsRes?.data || [] }));
     } catch (err) {
         if (seq !== reconState.seq) return;
         reconState.loadedAt = 0;
@@ -5106,6 +5110,17 @@ function renderDeviceReconciliation(data) {
                     <button type="button" class="btn-secondary" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.72rem;" onclick="runDeviceReconciliation(${Number(d.door_id)}, this)">Refresh dari Perangkat</button>
                 </div>`;
         }).join('');
+    }
+
+    const configuredCodes = new Set((data.devices || []).map(d => String(d.door_code)));
+    const configuredBuildingIds = new Set((data.doors || []).filter(d => configuredCodes.has(String(d.door_id))).map(d => String(d.building_id)));
+    const activeBuildings = (data.buildings || []).filter(b => {
+        const active = b.is_active;
+        return active === undefined || active === null || active === true || active === 1 || active === '1';
+    });
+    const reconSummary = document.getElementById('reconDeviceSummary');
+    if (reconSummary && activeBuildings.length) {
+        reconSummary.insertAdjacentHTML('beforeend', activeBuildings.filter(b => !configuredBuildingIds.has(String(b.id))).map(b => '<div class="recon-device-card recon-device-card--not-configured" style="border:1px solid var(--border-color);border-radius:0.75rem;padding:0.75rem;"><strong style="color:#fff;">' + escapeHtml(b.name || '-') + '</strong><span class="badge badge-dim">Belum Ada Perangkat</span><div class="recon-not-configured-metrics">Pengguna di perangkat —<br>Kartu / FP di perangkat — / —<br>Device matched —<br>Identity verified —<br>Identity unverified —<br>Identity perlu verifikasi —<br>Tersinkron / Partial — / —<br>Hanya perangkat —<br>Hanya aplikasi —<br>Konflik —<br>Perlu verifikasi (match) —<br>Biometrik tidak diketahui —</div><small>Perangkat belum dikonfigurasi untuk gedung ini.</small></div>').join(''));
     }
 
     const counts = data.counts || {};
