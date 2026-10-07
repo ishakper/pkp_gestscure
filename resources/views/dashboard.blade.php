@@ -10,6 +10,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    @php
+        // Card Access & NFC Provisioning is a Phase 1/1.5 design preview: fictional fixtures only,
+        // no API integration. Kept out of production until the Backend Contract Lock (ISHAK).
+        $cardAccessPreview = app()->environment('local', 'testing') && in_array('credential.view', $permissions ?? []);
+    @endphp
+    @if($cardAccessPreview)
+    <link rel="stylesheet" href="/css/card-access.css">
+    @endif
     <script>
         (function() {
             try {
@@ -1451,6 +1459,9 @@
         @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Hak Akses" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Hak Akses</span></button></li>
         @endif
+        @if($cardAccessPreview)
+        <li class="nav-item"><button data-tooltip="Card Access (Preview)" onclick="switchTab('cardAccessTab', this)"><span class="nav-icon">💳</span><span class="nav-text">Card Access</span></button></li>
+        @endif
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
         @endif
@@ -2720,6 +2731,13 @@
             </div>
         </div>
     </section>
+
+    @if($cardAccessPreview)
+    <!-- CARD ACCESS & NFC PROVISIONING (PHASE 1/1.5 DESIGN PREVIEW) — rendered by public/js/card-access.js -->
+    <section class="tab-content" id="cardAccessTab">
+        <div id="cardAccessRoot"></div>
+    </section>
+    @endif
 
     <!-- SECTION 10: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY REGISTRY (SPRINT 6) -->
     <section class="tab-content" id="accessTab">
@@ -5829,6 +5847,7 @@
         apiToken: @json($apiToken ?? session('api_token')),
         permissions: @json($permissions ?? []),
         sseEnabled: @json(!app()->environment('testing')),
+        cardAccessPreview: @json($cardAccessPreview),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),
@@ -5837,6 +5856,9 @@
     };
 </script>
 <script src="/js/dashboard.js"></script>
+@if($cardAccessPreview)
+<script src="/js/card-access.js"></script>
+@endif
 
 </body>
 </html>

@@ -41,3 +41,6 @@ release-*.tar.gz
 .agents/
 openspec/
 
+
+# Generated Card Access design prototype (node docs/card-access/build-prototype.mjs)
+/docs/card-access/prototype.html

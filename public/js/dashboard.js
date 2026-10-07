@@ -1560,6 +1560,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'internshipTab') loadInternshipData();
     if (tabId === 'onboardingTab') loadOnboardingData();
     if (tabId === 'accessTab') loadAccessData();
+    if (tabId === 'cardAccessTab' && window.CardAccess) window.CardAccess.load('cardAccessRoot');
     if (tabId === 'assetsTab') loadAssetsData();
     if (tabId === 'tasksTab') loadTasks();
     if (tabId === 'attendanceTab') loadAttendanceData();
