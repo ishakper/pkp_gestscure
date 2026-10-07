@@ -79,4 +79,9 @@ return [
         ],
     ],
 
+    // Card Access UI: 'api' (read-only, Contract Lock v1.1), 'preview' (local/testing fixtures) or 'off'.
+    'card_access' => [
+        'ui' => env('CARD_ACCESS_UI'),
+    ],
+
 ];

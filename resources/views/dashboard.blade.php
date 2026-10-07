@@ -11,9 +11,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     @php
-        // Card Access & NFC Provisioning is a Phase 1/1.5 design preview: fictional fixtures only,
-        // no API integration. Kept out of production until the Backend Contract Lock (ISHAK).
-        $cardAccessPreview = app()->environment('local', 'testing') && in_array('credential.view', $permissions ?? []);
+        // Card Access UI mode (config services.card_access.ui / CARD_ACCESS_UI):
+        //   'api'     → read-only binding per Backend Contract Lock v1.1
+        //   'preview' → fictional fixtures; never allowed outside local/testing
+        //   'off'     → not rendered (production default)
+        $cardAccessMode = config('services.card_access.ui') ?: (app()->environment('local', 'testing') ? 'preview' : 'off');
+        if (! in_array($cardAccessMode, ['api', 'preview'], true) || ($cardAccessMode === 'preview' && ! app()->environment('local', 'testing'))) {
+            $cardAccessMode = 'off';
+        }
+        $cardAccessPreview = $cardAccessMode !== 'off' && in_array('credential.view', $permissions ?? []);
     @endphp
     @if($cardAccessPreview)
     <link rel="stylesheet" href="/css/card-access.css">
@@ -1460,7 +1466,7 @@
         <li class="nav-item"><button data-tooltip="Hak Akses" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Hak Akses</span></button></li>
         @endif
         @if($cardAccessPreview)
-        <li class="nav-item"><button data-tooltip="Card Access (Preview)" onclick="switchTab('cardAccessTab', this)"><span class="nav-icon">💳</span><span class="nav-text">Card Access</span></button></li>
+        <li class="nav-item"><button data-tooltip="Card Access" onclick="switchTab('cardAccessTab', this)"><span class="nav-icon">💳</span><span class="nav-text">Card Access</span></button></li>
         @endif
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
@@ -2733,7 +2739,7 @@
     </section>
 
     @if($cardAccessPreview)
-    <!-- CARD ACCESS & NFC PROVISIONING (PHASE 1/1.5 DESIGN PREVIEW) — rendered by public/js/card-access.js -->
+    <!-- CARD ACCESS & NFC PROVISIONING — rendered by public/js/card-access.js (read-only API or design preview) -->
     <section class="tab-content" id="cardAccessTab">
         <div id="cardAccessRoot"></div>
     </section>
@@ -5847,7 +5853,7 @@
         apiToken: @json($apiToken ?? session('api_token')),
         permissions: @json($permissions ?? []),
         sseEnabled: @json(!app()->environment('testing')),
-        cardAccessPreview: @json($cardAccessPreview),
+        cardAccessMode: @json($cardAccessPreview ? $cardAccessMode : 'off'),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),

@@ -87,7 +87,7 @@ const html = `<!DOCTYPE html>
   }
   function boot(key) {
     const r = ROLES[key];
-    window.APP_CONFIG = { cardAccessPreview: true, permissions: r.permissions, admin: { name: 'Operator Contoh', role: r.role } };
+    window.APP_CONFIG = { cardAccessMode: 'preview', permissions: r.permissions, admin: { name: 'Operator Contoh', role: r.role } };
     const root = document.getElementById('cardAccessRoot');
     const fresh = root.cloneNode(false); root.replaceWith(fresh);
     CardAccess.mount(fresh, { adapter: CardAccess.createPreviewAdapter(), permissions: r.permissions, role: r.role, toast });

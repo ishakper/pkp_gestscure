@@ -2,17 +2,18 @@
    PKP SecureGate — Card Access & NFC Provisioning
    Phase 1 / 1.5: design foundation, UX flows, state model.
    --------------------------------------------------------------------------
-   NOT INTEGRATED. Every backend call goes through an adapter:
+   Every backend call goes through an adapter, chosen by APP_CONFIG.cardAccessMode:
 
-     - ContractPendingAdapter (default): rejects every call with
-       CONTRACT_PENDING until ISHAK locks the backend contract.
-     - PreviewAdapter: clearly-labelled sample fixtures, used only when
-       APP_CONFIG.cardAccessPreview is true (local/testing) or in the
-       standalone design prototype. Fixtures contain only masked card
-       identifiers and fictional employees.
+     - 'api'     → ApiCardAccessAdapter: READ-ONLY binding per Backend
+                   Contract Lock v1.1 (Overview, Cards, Employee Detail,
+                   Audit). Every other method rejects with CONTRACT_PENDING
+                   and the matching UI actions are disabled.
+     - 'preview' → PreviewAdapter: fictional, masked fixtures (local/testing
+                   and the standalone design prototype only).
+     - anything else → ContractPendingAdapter (rejects everything).
 
    Nothing in this file writes to the backend, talks to Hikvision, or reads
-   an NFC tag. Mutating actions in preview mode are simulated in memory.
+   an NFC tag. Mutating actions exist only as simulations in preview mode.
    ========================================================================== */
 (function (global) {
     'use strict';
@@ -95,15 +96,24 @@
         NONE:     { label: 'No Card',  tone: 'neutral' },
     };
 
-    // Device synchronisation status (domain D, per record).
+    // Device synchronisation status (domain D, per record) — Contract Lock v1.1.
+    // Says whether the write to the device happened; it is NOT verification.
     const SYNC = {
-        VERIFIED:           { label: 'Verified',           tone: 'success' },
-        SYNCING:            { label: 'Syncing',            tone: 'info' },
-        PENDING:            { label: 'Pending',            tone: 'attention' },
-        FAILED:             { label: 'Failed',             tone: 'critical' },
-        OUT_OF_SYNC:        { label: 'Out of Sync',        tone: 'critical' },
-        NEEDS_VERIFICATION: { label: 'Needs Verification', tone: 'attention' },
-        NOT_APPLICABLE:     { label: 'N/A',                tone: 'neutral' },
+        SYNCED:  { label: 'Synced',  tone: 'success' },
+        SYNCING: { label: 'Syncing', tone: 'info' },
+        PENDING: { label: 'Pending', tone: 'attention' },
+        FAILED:  { label: 'Failed',  tone: 'critical' },
+        PARTIAL: { label: 'Partial', tone: 'critical', hint: 'Sebagian terminal gagal diperbarui.' },
+        UNKNOWN: { label: 'Unknown', tone: 'neutral' },
+    };
+    const SYNC_NEEDS_RETRY = ['FAILED', 'PARTIAL'];
+
+    // Where an application credential came from — Contract Lock v1.1.
+    // Every origin is a valid existing credential; none forces re-enrollment.
+    const ORIGIN = {
+        CREDENTIAL_RECORD:    'Credential record',
+        LEGACY_EMPLOYEE_CARD: 'Kartu karyawan existing <span class="ca-dim">(legacy — sah, tanpa metadata NFC)</span>',
+        NFC_ENROLLMENT:       'Pendaftaran NFC',
     };
 
     // Overall verification result (shown on detail + verification component).
@@ -236,7 +246,10 @@
 
     // Which actions make sense for a lifecycle state. Backend may later send
     // rec.allowed_actions; when present it is intersected with this list.
-    function actionsFor(rec, can) {
+    const MUTATING_ACTIONS = new Set(['edit', 'enroll', 'replace', 'resync', 'verify', 'disable', 'revoke']);
+    const LOCKED_REASON = 'Menunggu Contract Lock berikutnya';
+
+    function actionsFor(rec, can, locked) {
         const s = rec.lifecycle_state;
         const base = ['view'];
         if (s === 'CARD_NOT_REGISTERED') base.push('enroll', 'edit');
@@ -251,7 +264,8 @@
         return base.map(key => {
             const def = ACTION_DEFS[key];
             let deniedReason = null;
-            if (!can(def.cap)) deniedReason = 'Tidak memiliki izin (' + def.cap + ')';
+            if (locked && MUTATING_ACTIONS.has(key)) deniedReason = LOCKED_REASON;
+            else if (!can(def.cap)) deniedReason = 'Tidak memiliki izin (' + def.cap + ')';
             else if (allowed && !allowed.has(key)) deniedReason = 'Tidak diizinkan oleh kebijakan backend';
             return { key, def, deniedReason };
         });
@@ -271,7 +285,7 @@
     // Default adapter: integration is intentionally blocked until the Backend
     // Contract Lock. Method list = the contract surface the UI needs.
     const ADAPTER_METHODS = [
-        'getKpis', 'getRecentActivity', 'getSyncHealth', 'getAttentionQueue',
+        'getOverview', 'getRecentActivity', 'getAttentionQueue', 'listBuildings',
         'listCards', 'getEmployeeAccess', 'getAccessCatalog', 'getAccessAssignment', 'previewAccessChange', 'applyAccessChange',
         'listDeviceSync', 'getDiagnostics', 'getAuditHistory',
         'searchEnrollmentCandidates', 'validateScannedCard', 'registerCard',
@@ -281,6 +295,77 @@
     ADAPTER_METHODS.forEach(m => {
         ContractPendingAdapter[m] = function () { return Promise.reject(new ContractPendingError(m)); };
     });
+
+    // ---- Normalisers: tolerate null (contract: unknown fields are sent as null) ----
+    const arr = v => (Array.isArray(v) ? v : []);
+    function normalizeRecord(r) {
+        r = r || {};
+        const e = r.employee || {};
+        const a = r.access || {};
+        const d = r.device || {};
+        return {
+            employee: { id: e.id, name: e.name || '—', employee_code: e.employee_code || '—', employment_status: e.employment_status || '—',
+                building: e.building || '—', department: e.department || null, position: e.position || null },
+            credential: r.credential ? Object.assign({ credential_type: 'CARD', status: null, origin: null, registered_at: null, registered_by: null }, r.credential) : null,
+            access: { buildings: arr(a.buildings), doors: arr(a.doors), profile: a.profile || null, valid_from: a.valid_from || null, valid_until: a.valid_until || null },
+            device: {
+                person_match: d.person_match || 'UNKNOWN', credential_match: d.credential_match || 'UNKNOWN', access_match: d.access_match || 'UNKNOWN',
+                device_card_masked: d.device_card_masked || null, device_access: arr(d.device_access), device_person: d.device_person || null,
+                sync_status: d.sync_status || 'UNKNOWN', device_status: d.device_status || null,
+                last_sync_at: d.last_sync_at || null, last_verified_at: d.last_verified_at || null, error: d.error || null,
+            },
+            lifecycle_state: r.lifecycle_state || null,
+            verification: r.verification || 'NOT_VERIFIED',
+            allowed_actions: Array.isArray(r.allowed_actions) ? r.allowed_actions : undefined,
+        };
+    }
+    function normalizeAuditItem(i) {
+        i = i || {};
+        return { at: i.at || i.created_at || null, title: i.title || i.action || i.type || 'Event', by: i.by || i.operator || i.actor || '—', tone: i.tone || 'neutral' };
+    }
+
+    // ---- Read-only API binding — Backend Contract Lock v1.1 ----
+    // `http` is the dashboard's authenticated GET helper (apiFetch). Only GET
+    // requests are issued from here; mutations stay CONTRACT_PENDING.
+    function createApiAdapter(http) {
+        const get = path => http(path, { isBackground: false });
+        const qs = params => {
+            const parts = Object.keys(params).filter(k => params[k] !== '' && params[k] !== null && params[k] !== undefined)
+                .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
+            return parts.length ? '?' + parts.join('&') : '';
+        };
+        const adapter = Object.assign({}, ContractPendingAdapter, { mode: 'api' });
+
+        // GET /card-access/overview → KPI + sync health in one response.
+        adapter.getOverview = () => get('/card-access/overview').then(res => {
+            const d = (res && res.data) || {};
+            const kpis = d.kpis || d;
+            const health = d.sync_health || {};
+            const asOf = d.as_of || kpis.as_of || health.as_of || null;
+            return {
+                kpis: Object.assign({}, kpis, { as_of: asOf }),
+                sync_health: { items: Array.isArray(health) ? health : arr(health.items), as_of: health.as_of || asOf },
+            };
+        });
+        adapter.getRecentActivity = (opts) => get('/card-access/activity' + qs({ limit: (opts && opts.limit) || 10 })).then(res => arr(res && res.data));
+        adapter.listCards = (q) => {
+            q = q || {};
+            return get('/card-access/cards' + qs({
+                search: q.search, building_id: q.building_id, lifecycle_state: q.cardStatus, sync_status: q.syncStatus,
+                verification: q.verification, attention: q.attention ? 1 : '', page: q.page || 1, per_page: q.perPage || 25,
+            })).then(res => {
+                const m = (res && res.meta) || {};
+                const items = arr(res && res.data).map(normalizeRecord);
+                return { items, meta: { page: Number(m.page || m.current_page || q.page || 1), per_page: Number(m.per_page || q.perPage || 25), total: Number(m.total || 0) } };
+            });
+        };
+        adapter.getAttentionQueue = () => adapter.listCards({ attention: true, perPage: 10 }).then(r => r.items);
+        adapter.getEmployeeAccess = (id) => get('/card-access/employees/' + encodeURIComponent(id)).then(res => normalizeRecord(res && res.data));
+        adapter.getAuditHistory = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/audit').then(res => arr(res && res.data).map(normalizeAuditItem));
+        // Existing facility endpoint (organization.view).
+        adapter.listBuildings = () => get('/admin/buildings').then(res => arr(res && res.data).map(b => ({ id: b.id, name: b.name })));
+        return adapter;
+    }
 
     // ---- Preview fixtures: fictional, masked, explicitly labelled ----
     function createPreviewAdapter() {
@@ -308,32 +393,32 @@
         function dev(o) {
             return Object.assign({ person_match: 'MATCH', credential_match: 'MATCH', access_match: 'MATCH', device_card_masked: null,
                 device_access: [], device_person: null, last_sync_at: '2026-10-07T01:40:00Z', last_verified_at: '2026-10-07T01:51:00Z',
-                device_status: 'ONLINE', sync_status: 'VERIFIED', error: null }, o);
+                device_status: 'ONLINE', sync_status: 'SYNCED', error: null }, o);
         }
 
         const records = [
-            { employee: emp(1, 'Gedung B'), credential: cred('3163', 'ACTIVE', 'LEGACY'), access: acc(['Gedung B'], ['B-01 Main Entrance', 'B-02 Office Door']),
+            { employee: emp(1, 'Gedung B'), credential: cred('3163', 'ACTIVE', 'LEGACY_EMPLOYEE_CARD'), access: acc(['Gedung B'], ['B-01 Main Entrance', 'B-02 Office Door']),
               device: dev({ device_card_masked: '3163', device_access: ['Gedung B'] }), lifecycle_state: 'ACTIVE_SYNCED', verification: 'VERIFIED' },
-            { employee: emp(2, 'Gedung A'), credential: cred('5520', 'ACTIVE', 'LEGACY'), access: acc(['Gedung A'], ['A-01 Main Entrance']),
-              device: dev({ credential_match: 'MISMATCH', device_card_masked: '9042', device_access: ['Gedung A'], sync_status: 'OUT_OF_SYNC', last_verified_at: '2026-10-06T08:10:00Z' }),
+            { employee: emp(2, 'Gedung A'), credential: cred('5520', 'ACTIVE', 'CREDENTIAL_RECORD'), access: acc(['Gedung A'], ['A-01 Main Entrance']),
+              device: dev({ credential_match: 'MISMATCH', device_card_masked: '9042', device_access: ['Gedung A'], sync_status: 'SYNCED', last_verified_at: '2026-10-06T08:10:00Z' }),
               lifecycle_state: 'ACTIVE_NOT_SYNCED', verification: 'OUT_OF_SYNC' },
             { employee: emp(3, 'Gedung B'), credential: cred('7710', 'ACTIVE', 'NFC_ENROLLMENT'), access: acc(['Gedung B'], ['B-01 Main Entrance', 'B-02 Office Door']),
-              device: dev({ access_match: 'MISMATCH', device_card_masked: '7710', device_access: ['Gedung A', 'Gedung B'], sync_status: 'OUT_OF_SYNC' }),
+              device: dev({ access_match: 'MISMATCH', device_card_masked: '7710', device_access: ['Gedung A', 'Gedung B'], sync_status: 'PARTIAL' }),
               lifecycle_state: 'ACTIVE_NOT_SYNCED', verification: 'OUT_OF_SYNC' },
             { employee: emp(4, 'Gedung C'), credential: null, access: acc([], [], null),
-              device: dev({ person_match: 'UNKNOWN', credential_match: 'UNKNOWN', access_match: 'UNKNOWN', last_sync_at: null, last_verified_at: null, sync_status: 'NOT_APPLICABLE' }),
+              device: dev({ person_match: 'UNKNOWN', credential_match: 'UNKNOWN', access_match: 'UNKNOWN', last_sync_at: null, last_verified_at: null, sync_status: 'UNKNOWN' }),
               lifecycle_state: 'CARD_NOT_REGISTERED', verification: 'NOT_VERIFIED' },
-            { employee: emp(5, 'Gedung D'), credential: cred('2208', 'ACTIVE', 'LEGACY'), access: acc(['Gedung D'], ['D-01 Main Entrance']),
-              device: dev({ person_match: 'MISMATCH', device_person: 'CONTOH5 (nama di terminal)', device_card_masked: '2208', device_access: ['Gedung D'], sync_status: 'NEEDS_VERIFICATION', last_verified_at: null }),
+            { employee: emp(5, 'Gedung D'), credential: cred('2208', 'ACTIVE', 'LEGACY_EMPLOYEE_CARD'), access: acc(['Gedung D'], ['D-01 Main Entrance']),
+              device: dev({ person_match: 'MISMATCH', device_person: 'CONTOH5 (nama di terminal)', device_card_masked: '2208', device_access: ['Gedung D'], sync_status: 'SYNCED', last_verified_at: null }),
               lifecycle_state: 'NEEDS_VERIFICATION', verification: 'NEEDS_VERIFICATION' },
-            { employee: emp(6, 'Gedung A'), credential: cred('4471', 'DISABLED', 'LEGACY'), access: acc(['Gedung A'], ['A-01 Main Entrance', 'A-02 Office Door']),
-              device: dev({ device_card_masked: '4471', device_access: [], sync_status: 'VERIFIED' }), lifecycle_state: 'DISABLED', verification: 'DISABLED' },
+            { employee: emp(6, 'Gedung A'), credential: cred('4471', 'DISABLED', 'CREDENTIAL_RECORD'), access: acc(['Gedung A'], ['A-01 Main Entrance', 'A-02 Office Door']),
+              device: dev({ device_card_masked: '4471', device_access: [], sync_status: 'SYNCED' }), lifecycle_state: 'DISABLED', verification: 'DISABLED' },
             { employee: emp(7, 'Gedung B', { employment_status: 'RESIGNED' }), credential: cred('8810', 'REVOKED', 'NFC_ENROLLMENT'), access: acc([], []),
-              device: dev({ person_match: 'MISSING', credential_match: 'MISSING', access_match: 'MATCH', device_card_masked: null, sync_status: 'VERIFIED' }),
+              device: dev({ person_match: 'MISSING', credential_match: 'MISSING', access_match: 'MATCH', device_card_masked: null, sync_status: 'SYNCED' }),
               lifecycle_state: 'REVOKED', verification: 'REVOKED' },
             // Backend says ACTIVE_SYNCED, but device is offline and unverified → display guard downgrades it.
-            { employee: emp(8, 'Gedung C'), credential: cred('6034', 'ACTIVE', 'LEGACY'), access: acc(['Gedung C'], ['C-01 Main Entrance']),
-              device: dev({ credential_match: 'UNKNOWN', access_match: 'UNKNOWN', person_match: 'UNKNOWN', device_status: 'OFFLINE', sync_status: 'NEEDS_VERIFICATION', last_verified_at: '2026-09-28T03:00:00Z' }),
+            { employee: emp(8, 'Gedung C'), credential: cred('6034', 'ACTIVE', 'LEGACY_EMPLOYEE_CARD'), access: acc(['Gedung C'], ['C-01 Main Entrance']),
+              device: dev({ credential_match: 'UNKNOWN', access_match: 'UNKNOWN', person_match: 'UNKNOWN', device_status: 'OFFLINE', sync_status: 'UNKNOWN', last_verified_at: '2026-09-28T03:00:00Z' }),
               lifecycle_state: 'ACTIVE_SYNCED', verification: 'NEEDS_VERIFICATION' },
             { employee: emp(9, 'Gedung D'), credential: cred('1199', 'ACTIVE', 'NFC_ENROLLMENT', '2026-10-07T01:30:00Z'), access: acc(['Gedung D'], ['D-01 Main Entrance', 'D-02 Warehouse']),
               device: dev({ credential_match: 'PENDING', access_match: 'PENDING', person_match: 'PENDING', sync_status: 'PENDING', last_sync_at: null, last_verified_at: null }),
@@ -354,10 +439,14 @@
 
         return {
             mode: 'preview',
-            getKpis: () => delay({ total_cards: 9, active_cards: 6, pending_sync: 1, sync_failed: 1, needs_verification: 2, disabled_cards: 1, as_of: '2026-10-07T01:55:00Z', source: 'preview-fixture' }, 500),
-            getSyncHealth: () => delay({ items: [
-                { key: 'HEALTHY', count: 3 }, { key: 'WARNING', count: 1 }, { key: 'OFFLINE', count: 1 },
-                { key: 'SYNC_FAILED', count: 1 }, { key: 'NEEDS_VERIFICATION', count: 2 } ], as_of: '2026-10-07T01:55:00Z' }, 400),
+            // Active = ACTIVE_SYNCED only (Contract Lock v1.1).
+            getOverview: () => delay({
+                kpis: { total_cards: 9, active_cards: 1, pending_sync: 1, sync_failed: 1, needs_verification: 2, disabled_cards: 1, as_of: '2026-10-07T01:55:00Z', source: 'preview-fixture' },
+                sync_health: { items: [
+                    { key: 'HEALTHY', count: 3 }, { key: 'WARNING', count: 1 }, { key: 'OFFLINE', count: 1 },
+                    { key: 'SYNC_FAILED', count: 1 }, { key: 'NEEDS_VERIFICATION', count: 2 } ], as_of: '2026-10-07T01:55:00Z' },
+            }, 450),
+            listBuildings: () => delay(BUILDINGS.map((name, i) => ({ id: i + 1, name })), 150),
             getRecentActivity: () => delay([
                 { at: '2026-10-07T01:51:00Z', type: 'DEVICE_VERIFIED', employee: 'Karyawan Contoh 01', operator: 'Sistem', target: 'B-01 Main Entrance', result: 'Verified' },
                 { at: '2026-10-07T01:30:00Z', type: 'CARD_REGISTERED', employee: 'Karyawan Contoh 09', operator: 'Operator Infra (contoh)', target: '••••1199', result: 'Menunggu sinkronisasi' },
@@ -368,16 +457,18 @@
                 { at: '2026-10-05T09:00:00Z', type: 'CARD_REVOKED', employee: 'Karyawan Contoh 07', operator: 'Admin Infra (contoh)', target: '••••8810', result: 'Dicabut dari 2 pintu' },
             ], 450),
             getAttentionQueue: () => delay(records.filter(r => ['ACTIVE_NOT_SYNCED', 'NEEDS_VERIFICATION'].includes(resolveDisplayState(r).state)), 450),
+            mutationsSimulated: true,
             listCards: (q) => {
                 q = q || {};
                 const s = (q.search || '').trim().toLowerCase();
                 let items = records.filter(r => {
                     if (s && !(r.employee.name.toLowerCase().includes(s) || r.employee.employee_code.toLowerCase().includes(s) ||
                         (r.credential && r.credential.masked_identifier.toLowerCase().includes(s.replace(/[^0-9a-z]/g, ''))))) return false;
-                    if (q.building && r.employee.building !== q.building) return false;
+                    if (q.building_id && r.employee.building !== BUILDINGS[Number(q.building_id) - 1]) return false;
                     if (q.cardStatus && resolveDisplayState(r).state !== q.cardStatus) return false;
                     if (q.syncStatus && r.device.sync_status !== q.syncStatus) return false;
                     if (q.verification && r.verification !== q.verification) return false;
+                    if (q.attention && !['ACTIVE_NOT_SYNCED', 'NEEDS_VERIFICATION'].includes(resolveDisplayState(r).state)) return false;
                     return true;
                 });
                 const perPage = q.perPage || 25;
@@ -400,7 +491,7 @@
             getAuditHistory: (id) => {
                 const r = find(id);
                 if (!r || !r.credential) return delay([], 300);
-                const out = [{ at: r.credential.registered_at, title: r.credential.origin === 'LEGACY' ? 'Kartu tercatat (data existing)' : 'Card Registered via NFC', by: r.credential.registered_by || 'Data existing', tone: 'success' }];
+                const out = [{ at: r.credential.registered_at, title: r.credential.origin !== 'NFC_ENROLLMENT' ? 'Kartu tercatat (data existing)' : 'Card Registered via NFC', by: r.credential.registered_by || 'Data existing', tone: 'success' }];
                 if (r.device.sync_status === 'FAILED') out.unshift({ at: r.device.error.last_attempt_at, title: 'Sync Failed · ' + r.device.error.code, by: 'Sistem', tone: 'critical' });
                 if (r.lifecycle_state === 'DISABLED') out.unshift({ at: '2026-10-06T04:20:00Z', title: 'Card Disabled', by: 'Admin Infra (contoh)', tone: 'attention' });
                 if (r.lifecycle_state === 'REVOKED') out.unshift({ at: '2026-10-05T09:00:00Z', title: 'Card Revoked · Resign', by: 'Admin Infra (contoh)', tone: 'critical' });
@@ -538,8 +629,8 @@
         return '<div class="ca-badge-row" style="margin-top:0.3rem">' + mm.map(m => '<span class="badge ca-badge badge-danger">≠ ' + esc(m.kind) + '</span>').join('') + '</div>';
     }
 
-    function CardActionMenu(rec, can) {
-        const items = actionsFor(rec, can);
+    function CardActionMenu(rec, can, locked) {
+        const items = actionsFor(rec, can, locked);
         return '<div class="ca-menu"><button type="button" class="ca-menu-btn" data-ca-action="menu" aria-haspopup="true" aria-label="Aksi untuk ' + esc(rec.employee.name) + '">⋯</button>' +
             '<div class="ca-menu-list" role="menu">' + items.map(it => {
                 const sep = it.key === 'revoke' || it.key === 'audit' ? '<hr>' : '';
@@ -553,7 +644,7 @@
         return rec.credential ? '<span class="ca-mask">' + esc(maskId(rec.credential.masked_identifier)) + '</span>' : '<span class="ca-dim">Belum ada</span>';
     }
 
-    function CardsTableRows(items, can) {
+    function CardsTableRows(items, can, locked) {
         return items.map(rec => {
             const disp = resolveDisplayState(rec);
             return '<tr class="ca-row" data-ca-action="view" data-id="' + rec.employee.id + '">' +
@@ -565,17 +656,17 @@
                 '<td>' + AccessStatusBadge(disp.state, disp.guarded ? 'Ditampilkan konservatif: ' + disp.reason : null) + '</td>' +
                 '<td>' + SyncStatusBadge(rec.device.sync_status) + '</td>' +
                 '<td class="ca-col-optional ca-muted">' + fmtDateTime(rec.device.last_verified_at) + '</td>' +
-                '<td data-stop>' + CardActionMenu(rec, can) + '</td></tr>';
+                '<td data-stop>' + CardActionMenu(rec, can, locked) + '</td></tr>';
         }).join('');
     }
 
     // Mobile: each record becomes an EmployeeAccessCard.
-    function EmployeeAccessCard(rec, can) {
+    function EmployeeAccessCard(rec, can, locked) {
         const disp = resolveDisplayState(rec);
         return '<div class="ca-card-item" data-ca-action="view" data-id="' + rec.employee.id + '">' +
             '<div class="ca-card-item-head"><div style="min-width:0"><div class="ca-emp-name">' + esc(rec.employee.name) + '</div>' +
             '<div class="ca-dim">' + esc(rec.employee.employee_code) + ' · ' + esc(rec.employee.building) + '</div></div>' +
-            '<div data-stop>' + CardActionMenu(rec, can) + '</div></div>' +
+            '<div data-stop>' + CardActionMenu(rec, can, locked) + '</div></div>' +
             '<div class="ca-badge-row" style="margin-top:0.6rem">' + AccessStatusBadge(disp.state) + SyncStatusBadge(rec.device.sync_status) + '</div>' + MismatchChips(rec) +
             '<dl><dt>Kartu</dt><dd>' + cardCell(rec) + '</dd><dt>Profil</dt><dd>' + esc(rec.access.profile || '—') + '</dd>' +
             '<dt>Terverifikasi</dt><dd>' + fmtDateTime(rec.device.last_verified_at) + '</dd></dl></div>';
@@ -596,14 +687,15 @@
         const d = rec.device;
         const appOk = rec.access.buildings.length > 0 ? 'MATCH' : 'UNKNOWN';
         const verified = rec.verification === 'VERIFIED' ? 'MATCH' : (rec.verification === 'OUT_OF_SYNC' ? 'MISMATCH' : 'UNKNOWN');
-        const canSync = opts && opts.can && opts.can('CAN_SYNC');
-        const needsResync = rec.verification === 'OUT_OF_SYNC' || d.sync_status === 'FAILED';
+        const locked = opts && opts.locked;
+        const canSync = !locked && opts && opts.can && opts.can('CAN_SYNC');
+        const needsResync = rec.verification === 'OUT_OF_SYNC' || SYNC_NEEDS_RETRY.includes(d.sync_status);
         return '<div class="ca-box" style="margin-bottom:0.9rem"><div class="ca-box-head"><span class="ca-box-title">Access Verification</span>' + VerificationStatusBadge(rec.verification) + '</div>' +
             '<div class="ca-box-body"><div class="ca-muted" style="margin-bottom:0.5rem">' + esc(rec.employee.name) + ' · ' + cardCell(rec) + ' · ' + list(rec.access.buildings, 'Tanpa gedung') + '</div>' +
             '<ul class="ca-check">' + matchRow('Application Permission', appOk) + matchRow('Device Credential', d.credential_match) +
             matchRow('Device Permission', d.access_match) + matchRow('Verification', verified) + '</ul>' +
             '<div class="ca-verify-foot"><span class="ca-muted">Last Verified: ' + fmtDateTime(d.last_verified_at) + '</span>' +
-            (needsResync ? '<button type="button" class="btn-primary btn-sm" data-ca-action="resync" data-id="' + rec.employee.id + '"' + (canSync ? '' : ' disabled title="Tidak memiliki izin CAN_SYNC"') + '>⚡ Re-Sync</button>' : '') +
+            (needsResync ? '<button type="button" class="btn-primary btn-sm" data-ca-action="resync" data-id="' + rec.employee.id + '"' + (canSync ? '' : ' disabled title="' + (locked ? LOCKED_REASON : 'Tidak memiliki izin CAN_SYNC') + '"') + '>⚡ Re-Sync</button>' : '') +
             '</div><div class="ca-dim" style="margin-top:0.5rem">Permintaan API yang berhasil ≠ akses fisik terverifikasi. Status Verified hanya dari konfirmasi perangkat.</div></div></div>';
     }
 
@@ -620,7 +712,7 @@
         return '<dl class="ca-kv">' + rows.filter(r => r[1] !== undefined).map(r => '<dt>' + esc(r[0]) + '</dt><dd>' + r[1] + '</dd>').join('') + '</dl>';
     }
 
-    function EmployeeAccessDetail(rec, can) {
+    function EmployeeAccessDetail(rec, can, locked) {
         const disp = resolveDisplayState(rec);
         const e = rec.employee, c = rec.credential, a = rec.access, d = rec.device;
         const mm = collectMismatches(rec);
@@ -629,8 +721,9 @@
             html += '<div class="ca-alert tone-attention"><div class="ca-alert-icon">⚠</div><div><div class="ca-alert-title">Ditampilkan konservatif</div>' +
                 '<div class="ca-muted">Backend melaporkan <b>' + esc(rec.lifecycle_state) + '</b>, tetapi ' + esc(disp.reason.toLowerCase()) + ' Status tidak ditampilkan sebagai aktif sampai terverifikasi.</div></div></div>';
         }
-        if (d.sync_status === 'FAILED' && d.error) {
-            html += ErrorState('HIKVISION_OFFLINE', { failed: d.error.summary, actionsHtml: actionBtn('resync', e.id, '⚡ Retry Sync', can('CAN_SYNC')) + actionBtn('diagnostics', e.id, 'View Diagnostic', true) });
+        if (SYNC_NEEDS_RETRY.includes(d.sync_status) && d.error) {
+            html += ErrorState(d.sync_status === 'PARTIAL' ? 'PARTIAL_SYNC' : 'HIKVISION_OFFLINE', { failed: d.error.summary,
+                actionsHtml: actionBtn('resync', e.id, '⚡ Retry Sync', !locked && can('CAN_SYNC')) + (locked ? '' : actionBtn('diagnostics', e.id, 'View Diagnostic', true)) });
         }
         mm.forEach(m => { html += MismatchAlert(m); });
 
@@ -641,19 +734,20 @@
         ]));
         html += domain('B', 'Application Credential', CardStatusBadge(c ? c.status : 'NONE'), c ? kv([
             ['Card Identifier', '<span class="ca-mask">' + esc(maskId(c.masked_identifier)) + '</span>'],
-            ['Credential Type', esc(c.credential_type)],
+            ['Credential Type', esc(c.credential_type || '—')],
             ['Registered At', fmtDateTime(c.registered_at)],
             ['Registered By', c.registered_by ? esc(c.registered_by) : '<span class="ca-dim">Tidak tersedia</span>'],
-            ['Asal Data', c.origin === 'LEGACY' ? 'Data existing <span class="ca-dim">(sah — tanpa metadata NFC)</span>' : 'Pendaftaran NFC'],
-        ]) : '<div class="ca-box-body">' + EmptyState('NO_CARDS', can('CAN_PROVISION_CARD') ? '<button type="button" class="btn-secondary" data-ca-action="enroll" data-id="' + e.id + '">📶 Daftarkan Kartu NFC</button>' : '') + '</div>');
+            ['Asal Data', ORIGIN[c.origin] || '<span class="ca-dim">Tidak diketahui</span>'],
+        ]) : '<div class="ca-box-body">' + EmptyState('NO_CARDS', can('CAN_PROVISION_CARD') && !locked ? '<button type="button" class="btn-secondary" data-ca-action="enroll" data-id="' + e.id + '">📶 Daftarkan Kartu NFC</button>' : '') + '</div>');
         html += domain('C', 'Access Permission', a.buildings.length ? '<span class="badge ca-badge badge-info">' + a.buildings.length + ' gedung</span>' : '', a.buildings.length ? kv([
             ['Building Access', list(a.buildings)], ['Door Access', list(a.doors)], ['Access Profile', esc(a.profile || '—')],
             ['Valid From', fmtDate(a.valid_from)], ['Valid Until', a.valid_until ? fmtDate(a.valid_until) : 'Tanpa batas'],
         ]) : '<div class="ca-box-body">' + EmptyState('NO_ACCESS') + '</div>');
         html += domain('D', 'Hikvision Device State', SyncStatusBadge(d.sync_status), '<div class="ca-box-body"><ul class="ca-check">' +
             matchRow('Person Match', d.person_match) + matchRow('Credential Match', d.credential_match) + matchRow('Access Match', d.access_match) + '</ul></div>' +
-            kv([['Last Sync', fmtDateTime(d.last_sync_at)], ['Last Verification', fmtDateTime(d.last_verified_at)], ['Device Status', esc(d.device_status || '—')]]));
-        html += VerificationSummary(rec, { can });
+            kv([['Last Sync', fmtDateTime(d.last_sync_at)], ['Last Verification', fmtDateTime(d.last_verified_at)], ['Device Status', esc(d.device_status || '—')]]) +
+            '<div class="ca-dim" style="padding:0 1rem 0.8rem">Sync = perintah tertulis ke perangkat. Verification = konfirmasi fisik. Keduanya dinilai terpisah.</div>');
+        html += VerificationSummary(rec, { can, locked });
         html += '<section class="ca-domain"><div class="ca-domain-head"><span class="ca-domain-title">Audit History</span></div><div class="ca-box-body" data-ca-slot="audit">' +
             (can('CAN_VIEW_AUDIT') ? AuditTimeline(null) : PermissionDenied('CAN_VIEW_AUDIT')) + '</div></section>';
         return html;
@@ -767,8 +861,10 @@
         this.adapter = options.adapter;
         this.can = makeCan(options.permissions, options.role);
         this.preview = this.adapter.mode === 'preview';
+        // Outside preview, every mutating action waits for the next Contract Lock.
+        this.locked = !this.adapter.mutationsSimulated;
         this.toast = options.toast || function () {};
-        this.state = { tab: 'overview', filters: { search: '', building: '', cardStatus: '', syncStatus: '', verification: '', page: 1, perPage: 25 }, syncFilter: '' };
+        this.state = { tab: 'overview', filters: { search: '', building_id: '', cardStatus: '', syncStatus: '', verification: '', page: 1, perPage: 25 }, syncFilter: '' };
         this.hosts = this.ensureHosts();
         this.render();
         root.addEventListener('click', e => this.onClick(e));
@@ -807,11 +903,13 @@
         const canProvision = this.can('CAN_PROVISION_CARD');
         this.root.innerHTML =
             (this.preview ? '<div class="ca-preview-banner" role="note"><span>🧪</span><div><strong>DESIGN PREVIEW — Phase 1 / 1.5.</strong> Semua data di halaman ini adalah <strong>contoh fiktif</strong>, bukan data produksi. Tidak ada perubahan yang dikirim ke backend atau perangkat Hikvision. Integrasi menunggu Backend Contract Lock.</div></div>'
-                : '<div class="ca-preview-banner" role="note"><span>🧩</span><div><strong>Menunggu Backend Contract Lock.</strong> Modul Card Access sudah siap secara struktur, tetapi belum terhubung ke API.</div></div>') +
+                : this.adapter.mode === 'api'
+                    ? '<div class="ca-preview-banner" role="note" style="border-color:rgba(56,189,248,0.35);background:rgba(56,189,248,0.06);color:#7dd3fc"><span>🔗</span><div><strong style="color:#bae6fd">Read-only · Backend Contract Lock v1.1.</strong> Overview, Cards dan Employee Detail memakai data SecureGate. Perubahan akses, Replace/Revoke, pendaftaran NFC dan aksi sinkronisasi menunggu Contract Lock berikutnya.</div></div>'
+                    : '<div class="ca-preview-banner" role="note"><span>🧩</span><div><strong>Menunggu Backend Contract Lock.</strong> Modul Card Access sudah siap secara struktur, tetapi belum terhubung ke API.</div></div>') +
             '<div class="ca-header table-toolbar" style="padding:1.25rem 1.5rem"><div class="toolbar-left" style="display:block"><div class="ca-breadcrumb">Access Management / Card Access</div><h2><span>💳</span> Card Access</h2>' +
             '<div class="ca-header-desc">Kelola kartu akses karyawan, hak akses gedung & pintu, dan status sinkronisasi Hikvision.</div></div>' +
             '<div class="toolbar-right"><button type="button" class="btn-secondary" data-ca-action="refresh">🔄 Refresh</button>' +
-            (canProvision ? '<button type="button" class="btn-primary" data-ca-action="enroll">📶 Daftarkan Kartu NFC</button>' : '') + '</div></div>' +
+            (canProvision ? '<button type="button" class="btn-primary" data-ca-action="enroll"' + (this.locked ? ' disabled title="' + LOCKED_REASON + '" style="opacity:0.45;cursor:not-allowed"' : '') + '>📶 Daftarkan Kartu NFC</button>' : '') + '</div></div>' +
             '<div class="ats-subnav ca-subnav" style="display:flex;gap:0.5rem;margin-bottom:1.5rem;border-bottom:1px solid var(--border-color);padding-bottom:0.75rem" role="tablist">' +
             TABS.map(t => '<button type="button" role="tab" class="subnav-btn' + (t.key === this.state.tab ? ' active' : '') + '" data-ca-action="tab" data-tab="' + t.key + '" aria-selected="' + (t.key === this.state.tab) + '">' + t.label + '</button>').join('') + '</div>' +
             TABS.map(t => '<div class="ca-panel' + (t.key === this.state.tab ? ' active' : '') + '" data-ca-panel="' + t.key + '" role="tabpanel"></div>').join('');
@@ -821,7 +919,8 @@
     CardAccessPage.prototype.panel = function (key) { return this.root.querySelector('[data-ca-panel="' + key + '"]'); };
 
     CardAccessPage.prototype.handleError = function (el, err) {
-        const code = err && err.code ? err.code : (err && err.status === 403 ? 'PERMISSION_DENIED' : 'API_UNAVAILABLE');
+        const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+        const code = err && err.code ? err.code : offline ? 'NETWORK_UNAVAILABLE' : (err && err.status === 403 ? 'PERMISSION_DENIED' : 'API_UNAVAILABLE');
         el.innerHTML = ErrorState(ERRORS[code] ? code : 'API_UNAVAILABLE', { actionsHtml: code === 'CONTRACT_PENDING' ? '' : '<button type="button" class="btn-secondary btn-sm" data-ca-action="refresh">Coba lagi</button>' });
     };
 
@@ -851,9 +950,11 @@
             '<div class="ca-box"><div class="ca-box-body ca-muted" style="font-size:0.78rem;line-height:1.55"><b style="color:var(--text-main)">Model status</b><br>Employee Identity → Application Credential → Access Permission → Hikvision Device State. ' +
             'Sebuah kartu hanya <b>Verified</b> bila keempatnya cocok dan dikonfirmasi oleh perangkat.</div></div></div></div>';
         const slot = s => el.querySelector('[data-slot="' + s + '"]');
-        this.adapter.getKpis().then(k => { slot('kpi').innerHTML = CardAccessKpi(k); }).catch(err => this.handleError(slot('kpi'), err));
+        this.adapter.getOverview().then(o => {
+            slot('kpi').innerHTML = CardAccessKpi(o.kpis);
+            slot('health').innerHTML = SyncHealth(o.sync_health);
+        }).catch(err => { this.handleError(slot('kpi'), err); this.handleError(slot('health'), err); });
         this.adapter.getRecentActivity({ limit: 8 }).then(a => { slot('activity').innerHTML = RecentActivity(a); }).catch(err => this.handleError(slot('activity'), err));
-        this.adapter.getSyncHealth().then(h => { slot('health').innerHTML = SyncHealth(h); }).catch(err => this.handleError(slot('health'), err));
         this.adapter.getAttentionQueue().then(items => {
             slot('attention').innerHTML = items.length ? '<ul class="ca-activity">' + items.map(r => {
                 const mm = collectMismatches(r);
@@ -875,7 +976,7 @@
                 '<div class="search-box" style="flex:1;max-width:360px"><span aria-hidden="true">🔍</span><input type="search" data-ca-filter="search" placeholder="Cari nama, Employee ID, atau 4 digit kartu" aria-label="Cari kartu" style="width:100%"></div>' +
                 '<button type="button" class="btn-secondary ca-filter-toggle" data-ca-action="filters-open">⚙ Filter</button>' +
                 '<div class="ca-filters" data-ca-slot="filters">' +
-                '<select data-ca-filter="building" aria-label="Gedung"><option value="">Semua Gedung</option></select>' +
+                '<select data-ca-filter="building_id" aria-label="Gedung"><option value="">Semua Gedung</option></select>' +
                 '<select data-ca-filter="cardStatus" aria-label="Status kartu"><option value="">Semua Status Kartu</option>' + opt(LIFECYCLE, f.cardStatus) + '</select>' +
                 '<select data-ca-filter="syncStatus" aria-label="Status sync"><option value="">Semua Status Sync</option>' + opt(SYNC, f.syncStatus) + '</select>' +
                 '<select data-ca-filter="verification" aria-label="Status verifikasi"><option value="">Semua Verifikasi</option>' + opt(VERIFICATION, f.verification) + '</select>' +
@@ -883,12 +984,13 @@
                 '<div class="ca-table-wrap"><table class="ca-table"><thead><tr><th>Employee</th><th>Employee ID</th><th>Card</th><th class="ca-col-optional">Building</th><th class="ca-col-optional">Access Profile</th><th>Card Status</th><th>Device Sync</th><th class="ca-col-optional">Last Verified</th><th><span class="sr-only" style="position:absolute;left:-9999px">Aksi</span></th></tr></thead><tbody data-ca-slot="rows"></tbody></table></div>' +
                 '<div class="ca-card-list" data-ca-slot="cards"></div><div class="ca-table-foot" data-ca-slot="foot"></div></div>';
             el.dataset.ready = '1';
-            // Building options come from the facility catalog, never hardcoded.
-            this.adapter.getAccessCatalog().then(cat => {
-                const sel = el.querySelector('[data-ca-filter="building"]');
-                sel.insertAdjacentHTML('beforeend', cat.buildings.map(b => '<option>' + esc(b) + '</option>').join(''));
-                sel.value = this.state.filters.building || '';
-            }).catch(() => {});
+            // Building options come from the existing facility endpoint, never hardcoded.
+            // Without organization.view the filter is simply hidden.
+            this.adapter.listBuildings().then(list => {
+                const sel = el.querySelector('[data-ca-filter="building_id"]');
+                sel.insertAdjacentHTML('beforeend', list.map(b => '<option value="' + esc(b.id) + '">' + esc(b.name) + '</option>').join(''));
+                sel.value = this.state.filters.building_id || '';
+            }).catch(() => { const sel = el.querySelector('[data-ca-filter="building_id"]'); if (sel) sel.style.display = 'none'; });
         }
         el.querySelectorAll('[data-ca-filter]').forEach(inp => { const v = this.state.filters[inp.dataset.caFilter]; if (inp.value !== (v || '')) inp.value = v || ''; });
         const rows = el.querySelector('[data-ca-slot="rows"]');
@@ -901,14 +1003,14 @@
         this.adapter.listCards(this.state.filters).then(res => {
             if (reqId !== this._cardsReq) return;
             this._records = res.items;
-            const hasFilter = ['search', 'building', 'cardStatus', 'syncStatus', 'verification'].some(k => this.state.filters[k]);
+            const hasFilter = ['search', 'building_id', 'cardStatus', 'syncStatus', 'verification'].some(k => this.state.filters[k]);
             if (!res.items.length) {
                 const empty = EmptyState(hasFilter ? 'NO_RESULTS' : 'NO_CARDS', hasFilter ? '<button type="button" class="btn-secondary" data-ca-action="reset-filters">Reset Filter</button>' : '');
                 rows.innerHTML = '<tr><td colspan="9">' + empty + '</td></tr>';
                 cards.innerHTML = empty;
             } else {
-                rows.innerHTML = CardsTableRows(res.items, this.can);
-                cards.innerHTML = res.items.map(r => EmployeeAccessCard(r, this.can)).join('');
+                rows.innerHTML = CardsTableRows(res.items, this.can, this.locked);
+                cards.innerHTML = res.items.map(r => EmployeeAccessCard(r, this.can, this.locked)).join('');
             }
             const m = res.meta;
             const from = m.total ? (m.page - 1) * m.per_page + 1 : 0;
@@ -970,7 +1072,7 @@
     // ---- Device sync ----
     CardAccessPage.prototype.loadSync = function () {
         const el = this.panel('sync');
-        const chips = ['', 'VERIFIED', 'SYNCING', 'PENDING', 'FAILED', 'OUT_OF_SYNC', 'NEEDS_VERIFICATION'];
+        const chips = [''].concat(Object.keys(SYNC));
         el.innerHTML = '<div class="table-container ca-table-container"><div class="table-toolbar"><div class="toolbar-left ats-subnav ca-subnav" style="display:flex;gap:0.4rem">' +
             chips.map(c => '<button type="button" class="subnav-btn' + (c === this.state.syncFilter ? ' active' : '') + '" style="padding:0.4rem 0.8rem;font-size:0.78rem" data-ca-action="sync-filter" data-status="' + c + '">' + (c ? esc(SYNC[c].label) : 'Semua') + '</button>').join('') +
             '</div></div><div class="ca-table-wrap"><table class="ca-table"><thead><tr><th>Employee</th><th>Application State</th><th>Hikvision State</th><th class="ca-col-optional">Credential</th><th class="ca-col-optional">Access</th><th>Verification</th><th class="ca-col-optional">Last Verified</th><th>Action</th></tr></thead><tbody data-ca-slot="rows">' + TableSkeleton(8, 4) + '</tbody></table></div>' +
@@ -993,8 +1095,8 @@
             const actions = r => {
                 const st = r.device.sync_status;
                 const id = r.employee.id;
-                const primary = (st === 'FAILED' || st === 'OUT_OF_SYNC') ? actionBtn('resync', id, '⚡ Retry Sync', this.can('CAN_SYNC'))
-                    : (st === 'NEEDS_VERIFICATION' || st === 'PENDING') ? actionBtn('verify', id, '✔ Verify', this.can('CAN_SYNC'))
+                const primary = (SYNC_NEEDS_RETRY.includes(st) || r.verification === 'OUT_OF_SYNC') ? actionBtn('resync', id, '⚡ Retry Sync', this.can('CAN_SYNC'))
+                    : (r.verification === 'NEEDS_VERIFICATION' || st === 'PENDING') ? actionBtn('verify', id, '✔ Verify', this.can('CAN_SYNC'))
                     : actionBtn('diagnostics', id, 'Diagnostics', true);
                 const item = (a, label, ok) => '<button type="button" role="menuitem" data-ca-action="' + a + '" data-id="' + id + '"' + (ok ? '' : ' disabled title="Tidak memiliki izin"') + '>' + label + '</button>';
                 return '<div style="display:flex;gap:0.35rem;align-items:center;justify-content:flex-end">' + primary +
@@ -1022,14 +1124,19 @@
             this._current = rec;
             const disp = resolveDisplayState(rec);
             h.querySelector('#caDrawerTitle').innerHTML = esc(rec.employee.name) + ' <span style="margin-left:0.35rem">' + AccessStatusBadge(disp.state) + '</span>';
-            h.querySelector('.ca-drawer-body').innerHTML = EmployeeAccessDetail(rec, this.can);
-            const acts = actionsFor(rec, this.can).filter(a => a.key !== 'view' && a.key !== 'audit');
+            h.querySelector('.ca-drawer-body').innerHTML = EmployeeAccessDetail(rec, this.can, this.locked);
+            const acts = actionsFor(rec, this.can, this.locked).filter(a => a.key !== 'view' && a.key !== 'audit');
             h.querySelector('.ca-drawer-foot').innerHTML = acts.map(a => '<button type="button" class="' + (a.def.danger ? 'btn-secondary ca-danger' : 'btn-secondary') + '" style="' + (a.def.danger ? 'color:#fca5a5;border-color:rgba(239,68,68,0.35)' : '') + '" data-ca-action="' + a.key + '" data-id="' + rec.employee.id + '"' + (a.deniedReason ? ' disabled title="' + esc(a.deniedReason) + '"' : '') + '>' + a.def.icon + ' ' + esc(a.def.label) + '</button>').join('');
             if (this.can('CAN_VIEW_AUDIT')) {
                 this.adapter.getAuditHistory(id).then(items => { const s = h.querySelector('[data-ca-slot="audit"]'); if (s) s.innerHTML = AuditTimeline(items); })
                     .catch(err => { const s = h.querySelector('[data-ca-slot="audit"]'); if (s) this.handleError(s, err); });
             }
-        }).catch(err => this.handleError(h.querySelector('.ca-drawer-body'), err));
+        }).catch(err => {
+            const body = h.querySelector('.ca-drawer-body');
+            if (!body) return;
+            if (err && err.status === 404) { h.querySelector('#caDrawerTitle').textContent = 'Tidak ditemukan'; body.innerHTML = EmptyState('NO_RESULTS'); return; }
+            this.handleError(body, err);
+        });
     };
     CardAccessPage.prototype.closeDrawer = function () {
         this.hosts.drawer.classList.remove('active');
@@ -1125,6 +1232,7 @@
     };
 
     CardAccessPage.prototype.startEnrollment = function (preselectId) {
+        if (this.locked) { this.toast(LOCKED_REASON + ': pendaftaran kartu NFC belum tersedia.', 'info'); return; }
         if (!this.can('CAN_PROVISION_CARD')) { this.toast('Anda tidak memiliki izin untuk mendaftarkan kartu.', 'error'); return; }
         this.flow = { kind: 'enroll', step: 0, employee: null, candidates: null, search: '', scan: 'NFC_READY', scenario: 'READY', validation: null, draft: null, focus: null, outcome: 'SUCCESS', progress: null, preselectId };
         this.closeDrawer();
@@ -1143,7 +1251,7 @@
     };
 
     CardAccessPage.prototype.startReplace = function (rec) {
-        if (!this.can('CAN_PROVISION_CARD')) return;
+        if (this.locked || !this.can('CAN_PROVISION_CARD')) return;
         this.flow = { kind: 'replace', step: 0, employee: rec.employee, rec, reason: '', reasonNote: '', retain: true, scan: 'NFC_READY', scenario: 'READY', validation: null,
             draft: Object.assign({}, rec.access, { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice(), reason: '' }), focus: rec.access.buildings[0] || 'Gedung A', outcome: 'SUCCESS', progress: null };
         this.closeDrawer();
@@ -1386,7 +1494,7 @@
             device: {
                 person_match: 'UNKNOWN', credential_match: failed ? 'MISSING' : 'MATCH', access_match: failed ? 'MISSING' : 'MATCH',
                 last_sync_at: null, last_verified_at: null, device_status: failed ? 'UNREACHABLE' : 'ONLINE',
-                sync_status: failed ? 'FAILED' : 'VERIFIED',
+                sync_status: failed ? 'FAILED' : 'SYNCED',
                 error: failed ? { code: f.progress.result === 'VERIFY_TIMEOUT' ? 'VERIFICATION_TIMEOUT' : 'DEVICE_SYNC_FAILED', summary: 'Kredensial tersimpan di SecureGate tetapi belum tertulis/terverifikasi di terminal.', door: (access.doors[0] || '—'), attempts: 1, last_attempt_at: new Date().toISOString() } : null,
             },
             verification: failed ? 'OUT_OF_SYNC' : 'VERIFIED',
@@ -1434,11 +1542,11 @@
             }
             case 'kpi-filter': {
                 const f = JSON.parse(t.dataset.filter || '{}');
-                Object.assign(this.state.filters, { search: '', building: '', cardStatus: '', syncStatus: '', verification: '', page: 1 }, f);
+                Object.assign(this.state.filters, { search: '', building_id: '', cardStatus: '', syncStatus: '', verification: '', page: 1 }, f);
                 return this.switchTab('cards');
             }
             case 'reset-filters':
-                Object.assign(this.state.filters, { search: '', building: '', cardStatus: '', syncStatus: '', verification: '', page: 1 });
+                Object.assign(this.state.filters, { search: '', building_id: '', cardStatus: '', syncStatus: '', verification: '', page: 1 });
                 return this.loadCards();
             case 'filters-open': return this.panel('cards').querySelector('[data-ca-slot="filters"]').classList.add('open');
             case 'filters-close': return this.panel('cards').querySelector('[data-ca-slot="filters"]').classList.remove('open');
@@ -1568,7 +1676,7 @@
             employee: { id: 99, name: 'Karyawan Contoh 99', employee_code: 'CONTOH-099', building: 'Gedung B' },
             credential: { masked_identifier: '••••3163', status: 'ACTIVE' },
             access: { buildings: ['Gedung B'], doors: ['B-01 Main Entrance'] },
-            device: { person_match: 'MATCH', credential_match: 'MATCH', access_match: 'MATCH', last_verified_at: '2026-10-07T01:51:00Z', sync_status: 'VERIFIED' },
+            device: { person_match: 'MATCH', credential_match: 'MATCH', access_match: 'MATCH', last_verified_at: '2026-10-07T01:51:00Z', sync_status: 'SYNCED' },
             verification: 'VERIFIED',
         };
         const oos = JSON.parse(JSON.stringify(sample));
@@ -1609,8 +1717,12 @@
             if (!root) return;
             if (page && page.root === root) { page.loadTab(page.state.tab); return page; }
             const cfg = global.APP_CONFIG || {};
+            const mode = cfg.cardAccessMode;
+            const adapter = mode === 'api' && typeof global.apiFetch === 'function' ? createApiAdapter(global.apiFetch)
+                : mode === 'preview' ? createPreviewAdapter()
+                : ContractPendingAdapter;
             page = new CardAccessPage(root, {
-                adapter: cfg.cardAccessPreview ? createPreviewAdapter() : ContractPendingAdapter,
+                adapter: adapter,
                 permissions: cfg.permissions,
                 role: cfg.admin && cfg.admin.role,
                 toast: typeof global.showToast === 'function' ? global.showToast : null,
@@ -1619,11 +1731,13 @@
         },
         mount: function (root, options) { page = new CardAccessPage(root, options); return page; },
         createPreviewAdapter,
+        createApiAdapter,
         ContractPendingAdapter,
+        normalizeRecord,
         ADAPTER_METHODS,
         renderStateGallery,
         // Exposed for tests / future integration.
-        model: { LIFECYCLE, CREDENTIAL, SYNC, VERIFICATION, MATCH, DEVICE_HEALTH, ACTIVITY, ERRORS, EMPTY, CAPABILITY_PERMISSION },
+        model: { LIFECYCLE, CREDENTIAL, SYNC, ORIGIN, VERIFICATION, MATCH, DEVICE_HEALTH, ACTIVITY, ERRORS, EMPTY, CAPABILITY_PERMISSION },
         resolveDisplayState,
         collectMismatches,
         maskId,
