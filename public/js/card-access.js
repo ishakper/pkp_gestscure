@@ -319,6 +319,44 @@
             allowed_actions: Array.isArray(r.allowed_actions) ? r.allowed_actions : undefined,
         };
     }
+    function normalizeCardRecord(r) {
+        r = r || {};
+        return {
+            employee: {
+                id: r.id,
+                name: r.name || '—',
+                employee_code: r.employee_id || '—',
+                building: r.building || '—',
+                employment_status: r.employment_status || '—',
+                department: r.department || null,
+                position: r.position || null,
+            },
+            credential: r.credential || null,
+            access: {
+                buildings: [],
+                doors: [],
+                profile: null,
+                valid_from: null,
+                valid_until: null,
+            },
+            device: {
+                person_match: 'UNKNOWN',
+                credential_match: 'UNKNOWN',
+                access_match: 'UNKNOWN',
+                device_card_masked: null,
+                device_access: [],
+                device_person: null,
+                sync_status: r.sync_status || 'UNKNOWN',
+                device_status: null,
+                last_sync_at: null,
+                last_verified_at: null,
+                error: null,
+            },
+            lifecycle_state: r.lifecycle_state || null,
+            verification: r.verification || 'NOT_VERIFIED',
+            allowed_actions: Array.isArray(r.allowed_actions) ? r.allowed_actions : undefined,
+        };
+    }
     function normalizeAuditItem(i) {
         i = i || {};
         return { at: i.at || i.created_at || null, title: i.title || i.action || i.type || 'Event', by: i.by || i.operator || i.actor || '—', tone: i.tone || 'neutral' };
@@ -355,7 +393,7 @@
                 verification: q.verification, attention: q.attention ? 1 : '', page: q.page || 1, per_page: q.perPage || 25,
             })).then(res => {
                 const m = (res && res.meta) || {};
-                const items = arr(res && res.data).map(normalizeRecord);
+                const items = arr(res && res.data).map(normalizeCardRecord);
                 return { items, meta: { page: Number(m.page || m.current_page || q.page || 1), per_page: Number(m.per_page || q.perPage || 25), total: Number(m.total || 0) } };
             });
         };
@@ -840,8 +878,12 @@
             (buildingOn ? doorRows : '<div class="ca-empty">Aktifkan ' + esc(focusBuilding) + ' untuk memilih pintu.</div>') + '</div></div>';
     }
 
-    function AccessScheduleFields(catalog, draft, prefix) {
+    function AccessScheduleFields(catalog, draft, prefix, readOnly) {
         const p = prefix || 'ca';
+        if (readOnly) return '<div class="ca-form-grid" style="margin-top:1rem">' +
+            '<div class="form-row"><label>Access Profile</label><div class="form-control">' + esc(draft.profile || '—') + '</div></div>' +
+            '<div class="form-row"><label>Valid From</label><div class="form-control">' + esc(draft.valid_from || '—') + '</div></div>' +
+            '<div class="form-row"><label>Valid Until</label><div class="form-control">' + esc(draft.valid_until || 'Tanpa batas') + '</div></div></div>';
         return '<div class="ca-form-grid" style="margin-top:1rem">' +
             '<div class="form-row"><label for="' + p + 'Profile">Access Profile</label><select id="' + p + 'Profile" data-ca-field="profile">' +
             catalog.profiles.map(pr => '<option' + (pr === draft.profile ? ' selected' : '') + '>' + esc(pr) + '</option>').join('') + '</select></div>' +
@@ -915,7 +957,7 @@
         this.root.innerHTML =
             (this.preview ? '<div class="ca-preview-banner" role="note"><span>🧪</span><div><strong>DESIGN PREVIEW — Phase 1 / 1.5.</strong> Semua data di halaman ini adalah <strong>contoh fiktif</strong>, bukan data produksi. Tidak ada perubahan yang dikirim ke backend atau perangkat Hikvision. Integrasi menunggu Backend Contract Lock.</div></div>'
                 : this.adapter.mode === 'api'
-                    ? '<div class="ca-preview-banner" role="note" style="border-color:rgba(56,189,248,0.35);background:rgba(56,189,248,0.06);color:#7dd3fc"><span>🔗</span><div><strong style="color:#bae6fd">Read-only · Backend Contract Lock v1.1.</strong> Overview, Cards dan Employee Detail memakai data SecureGate. Perubahan akses, Replace/Revoke, pendaftaran NFC dan aksi sinkronisasi menunggu Contract Lock berikutnya.</div></div>'
+                     ? '<div class="ca-preview-banner" role="note" style="border-color:rgba(56,189,248,0.35);background:rgba(56,189,248,0.06);color:#7dd3fc"><span>🔗</span><div><strong style="color:#bae6fd">Read-only · Backend Contract Lock v1.1.</strong> Overview, Cards, Employee Detail, Access Permissions, dan Device Sync memakai data SecureGate read-only. Mutasi akses, enrollment NFC, Replace/Revoke, Retry Sync, dan device writes tetap terkunci.</div></div>'
                     : '<div class="ca-preview-banner" role="note"><span>🧩</span><div><strong>Menunggu Backend Contract Lock.</strong> Modul Card Access sudah siap secara struktur, tetapi belum terhubung ke API.</div></div>') +
             '<div class="ca-header table-toolbar" style="padding:1.25rem 1.5rem"><div class="toolbar-left" style="display:block"><div class="ca-breadcrumb">Access Management / Card Access</div><h2><span>💳</span> Card Access</h2>' +
             '<div class="ca-header-desc">Kelola kartu akses karyawan, hak akses gedung & pintu, dan status sinkronisasi Hikvision.</div></div>' +
@@ -1039,28 +1081,24 @@
     // ---- Access permissions ----
     CardAccessPage.prototype.loadPermissions = function (employeeId) {
         const el = this.panel('permissions');
-        if (!this.can('CAN_EDIT_ACCESS')) {
-            el.innerHTML = PermissionDenied('CAN_EDIT_ACCESS');
-            return;
-        }
         el.innerHTML = '<div class="ca-box"><div class="ca-box-body"><span class="ca-skel"></span></div></div>';
         Promise.all([this.adapter.getAccessCatalog(), this.adapter.listCards({ perPage: 100 })]).then(([catalog, res]) => {
             this._catalog = catalog;
             const employees = res.items.filter(r => r.lifecycle_state !== 'REVOKED');
             const id = Number(employeeId || (this._perm && this._perm.id) || (employees[0] && employees[0].employee.id));
-            const rec = employees.find(r => r.employee.id === id) || employees[0];
-            if (!rec) { el.innerHTML = EmptyState('NO_RESULTS'); return; }
-            const original = { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice() };
-            this._perm = { id: rec.employee.id, rec, original, draft: Object.assign({}, rec.access, { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice(), reason: '' }), focus: rec.access.buildings[0] || catalog.buildings[0] };
-            el.innerHTML = '<div class="ca-box"><div class="ca-box-head" style="flex-wrap:wrap"><div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">' +
-                '<span class="ca-box-title">Employee</span><div class="search-box"><select data-ca-action-change="perm-employee" aria-label="Pilih karyawan">' +
-                employees.map(r => '<option value="' + r.employee.id + '"' + (r.employee.id === rec.employee.id ? ' selected' : '') + '>' + esc(r.employee.name) + ' · ' + esc(r.employee.employee_code) + '</option>').join('') + '</select></div></div>' +
-                '<span>' + AccessStatusBadge(resolveDisplayState(rec).state) + '</span></div>' +
-                '<div class="ca-box-body"><div data-ca-slot="matrix"></div><div data-ca-slot="schedule">' + AccessScheduleFields(catalog, this._perm.draft, 'caPerm') + '</div></div>' +
-                '<div class="ca-sticky-actions"><span class="ca-muted" data-ca-slot="dirty">Belum ada perubahan.</span><span style="display:flex;gap:0.5rem">' +
-                '<button type="button" class="btn-secondary" data-ca-action="perm-reset">Batal</button><button type="button" class="btn-primary" data-ca-action="perm-review" disabled>Review Changes</button></span></div></div>' +
-                '<div class="ca-dim">Perubahan toggle tidak langsung disimpan. Semua perubahan ditinjau dulu lalu diterapkan dan disinkronkan sekaligus.</div>';
-            this.renderMatrix();
+            const summary = employees.find(r => r.employee.id === id) || employees[0];
+            if (!summary) { el.innerHTML = EmptyState('NO_RESULTS'); return; }
+            return this.adapter.getEmployeeAccess(summary.employee.id).then(rec => {
+                const original = { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice() };
+                this._perm = { id: rec.employee.id, rec, original, draft: Object.assign({}, rec.access, { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice() }), focus: rec.access.buildings[0] || catalog.buildings[0] };
+                el.innerHTML = '<div class="ca-box"><div class="ca-box-head" style="flex-wrap:wrap"><div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">' +
+                    '<span class="ca-box-title">Employee</span><div class="search-box"><select data-ca-action-change="perm-employee" aria-label="Pilih karyawan">' +
+                    employees.map(r => '<option value="' + r.employee.id + '"' + (r.employee.id === rec.employee.id ? ' selected' : '') + '>' + esc(r.employee.name) + ' · ' + esc(r.employee.employee_code) + '</option>').join('') + '</select></div></div>' +
+                    '<span>' + AccessStatusBadge(resolveDisplayState(rec).state) + '</span></div>' +
+                    '<div class="ca-box-body"><div data-ca-slot="matrix"></div><div data-ca-slot="schedule">' + AccessScheduleFields(catalog, this._perm.draft, 'caPerm', true) + '</div></div>' +
+                    '<div class="ca-sticky-actions"><span class="ca-muted">Read-only viewer. Perubahan akses terkunci.</span></div></div>';
+                this.renderMatrix();
+            });
         }).catch(err => this.handleError(el, err));
     };
 
@@ -1069,15 +1107,6 @@
         const slot = this.panel('permissions').querySelector('[data-ca-slot="matrix"]');
         if (!slot) return;
         slot.innerHTML = AccessPermissionMatrix(this._catalog, p.draft, p.focus, p.original, { readOnly: true });
-        const added = p.draft.doors.filter(d => !p.original.doors.includes(d)).length;
-        const removed = p.original.doors.filter(d => !p.draft.doors.includes(d)).length;
-        const bChanged = p.draft.buildings.length !== p.original.buildings.length || p.draft.buildings.some(b => !p.original.buildings.includes(b));
-        const dirty = added || removed || bChanged;
-        const reasonOk = (p.draft.reason || '').trim().length > 0;
-        this.panel('permissions').querySelector('[data-ca-slot="dirty"]').textContent = dirty
-            ? ('Perubahan belum disimpan: +' + added + ' pintu, −' + removed + ' pintu.' + (reasonOk ? '' : ' Isi Reason / Note untuk melanjutkan.'))
-            : 'Belum ada perubahan.';
-        this.panel('permissions').querySelector('[data-ca-action="perm-review"]').disabled = !(dirty && reasonOk);
     };
 
     // ---- Device sync ----
