@@ -232,6 +232,8 @@ async function apiFetch(endpoint, options = {}) {
     }
 }
 
+window.apiFetch = apiFetch;
+
 async function apiFetchForm(endpoint, formData) {
     return apiFetch(endpoint, {
         method: 'POST',
@@ -2374,6 +2376,9 @@ function switchTab(tabId, btn) {
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
     if (tabId === 'systemStatusTab') loadSystemHealth();
+    if (tabId === 'cardAccessTab' && window.CardAccess) {
+        window.CardAccess.load('cardAccessRoot');
+    }
 }
 
 // ==========================================
