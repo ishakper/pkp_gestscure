@@ -1,0 +1,212 @@
+/* Two-factor pages. Mirrors the look of resources/views/login.blade.php (tokens,
+   card, inputs, button) without touching that file. */
+:root {
+    --bg-void: #060911;
+    --card-bg: rgba(11, 18, 34, 0.9);
+    --border-neon: rgba(56, 189, 248, 0.38);
+    --primary-cyan: #38bdf8;
+    --electric-cyan: #00e5ff;
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+    --danger: #fca5a5;
+    --success: #6ee7b7;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+body {
+    background-color: var(--bg-void);
+    color: var(--text-main);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem 1rem;
+    background-image:
+        linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px),
+        radial-gradient(ellipse at 50% 30%, rgba(56, 189, 248, 0.12) 0%, transparent 65%);
+    background-size: 36px 36px, 36px 36px, 100% 100%;
+}
+.mono { font-family: 'JetBrains Mono', monospace; }
+.tf-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-neon);
+    border-radius: 1.25rem;
+    padding: 2.25rem 2rem;
+    width: 100%;
+    max-width: 460px;
+    box-shadow: 0 0 35px rgba(56, 189, 248, 0.14), 0 25px 60px -12px rgba(0, 0, 0, 0.85);
+}
+.tf-card.wide { max-width: 560px; }
+.tf-status {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    padding-bottom: 1.1rem;
+    margin-bottom: 1.4rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.tf-status b { color: var(--primary-cyan); font-weight: 600; }
+.tf-brand { text-align: center; margin-bottom: 1.6rem; }
+.tf-brand img {
+    width: 60px; height: 60px; border-radius: 50%; padding: 4px; object-fit: contain;
+    border: 1.5px solid rgba(56, 189, 248, 0.65);
+    background: radial-gradient(circle at 35% 30%, rgba(56, 189, 248, 0.28), rgba(10, 15, 29, 0.96));
+    box-shadow: 0 0 22px rgba(56, 189, 248, 0.4);
+    margin-bottom: 0.8rem;
+}
+.tf-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.3rem;
+    font-weight: 800;
+    background: linear-gradient(to right, #ffffff, #a5f3fc);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+.tf-sub { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.45rem; line-height: 1.55; }
+.tf-sub b { color: var(--text-main); }
+.tf-error, .tf-ok {
+    padding: 0.75rem 1rem;
+    border-radius: 0.65rem;
+    font-size: 0.82rem;
+    margin-bottom: 1.25rem;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.45;
+}
+.tf-error { background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4); color: var(--danger); }
+.tf-ok { background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.4); color: var(--success); }
+.tf-label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--primary-cyan);
+    letter-spacing: 0.06em;
+    margin-bottom: 0.45rem;
+    text-transform: uppercase;
+}
+.tf-field { margin-bottom: 1.3rem; }
+.tf-input {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.4);
+    border: none;
+    border-bottom: 2px solid rgba(56, 189, 248, 0.24);
+    padding: 0.8rem 1rem;
+    color: var(--text-main);
+    font-size: 0.95rem;
+    border-radius: 0.4rem 0.4rem 0 0;
+}
+.tf-input:focus { outline: none; background: rgba(56, 189, 248, 0.08); border-bottom-color: var(--primary-cyan); }
+.tf-input.code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.6rem;
+    letter-spacing: 0.5em;
+    text-align: center;
+    padding-left: 1.5rem;
+}
+.tf-check { display: flex; gap: 0.55rem; align-items: flex-start; font-size: 0.82rem; color: var(--text-muted); margin-bottom: 1.1rem; cursor: pointer; }
+.tf-check input { margin-top: 0.2rem; accent-color: var(--primary-cyan); }
+.tf-btn {
+    width: 100%;
+    background: linear-gradient(135deg, #38bdf8 0%, #00e5ff 100%);
+    color: #060b14;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 800;
+    font-size: 0.9rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.95rem 1.25rem;
+    border: none;
+    cursor: pointer;
+    clip-path: polygon(14px 0, 100% 0, 100% calc(100% - 14px), calc(100% - 14px) 100%, 0 100%, 0 14px);
+    box-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+    min-height: 48px;
+}
+.tf-btn:hover { filter: brightness(1.08); }
+.tf-btn.ghost, .tf-link {
+    background: none;
+    box-shadow: none;
+    clip-path: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: var(--text-muted);
+    border-radius: 0.6rem;
+    text-transform: none;
+    letter-spacing: 0;
+    font-weight: 600;
+}
+.tf-btn.danger { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.4); clip-path: none; border-radius: 0.6rem; box-shadow: none; }
+.tf-link {
+    display: inline-block;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.82rem;
+    text-decoration: none;
+    cursor: pointer;
+    font-family: 'Plus Jakarta Sans', sans-serif;
+}
+.tf-row { display: flex; gap: 0.6rem; justify-content: space-between; align-items: center; flex-wrap: wrap; margin-top: 1.1rem; }
+.tf-toggle { background: none; border: none; color: var(--primary-cyan); font-size: 0.8rem; cursor: pointer; text-decoration: underline; padding: 0; }
+.tf-qr {
+    background: #ffffff;
+    padding: 12px;
+    border-radius: 0.75rem;
+    width: 224px;
+    margin: 0 auto 1rem;
+    line-height: 0;
+}
+.tf-qr svg { width: 200px; height: 200px; }
+.tf-secret {
+    text-align: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    color: #a5f3fc;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px dashed rgba(56, 189, 248, 0.35);
+    border-radius: 0.5rem;
+    padding: 0.6rem;
+    margin-bottom: 1.3rem;
+    word-break: break-all;
+    user-select: all;
+}
+.tf-steps { font-size: 0.82rem; color: var(--text-muted); margin: 0 0 1.2rem 1.1rem; line-height: 1.7; }
+.tf-codes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin: 1rem 0 1.2rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+}
+.tf-codes li {
+    list-style: none;
+    text-align: center;
+    padding: 0.55rem;
+    border-radius: 0.5rem;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    color: #a5f3fc;
+    letter-spacing: 0.08em;
+}
+.tf-kv { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 0.85rem; margin-bottom: 1.4rem; }
+.tf-kv dt { color: var(--text-dim); }
+.tf-kv dd { color: var(--text-main); }
+.tf-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 0.35rem; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; }
+.tf-badge.on { background: rgba(16, 185, 129, 0.15); color: var(--success); border: 1px solid rgba(16, 185, 129, 0.35); }
+.tf-badge.off { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); border: 1px solid rgba(255, 255, 255, 0.12); }
+.tf-section { border-top: 1px solid rgba(255, 255, 255, 0.07); padding-top: 1.2rem; margin-top: 1.2rem; }
+.tf-section h2 { font-size: 0.9rem; margin-bottom: 0.4rem; }
+[hidden] { display: none !important; }
+@media (max-width: 480px) {
+    .tf-card { padding: 1.6rem 1.25rem; }
+    .tf-codes { grid-template-columns: 1fr; }
+}
+@media print {
+    body { background: #fff; color: #000; }
+    .tf-card { box-shadow: none; border-color: #000; }
+    .tf-codes li { color: #000; border-color: #000; background: #fff; }
+    .tf-noprint { display: none !important; }
+}
