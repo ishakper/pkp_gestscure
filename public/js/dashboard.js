@@ -720,15 +720,48 @@ async function checkAllDoors(btn) {
 // ==========================================
 // Section 2: User & Privilege Management
 // ==========================================
+function setEmployeeDivisionOptions(buildingId, selectedDivisionId = '') {
+    const division = document.getElementById('empDivision');
+    const position = document.getElementById('empPosition');
+    if (!division || !position) return;
+    const divisions = buildingId ? (state.organization.divisions || []).filter(item => String(item.building_id) === String(buildingId)) : [];
+    division.innerHTML = divisions.length ? '<option value="">Pilih Divisi</option>' + divisions.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('') : `<option value="">${buildingId ? 'Tidak ada divisi' : 'Pilih gedung terlebih dahulu'}</option>`;
+    division.disabled = divisions.length === 0;
+    position.innerHTML = '<option value="">Pilih divisi terlebih dahulu</option>';
+    position.disabled = true;
+    if (selectedDivisionId && divisions.some(item => String(item.id) === String(selectedDivisionId))) division.value = String(selectedDivisionId);
+}
+
+function setEmployeePositionOptions(divisionId, selectedPositionId = '') {
+    const position = document.getElementById('empPosition');
+    if (!position) return;
+    const positions = divisionId ? (state.organization.positions || []).filter(item => String(item.division_id) === String(divisionId)) : [];
+    position.innerHTML = positions.length ? '<option value="">Pilih Posisi</option>' + positions.map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('') : `<option value="">${divisionId ? 'Tidak ada posisi' : 'Pilih divisi terlebih dahulu'}</option>`;
+    position.disabled = positions.length === 0;
+    if (selectedPositionId && positions.some(item => String(item.id) === String(selectedPositionId))) position.value = String(selectedPositionId);
+}
+
+function initEmployeeOrganizationBindings() {
+    const building = document.getElementById('empBuilding');
+    const division = document.getElementById('empDivision');
+    if (!building || !division || building.dataset.dependentWired === '1') return;
+    building.dataset.dependentWired = '1';
+    building.addEventListener('change', () => {
+        setEmployeeDivisionOptions(building.value);
+        setEmployeePositionOptions('');
+    });
+    division.addEventListener('change', () => setEmployeePositionOptions(division.value));
+}
+
 async function loadOrganizationLookup() {
     try {
         const res = await apiFetch('/user-management/organization/lookup');
         if (res.status !== 'success') return;
-        state.organization = res.data;
-        for (const [field, values] of [['empBuilding', res.data.buildings], ['empDivision', res.data.divisions], ['empPosition', res.data.positions]]) {
-            const el = document.getElementById(field); if (!el) continue;
-            el.innerHTML = '<option value="">Pilih</option>' + values.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
-        }
+        state.organization = res.data || { buildings: [], divisions: [], positions: [] };
+        const building = document.getElementById('empBuilding');
+        if (building) building.innerHTML = '<option value="">Pilih Gedung</option>' + (state.organization.buildings || []).map(item => `<option value="${item.id}">${escapeHtml(item.name)}</option>`).join('');
+        setEmployeeDivisionOptions('');
+        initEmployeeOrganizationBindings();
     } catch (err) { console.warn('Organization lookup unavailable', err); }
 }
 
@@ -1100,7 +1133,10 @@ function openAddEmployeeModal() {
     document.getElementById('empName').value = '';
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
-    ['empEmail','empPhone','empBuilding','empDivision','empPosition','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    ['empEmail','empPhone','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('empBuilding').value = '';
+    setEmployeeDivisionOptions('');
+    initEmployeeOrganizationBindings();
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
     document.getElementById('empFp').checked = true;
     document.getElementById('empCard').checked = true;
@@ -1121,7 +1157,13 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
-    document.getElementById('empBuilding').value = emp.building?.id || ''; document.getElementById('empDivision').value = emp.division?.id || ''; document.getElementById('empPosition').value = emp.position?.id || '';
+    const buildingId = emp.building?.id || '';
+    const divisionId = emp.division?.id || '';
+    const positionId = emp.position?.id || '';
+    document.getElementById('empBuilding').value = buildingId;
+    setEmployeeDivisionOptions(buildingId, divisionId);
+    setEmployeePositionOptions(divisionId, positionId);
+    initEmployeeOrganizationBindings();
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
@@ -1991,6 +2033,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDashboardBuildings();
     loadDoors().finally(loadAccessLogs);
     loadEmployees();
+    initEmployeeOrganizationBindings();
+    loadOrganizationLookup();
     if (hasCapability('audit.view')) {
         loadActivityLogs();
     }
