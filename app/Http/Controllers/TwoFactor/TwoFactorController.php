@@ -10,7 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\View\View;
+use Illuminate\Http\Response;
 
 class TwoFactorController extends Controller
 {
@@ -22,7 +22,7 @@ class TwoFactorController extends Controller
 
     // --------------------------------------------------------- login challenge
 
-    public function showChallenge(Request $request): View|RedirectResponse
+    public function showChallenge(Request $request): Response|RedirectResponse
     {
         $admin = $this->login->subject($request);
         if (! $admin) {
@@ -32,7 +32,7 @@ class TwoFactorController extends Controller
             return redirect('/two-factor/setup');
         }
 
-        return view('two-factor.challenge', [
+        return $this->noStore('two-factor.challenge', [
             'admin' => $admin,
             'rememberDays' => (int) config('two_factor.remember_days', 30),
         ]);
@@ -63,6 +63,9 @@ class TwoFactorController extends Controller
             return redirect('/login')->withErrors(['email' => 'Verifikasi 2FA dikunci sementara karena kode salah berulang. Coba lagi nanti.']);
         }
 
+        if ($result === 'missing') {
+            return back()->withErrors(['code' => 'Masukkan kode 6 digit atau recovery code.']);
+        }
         if ($result !== 'ok') {
             return back()->withErrors(['code' => 'Kode tidak valid. Periksa jam di HP Anda atau gunakan recovery code.']);
         }
@@ -92,7 +95,7 @@ class TwoFactorController extends Controller
 
     // ------------------------------------------------------------ enrolment
 
-    public function showSetup(Request $request): View|RedirectResponse
+    public function showSetup(Request $request): Response|RedirectResponse
     {
         $admin = $this->setupSubject($request);
         if (! $admin) {
@@ -108,7 +111,7 @@ class TwoFactorController extends Controller
             $request->session()->put(TwoFactorLogin::SETUP_SECRET, $secret);
         }
 
-        return view('two-factor.setup', [
+        return $this->noStore('two-factor.setup', [
             'admin' => $admin,
             'qrSvg' => $this->twoFactor->qrCodeSvg($admin, $secret),
             'secret' => trim(chunk_split($secret, 4, ' ')),
@@ -140,25 +143,25 @@ class TwoFactorController extends Controller
         return redirect('/two-factor/recovery-codes')->with('two_factor_recovery_codes', $codes);
     }
 
-    public function showRecoveryCodes(Request $request): View|RedirectResponse
+    public function showRecoveryCodes(Request $request): Response|RedirectResponse
     {
         $codes = $request->session()->get('two_factor_recovery_codes');
         if (! is_array($codes) || $codes === []) {
             return redirect('/account/security');
         }
 
-        return view('two-factor.recovery-codes', ['codes' => $codes]);
+        return $this->noStore('two-factor.recovery-codes', ['codes' => $codes]);
     }
 
     // ------------------------------------------------------- account security
 
-    public function account(Request $request): View
+    public function account(Request $request): Response
     {
         /** @var Admin $admin */
         $admin = $request->user();
         $record = $this->twoFactor->recordFor($admin);
 
-        return view('two-factor.account', [
+        return $this->noStore('two-factor.account', [
             'admin' => $admin,
             'enabled' => $this->twoFactor->enabled(),
             'enrolled' => (bool) $record?->confirmed_at,
@@ -205,6 +208,12 @@ class TwoFactorController extends Controller
         $this->twoFactor->disable($admin, 'dinonaktifkan sendiri');
 
         return redirect('/account/security')->with('status', '2FA dinonaktifkan.');
+    }
+
+    // 2FA pages show secrets and recovery codes: never let the browser or a proxy cache them.
+    private function noStore(string $view, array $data): Response
+    {
+        return response()->view($view, $data)->header('Cache-Control', 'no-store, private, max-age=0')->header('Pragma', 'no-cache');
     }
 
     // Setup is reachable during login (pending) or from the account page (signed in).
