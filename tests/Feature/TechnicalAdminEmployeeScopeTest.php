@@ -1,0 +1,3 @@
+<?php
+namespace Tests\Feature;use App\Models\Admin;use App\Models\Employee;use Illuminate\Foundation\Testing\RefreshDatabase;use Laravel\Sanctum\Sanctum;use Tests\TestCase;
+class TechnicalAdminEmployeeScopeTest extends TestCase {use RefreshDatabase;public function test_developer_is_denied_private_employee_360_access():void{$employee=Employee::create(['employee_id'=>'E','nik'=>'N','name'=>'E','department'=>'Ops']);$admin=Admin::create(['name'=>'Dev','email'=>'dev@test.local','password'=>bcrypt('p'),'role'=>'developer']);Sanctum::actingAs($admin);$this->getJson('/api/v1/user-management/employees/'.$employee->id.'/360')->assertForbidden();}}

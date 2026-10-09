@@ -1,0 +1,217 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+
+class Employee extends Model
+{
+    use HasFactory, SoftDeletes;
+
+    protected $fillable = [
+        'employee_id',
+        'hikvision_employee_no',
+        'nik',
+        'name',
+        'email',
+        'phone',
+        'photo_path',
+        'card_no',
+        'department',
+        'role',
+        'role_jabatan',
+        'building_id',
+        'division_id',
+        'position_id',
+        'employment_type',
+        'employment_status',
+        'hire_date',
+        'supervisor_id',
+        'credential_method',
+        'credential_status',
+        'credential_source',
+        'card_registered',
+        'card_count',
+        'card_type',
+        'fingerprint_verified',
+        'source_person_number',
+        'last_reconciled_at',
+        'reconciliation_batch_id',
+    ];
+
+    protected $casts = [
+        'hire_date' => 'date',
+        'card_registered' => 'boolean',
+        'fingerprint_verified' => 'boolean',
+        'last_reconciled_at' => 'datetime',
+    ];
+
+    public function getRoleAttribute()
+    {
+        return $this->attributes['role'] ?? $this->attributes['role_jabatan'] ?? 'Staff';
+    }
+
+    public function setRoleAttribute($val)
+    {
+        $this->attributes['role'] = $val;
+        $this->attributes['role_jabatan'] = $val;
+    }
+
+    public function getRoleJabatanAttribute()
+    {
+        return $this->attributes['role_jabatan'] ?? $this->attributes['role'] ?? 'Staff';
+    }
+
+    public function setRoleJabatanAttribute($val)
+    {
+        $this->attributes['role_jabatan'] = $val;
+        $this->attributes['role'] = $val;
+    }
+
+    public function supervisor() { return $this->belongsTo(self::class, 'supervisor_id'); }
+    public function directReports() { return $this->hasMany(self::class, 'supervisor_id'); }
+
+    public function building() { return $this->belongsTo(Building::class); }
+    public function division() { return $this->belongsTo(Division::class); }
+    public function position() { return $this->belongsTo(Position::class); }
+
+    public function biometricStatus()
+    {
+        return $this->hasOne(BiometricStatus::class);
+    }
+
+    public function doorAssignments()
+    {
+        return $this->hasMany(DoorAssignment::class);
+    }
+
+    public function doors()
+    {
+        return $this->belongsToMany(Door::class, 'door_assignments')
+                    ->withPivot('sync_status', 'sync_attempts', 'last_synced_at', 'last_sync_error')
+                    ->withTimestamps();
+    }
+
+    public function accessLogs()
+    {
+        return $this->hasMany(AccessLog::class);
+    }
+
+    public function onboardingCases()
+    {
+        return $this->hasMany(OnboardingCase::class);
+    }
+
+    public function contracts()
+    {
+        return $this->hasMany(Contract::class);
+    }
+
+    public function documents()
+    {
+        return $this->hasMany(EmployeeDocument::class);
+    }
+
+    public function documentAcknowledgements()
+    {
+        return $this->hasMany(DocumentAcknowledgement::class);
+    }
+
+    public function accessRequests()
+    {
+        return $this->hasMany(AccessRequest::class);
+    }
+
+    public function credentials()
+    {
+        return $this->hasMany(CredentialRecord::class);
+    }
+
+    public function emoneyCards()
+    {
+        return $this->hasMany(EmoneyCard::class);
+    }
+
+    public function assetAssignments()
+    {
+        return $this->hasMany(AssetAssignment::class);
+    }
+
+    public function activeAssetAssignments()
+    {
+        return $this->hasMany(AssetAssignment::class)->where('status', 'ACTIVE');
+    }
+
+    public function assetIncidents()
+    {
+        return $this->hasMany(AssetIncident::class);
+    }
+
+    // Sprint 8: Work Calendar + Attendance
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class);
+    }
+
+    public function calendarAssignments()
+    {
+        return $this->hasMany(EmployeeCalendarAssignment::class);
+    }
+
+    /** Returns the currently active WorkCalendar for this employee, or null. */
+    public function activeCalendarAssignment()
+    {
+        return $this->hasOne(EmployeeCalendarAssignment::class)
+            ->where('effective_from', '<=', now()->toDateString())
+            ->where(function ($q) {
+                $q->whereNull('effective_until')
+                  ->orWhere('effective_until', '>=', now()->toDateString());
+            })
+            ->latest('effective_from');
+    }
+
+    // Sprint 10: Field Attendance
+    public function fieldAssignments()
+    {
+        return $this->hasMany(FieldAssignment::class);
+    }
+
+    public function fieldAttendanceEvidences()
+    {
+        return $this->hasMany(FieldAttendanceEvidence::class);
+    }
+
+    public function skills()
+    {
+        return $this->hasMany(EmployeeSkill::class);
+    }
+
+    public function tasks()
+    {
+        return $this->hasMany(WorkTask::class);
+    }
+
+    public function taskWorklogs()
+    {
+        return $this->hasMany(TaskWorklog::class);
+    }
+
+    // Sprint 11: WFH + Leave + Permission + Sick
+    public function attendanceRequests()
+    {
+        return $this->hasMany(AttendanceRequest::class);
+    }
+
+    // Sprint 12: Attendance Correction + Overtime
+    public function attendanceCorrectionRequests()
+    {
+        return $this->hasMany(AttendanceCorrectionRequest::class);
+    }
+
+    public function overtimeRequests()
+    {
+        return $this->hasMany(OvertimeRequest::class);
+    }
+}

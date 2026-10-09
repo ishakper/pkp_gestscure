@@ -1,0 +1,137 @@
+<?php
+
+namespace App\Console\Commands;
+
+use App\Models\Door;
+use App\Services\HikvisionIsapiService;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Http;
+
+class RegisterHikvisionWebhookCommand extends Command
+{
+    /**
+     * The name and signature of the console command.
+     */
+    protected $signature = 'door:register-webhook 
+                            {door_id=DOOR-B : Kode identitas terminal pintu}
+                            {--ip= : Alamat IP host server penerima webhook (default dari konfigurasi)}
+                            {--port= : Port server penerima webhook (default dari konfigurasi)}
+                            {--path=api/v1/isapi/event-notification : URL endpoint webhook tanpa leading slash}
+                            {--user= : Override username Digest Auth dari konfigurasi perangkat}
+                            {--password= : Override password Digest Auth dari konfigurasi perangkat}
+                            {--real : Paksa request HTTP nyata ke terminal melewati mode mock}';
+
+    /**
+     * The console command description.
+     */
+    protected $description = 'Daftarkan listener HTTP Host Webhook ke terminal fisik Hikvision ISAPI';
+
+    /**
+     * Execute the console command.
+     */
+    public function handle(HikvisionIsapiService $isapiService): int
+    {
+        $this->info('================================================================================');
+        $this->info('  HIKVISION ISAPI - HTTP HOST WEBHOOK LISTENER REGISTRATION');
+        $this->info('================================================================================');
+
+        $doorId = strtoupper($this->argument('door_id'));
+        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->first();
+
+        $deviceIp = $door && !empty($door->device_ip) 
+            ? $door->device_ip 
+            : config("services.doors.{$doorId}.ip", '192.168.90.15');
+
+        if (!$door) {
+            $door = new Door(['door_id' => $doorId, 'device_ip' => $deviceIp, 'name' => "Door {$doorId}"]);
+        }
+
+        $listenerIp = $this->option('ip') ?: config('services.hikvision.listener_ip', '192.168.90.64');
+        $listenerPort = (int) ($this->option('port') ?: config('services.hikvision.listener_port', 8080));
+        $rawPath = $this->option('path') ?: '/api/v1/isapi/event-notification';
+        $listenerPath = '/' . ltrim($rawPath, '/');
+        $forceReal = $this->option('real');
+
+        $creds = $isapiService->getDeviceCredentials($door);
+        $username = $this->option('user') ?: ($creds['username'] ?? 'admin');
+        $password = $this->option('password') ?: ($creds['password'] ?? '');
+
+        $endpointUrl = "http://{$deviceIp}/ISAPI/Event/notification/httpHosts/2";
+        
+        $finalUrl = str_contains($listenerPath, '?') ? "{$listenerPath}&door_id={$doorId}" : "{$listenerPath}?door_id={$doorId}";
+
+        $xmlPayload = <<<XML
+<?xml version="1.0" encoding="UTF-8"?>
+<HttpHostNotification version="2.0" xmlns="http://www.isapi.org/ver20/XMLSchema">
+  <id>2</id>
+  <url>{$finalUrl}</url>
+  <protocolType>HTTP</protocolType>
+  <parameterFormatType>XML</parameterFormatType>
+  <addressingFormatType>ipaddress</addressingFormatType>
+  <ipAddress>{$listenerIp}</ipAddress>
+  <portNo>{$listenerPort}</portNo>
+  <httpAuthenticationMethod>none</httpAuthenticationMethod>
+  <SubscribeEvent>
+    <eventMode>all</eventMode>
+  </SubscribeEvent>
+</HttpHostNotification>
+XML;
+
+        $this->comment("Target Door          : {$doorId} (" . ($door->name ?? 'Access Door') . ")");
+        $this->comment("Device IP            : {$deviceIp}");
+        $this->comment("ISAPI Endpoint       : {$endpointUrl}");
+        $this->comment("Destination Listener : http://{$listenerIp}:{$listenerPort}/{$listenerPath}");
+        $this->comment("Auth Method          : Digest (User: {$username})");
+        $this->line('');
+
+        // 1. Mock Mode Simulation
+        if (!$forceReal && $isapiService->isMockMode()) {
+            $this->warn('[MOCK MODE ACTIVE] Simulasi pendaftaran HTTP Host Webhook tanpa koneksi fisik.');
+            $this->info("HTTP Response Status : 200");
+            $this->info("statusString         : OK");
+            $this->line("Response Body        :\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ResponseStatus version=\"2.0\" xmlns=\"http://www.isapi.org/ver20/XMLSchema\">\n  <requestURL>/ISAPI/Event/notification/httpHosts/1</requestURL>\n  <statusCode>1</statusCode>\n  <statusString>OK</statusString>\n  <subStatusCode>ok</subStatusCode>\n</ResponseStatus>");
+            $this->info("\n[SUCCESS] Listener HTTP Host Webhook berhasil didaftarkan (Simulated) ke {$doorId} ({$deviceIp})!");
+            return Command::SUCCESS;
+        }
+
+        // 2. Real Physical Hardware Communication
+        try {
+            $this->info("Mengirimkan HTTP PUT ke terminal fisik {$deviceIp}...");
+            $response = Http::connectTimeout(5)
+                ->timeout(10)
+                ->withDigestAuth($username, $password)
+                ->withHeaders([
+                    'Content-Type' => 'application/xml',
+                    'Accept' => 'application/xml, text/xml, */*',
+                ])
+                ->withBody($xmlPayload, 'application/xml')
+                ->put($endpointUrl);
+
+            $statusCode = $response->status();
+            $body = trim($response->body());
+
+            // Extract statusString from response XML or JSON
+            $statusString = 'Unknown';
+            if (preg_match('/<statusString>(.*?)<\/statusString>/i', $body, $matches)) {
+                $statusString = $matches[1];
+            } elseif ($response->json('statusString')) {
+                $statusString = $response->json('statusString');
+            }
+
+            $this->info("HTTP Response Status : {$statusCode}");
+            $this->info("statusString         : {$statusString}");
+            $this->line("Response Body        :\n{$body}");
+
+            if ($statusCode === 200 && strcasecmp($statusString, 'OK') === 0) {
+                $this->info("\n[SUCCESS] Listener HTTP Host Webhook berhasil didaftarkan ke terminal {$doorId} ({$deviceIp})!");
+                return Command::SUCCESS;
+            }
+
+            $this->error("\n[ERROR] Terminal menolak konfigurasi HTTP Host Webhook (HTTP {$statusCode}).");
+            return Command::FAILURE;
+        } catch (\Throwable $e) {
+            $this->error("\n[EXCEPTION] Gagal berkomunikasi dengan terminal {$deviceIp}: " . $e->getMessage());
+            return Command::FAILURE;
+        }
+    }
+}

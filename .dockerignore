@@ -1,0 +1,101 @@
+.git
+.github
+.gitlab-ci.yml
+.editorconfig
+.phpunit.result.cache
+node_modules
+npm-debug.log
+yarn-error.log
+vendor
+.env
+.env.*
+!.env.example
+storage/*.key
+storage/logs/*.log
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+Dockerfile
+docker-compose*.yml
+.dockerignore
+*.md
+setup_lan_firewall.*
+composer.phar
+*.env
+*.csv
+*.sql
+*.diff
+*.patch
+*.txt
+
+# Local agent state, nested checkouts, scratch work, and audit copies
+.agents/
+.codex/
+access-door-management/
+baseline-verify/
+integration-yazied/
+scratch/
+
+# SQLite databases - EXCLUDE ONLY DATA FILES & BACKUPS
+# DO NOT exclude database/migrations/ or database/seeders/ - needed for Laravel
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.backup
+**/*.recovery
+**/*.bak
+database-backup-*.sqlite
+database-server-*.sqlite
+db-*.sqlite
+db-test-*.sqlite
+RECOVERED_DB_BACKUP*.sqlite
+test-volumes/
+db-test-fresh.sqlite/
+
+# Specific database data files (keep migrations)
+database/database*.sqlite
+database/uat*.sqlite
+database/app*.sqlite
+
+# Subdirectories in database that contain only data
+access-door-management/database/*.sqlite
+access-door-management/database/*.sqlite3
+access-door-management/database/*.backup
+access-door-management/database/*.recovery
+
+# Build artifacts
+securegate-deploy-candidate/
+build-prod/
+*.tar
+*.tar.gz
+*.zip
+
+# IDE
+.history
+.vscode
+.idea
+*.sublime-*
+
+# OS
+.DS_Store
+Thumbs.db
+%SystemDrive%/
+
+# Root-only operational/audit helpers are not runtime application files
+/audit-*
+/backup-*
+/check-*
+/compare*
+/create-*
+/crud_tests.sh
+/deploy-prod.sh
+/generate_token.php
+/image_baseline_hash.sh
+/query_*
+/rebuild-clean.ps1
+/run_all_tests.sh
+/setup_*
+/snapshot-db.php
+/test_*
+/verify-*
+/verify_*

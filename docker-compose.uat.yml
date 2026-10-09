@@ -1,0 +1,20 @@
+services:
+  app:
+    environment:
+      - APP_ENV=testing
+      - APP_DEBUG=true
+      - DB_DATABASE=/var/www/html/database/uat.sqlite
+      - HIKVISION_MOCK_MODE=true
+      - HIKVISION_ISAPI_USE_MOCK=true
+      - LOG_LEVEL=debug
+    volumes:
+      - ./tests:/var/www/html/tests
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: verification
+    image: pkp-securegate-verify:latest
+    command: ["vendor/bin/phpunit", "--colors=never"]

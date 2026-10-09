@@ -1,0 +1,4 @@
+<?php
+namespace Tests\Feature;
+use App\Models\Admin;use App\Models\Employee;use Illuminate\Foundation\Testing\RefreshDatabase;use Laravel\Sanctum\Sanctum;use Tests\TestCase;
+class EmployeeSelfScopeTest extends TestCase {use RefreshDatabase; private function employee(string $code):Employee{return Employee::create(['employee_id'=>$code,'nik'=>$code.'N','name'=>$code,'department'=>'Ops']);} public function test_employee_and_intern_can_only_read_their_own_360_profile():void{$a=$this->employee('EMP-A');$b=$this->employee('EMP-B');foreach(['employee','intern'] as $role){$admin=Admin::create(['name'=>$role,'email'=>$role.'@test.local','password'=>bcrypt('p'),'role'=>$role,'employee_id'=>$a->id]);Sanctum::actingAs($admin);$this->getJson('/api/v1/user-management/employees/'.$a->id.'/360')->assertOk();$this->getJson('/api/v1/user-management/employees/'.$b->id.'/360')->assertForbidden();}}}

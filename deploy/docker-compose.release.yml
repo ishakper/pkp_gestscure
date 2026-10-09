@@ -1,0 +1,11 @@
+# ==============================================================================
+# PKP SecureGate - Immutable Image Release Deployment Overlay
+# Extends root docker-compose.yml with an immutable image tag and rollout flags.
+# ==============================================================================
+
+services:
+  app:
+    image: ${PKP_IMAGE:?PKP_IMAGE must be provided}
+    build: !reset null
+    environment:
+      - SKIP_MIGRATIONS=${SKIP_MIGRATIONS:-true}

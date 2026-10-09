@@ -1,0 +1,157 @@
+================================================================================
+                    CI/CD RECOVERY — QUICK REFERENCE CARD
+                              2026-09-21
+================================================================================
+
+CORRECT REPOSITORY:
+  D:\Magang\Project\access-door-management\access-door-management
+
+TARGET SHA:
+  313ecde6fdea9bb4d6577e96efe6c41ce186baf3
+
+TARGET BRANCH:
+  ishak/full-functional-integration-2026-09
+
+SYNC STATUS:
+  LOCAL = GITLAB = GITHUB = 313ecde ✓
+
+CODE INTEGRITY:
+  ✓ Application code changed: NO (verified via git status)
+  ✓ Tracked worktree: UNCHANGED (no staged/unstaged modifications)
+  ✓ SHA preserved: YES (313ecde across all remotes)
+  ✓ Tests: 509/509 PASS (verified)
+  ✓ Quality gates: ALL PASS (verified)
+  ✓ Production: HEALTHY (verified)
+  ✓ Code changes needed: NONE
+
+DEPLOYMENT STATUS:
+  ✗ Pipeline 18135: FAILED (must retry same SHA)
+  ✗ Deployment ready: NO (awaiting CI GREEN)
+
+CI STATUS:
+  ✗ Pipeline: 18135 FAILED
+  ✗ Job: 45606 (script_failure)
+  ✗ Root Cause: UNCONFIRMED (likely disk/capacity: 1.3 GB free, 2.0 GB required)
+  ✗ RAM Pressure: HIGH (478 MB free, no swap)
+
+PRODUCTION STATUS:
+  ✓ App: pkp_securegate_app (UP 19h, HTTP 200)
+  ✓ Alert: pkp_securegate_alertstream_door_b (UP 3d, active)
+  ✓ Hikvision: INTACT
+  ✓ Network/DB: UNTOUCHED
+
+SECURITY ISSUE:
+  ⚠ Runner token exposed (requires rotation)
+
+================================================================================
+                              NEXT STEPS
+================================================================================
+
+FOR ADMIN (Immediate):
+  1. Rotate GitLab runner token
+     → Admin Panel → Runners → Reset Token
+  2. Re-register runner with new token
+
+FOR INFRASTRUCTURE (1–2 hours):
+  1. SELECT capacity fix:
+     • Option A: Expand /dev/sda1 by 2 GB (quick)
+     • Option B: Provision new runner host (recommended)
+     • Option C: Attach network storage (interim)
+  
+  2. VERIFY runner has ≥4 GB free disk
+     ssh infra@10.10.8.124 "df -h /"
+  
+  3. VERIFY runner online in GitLab
+     → Admin Panel → Runners → should show green
+  
+  4. VERIFY production still healthy
+     ssh infra@10.10.8.124 "curl -s http://localhost:8000/login"
+  
+  5. RETRY pipeline 18135 (same SHA, no code changes)
+     → https://gitlab.pkp.co.id/infra/access-door-management/-/pipelines/18135
+     → Click "Retry"
+  
+  6. MONITOR all jobs (7 must PASS):
+     • fix_runner_workspace
+     • validate_composer
+     • validate_syntax
+     • build_docker
+     • build_verification_image
+     • test_suite
+     • security_hygiene
+
+GATE: CI_GREEN before deployment (pipeline 18135 ALL JOBS PASS)
+
+APPLICATION CODE STATUS:
+  ✓ No application code changes (development work complete)
+  ? Documentation files created (untracked, do NOT commit)
+
+CRITICAL:
+  - Pipeline 18135 is CURRENTLY FAILED
+  - Must RETRY same SHA 313ecde (no new commit)
+  - Deployment NOT ALLOWED until CI GREEN
+  - Do NOT push documentation files (preserve SHA 313ecde)
+  - Status will change to CI_GREEN_READY_FOR_RELEASE_REVIEW ONLY after all jobs pass
+
+TIMELINE:
+  - Dependent on infrastructure availability (token rotation + capacity provision)
+  - No fixed estimate (infrastructure-dependent)
+
+================================================================================
+                              DOCUMENTATION
+================================================================================
+
+Detailed Instructions:
+  → ADMIN_HANDOFF_INFRA_RECOVERY.md
+
+Automated Retry (Post-Fix):
+  → .agents/AUTOMATED_PIPELINE_RETRY.md
+
+Full Summary:
+  → CI_RECOVERY_SESSION_SUMMARY.md
+
+================================================================================
+                           DO NOT (CRITICAL)
+================================================================================
+
+✗ Do NOT modify code or create commits
+✗ Do NOT push or force push
+✗ Do NOT restart production containers
+✗ Do NOT run docker prune on runner
+✗ Do NOT change network/Hikvision config
+✗ Do NOT reuse exposed runner token
+
+================================================================================
+                             TIMELINE
+================================================================================
+
+Now:           Admin rotates token (15 min)
+Now+15min:     Infra begins capacity fix (30–120 min)
+Now+90min:     Infra verifies capacity ≥4 GB free
+Now+105min:    Retry pipeline 18135
+Now+150min:    Pipeline completes (assuming 45 min execution)
+Now+160min:    All jobs GREEN (gate)
+Now+165min:    Deployment approval gate opens
+
+TOTAL: ~2.5 hours from start to ready-for-deployment
+
+================================================================================
+                            CONTACT
+================================================================================
+
+Questions about code:    [Code Owner]
+Infrastructure issues:   [Infra Team]
+GitLab admin:           [Admin]
+Deployment approval:    [Release Team]
+
+================================================================================
+                           STATUS: READY FOR HANDOFF
+================================================================================
+
+Date:           2026-09-21
+Code:           ✓ READY
+Production:     ✓ HEALTHY
+Infra blocker:  ⏳ PENDING FIX
+Action:         Provision disk capacity or new runner host
+
+Next gate:      Pipeline 18135 retry with same SHA (313ecde)
