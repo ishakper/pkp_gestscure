@@ -141,43 +141,35 @@ class TwoFactorService
     {
         $code = $code !== null && trim($code) !== '' ? $code : null;
         $recoveryCode = $recoveryCode !== null && trim($recoveryCode) !== '' ? $recoveryCode : null;
-        if ($code === null && $recoveryCode === null) {
-            return 'missing';
-        }
+        if ($code === null && $recoveryCode === null) return 'missing';
 
-        $record = $this->recordFor($admin);
-        if (! $record || ! $record->confirmed_at) {
+        $connection = (new AdminTwoFactor())->getConnection();
+
+        return $connection->transaction(function () use ($admin, $code, $recoveryCode): string {
+            $record = AdminTwoFactor::query()->where('admin_id', $admin->getKey())->lockForUpdate()->first();
+            if (! $record || ! $record->confirmed_at) return 'invalid';
+            if ($record->isLocked()) return 'locked';
+
+            $valid = $code !== null ? $this->consumeTotp($record, $code) : $this->consumeRecoveryCode($admin, $record, $recoveryCode);
+            if ($valid) {
+                $record->forceFill(['failed_attempts' => 0, 'locked_until' => null])->save();
+                return 'ok';
+            }
+
+            $failed = (int) $record->failed_attempts + 1;
+            $maxAttempts = (int) config('two_factor.max_attempts', 5);
+            if ($failed >= $maxAttempts) {
+                $minutes = (int) config('two_factor.lockout_minutes', 15);
+                $record->forceFill(['failed_attempts' => 0, 'locked_until' => now()->addMinutes($minutes)])->save();
+                $this->audit($admin, 'two_factor_locked', "2FA {$admin->email} dikunci {$minutes} menit setelah kode salah berulang");
+                return 'locked';
+            }
+
+            $record->forceFill(['failed_attempts' => $failed])->save();
+            $this->audit($admin, 'two_factor_failed', "Kode 2FA salah untuk {$admin->email} (percobaan {$failed})");
             return 'invalid';
-        }
-        if ($record->isLocked()) {
-            return 'locked';
-        }
-
-        $valid = $code !== null
-            ? $this->consumeTotp($record, $code)
-            : $this->consumeRecoveryCode($admin, $record, $recoveryCode);
-
-        if ($valid) {
-            $record->forceFill(['failed_attempts' => 0, 'locked_until' => null])->save();
-
-            return 'ok';
-        }
-
-        $failed = $record->failed_attempts + 1;
-        if ($failed >= (int) config('two_factor.max_attempts', 5)) {
-            $minutes = (int) config('two_factor.lockout_minutes', 15);
-            $record->forceFill(['failed_attempts' => 0, 'locked_until' => now()->addMinutes($minutes)])->save();
-            $this->audit($admin, 'two_factor_locked', "2FA {$admin->email} dikunci {$minutes} menit setelah kode salah berulang");
-
-            return 'locked';
-        }
-
-        $record->forceFill(['failed_attempts' => $failed])->save();
-        $this->audit($admin, 'two_factor_failed', "Kode 2FA salah untuk {$admin->email} (percobaan {$failed})");
-
-        return 'invalid';
+        }, 3);
     }
-
     public function lockedUntil(Admin $admin): ?\Illuminate\Support\Carbon
     {
         $record = $this->recordFor($admin);
