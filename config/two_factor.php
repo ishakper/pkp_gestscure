@@ -19,6 +19,9 @@ return [
     // How long a password-verified login may wait for its 2FA code.
     'pending_minutes' => 5,
 
+    // Password-verified login attempts per minute (per email + IP) handled by the 2FA layer.
+    'login_attempts_per_minute' => (int) env('TWO_FACTOR_LOGIN_ATTEMPTS_PER_MINUTE', 5),
+
     // Wrong codes in a row before the account's 2FA is locked, and for how long.
     'max_attempts' => (int) env('TWO_FACTOR_MAX_ATTEMPTS', 5),
     'lockout_minutes' => (int) env('TWO_FACTOR_LOCKOUT_MINUTES', 15),

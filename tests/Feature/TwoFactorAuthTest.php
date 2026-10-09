@@ -265,6 +265,92 @@ class TwoFactorAuthTest extends TestCase
         $this->assertDatabaseMissing('admin_two_factor', ['admin_id' => $admin->id]);
     }
 
+    // ------------------------------------------------- rate limit / hardening
+
+    /**
+     * Regression: with throttling active, a correct password must never reach the
+     * original login route once the limit is hit (it signed the admin in without 2FA).
+     */
+    public function test_rate_limited_web_login_never_signs_in_without_two_factor(): void
+    {
+        $this->enableRealThrottle(3);
+        $admin = $this->admin('super_admin');
+        $this->enrol($admin);
+
+        $statuses = [];
+        for ($i = 0; $i < 6; $i++) {
+            $statuses[] = $this->post('/login', ['email' => $admin->email, 'password' => 'password'])->status();
+            $this->assertGuest();
+        }
+        $this->assertContains(429, $statuses);
+        $this->assertNotContains(200, $statuses);
+    }
+
+    public function test_rate_limited_api_login_never_issues_a_token_without_two_factor(): void
+    {
+        $this->enableRealThrottle(3);
+        $admin = $this->admin('super_admin');
+        $this->enrol($admin);
+
+        for ($i = 0; $i < 6; $i++) {
+            $response = $this->postJson('/api/v1/auth/login', ['email' => $admin->email, 'password' => 'password']);
+            $this->assertContains($response->status(), [401, 429]);
+            $this->assertNull($response->json('data.token'));
+        }
+        $this->assertSame(0, $admin->tokens()->count());
+    }
+
+    public function test_wrong_passwords_then_correct_password_is_still_throttled(): void
+    {
+        $this->enableRealThrottle(3);
+        $admin = $this->admin('super_admin');
+        $this->enrol($admin);
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->post('/login', ['email' => $admin->email, 'password' => 'wrong']);
+        }
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password'])->assertStatus(429);
+        $this->assertGuest();
+    }
+
+    public function test_api_ignores_non_string_codes_and_code_less_probes_do_not_lock(): void
+    {
+        $admin = $this->admin('super_admin');
+        $secret = $this->enrol($admin);
+
+        $this->postJson('/api/v1/auth/login', ['email' => $admin->email, 'password' => 'password', 'two_factor_code' => ['123456']])
+            ->assertStatus(401)->assertJson(['two_factor_required' => true]);
+
+        config(['two_factor.login_attempts_per_minute' => 50]);
+        for ($i = 0; $i < 8; $i++) {
+            $this->postJson('/api/v1/auth/login', ['email' => $admin->email, 'password' => 'password'])->assertStatus(401);
+        }
+        $this->postJson('/api/v1/auth/login', ['email' => $admin->email, 'password' => 'password', 'two_factor_code' => $this->google2fa->getCurrentOtp($secret)])
+            ->assertOk();
+    }
+
+    public function test_empty_web_submissions_do_not_count_towards_lockout(): void
+    {
+        config(['two_factor.max_attempts' => 2]);
+        $admin = $this->admin('super_admin');
+        $secret = $this->enrol($admin);
+
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password']);
+        $this->post('/two-factor/challenge', ['code' => ''])->assertSessionHasErrors('code');
+        $this->post('/two-factor/challenge', ['code' => ''])->assertSessionHasErrors('code');
+        $this->post('/two-factor/challenge', ['code' => $this->google2fa->getCurrentOtp($secret)])->assertRedirect('/');
+        $this->assertAuthenticatedAs($admin);
+    }
+
+    public function test_two_factor_pages_are_not_cacheable(): void
+    {
+        $admin = $this->admin('super_admin');
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password']);
+
+        $cacheControl = (string) $this->get('/two-factor/setup')->headers->get('Cache-Control');
+        $this->assertStringContainsString('no-store', $cacheControl);
+    }
+
     // ------------------------------------------------------ emergency reset
 
     public function test_reset_command_removes_two_factor(): void
@@ -279,6 +365,15 @@ class TwoFactorAuthTest extends TestCase
     }
 
     // ------------------------------------------------------------- helpers
+
+    // tests/TestCase.php disables ThrottleRequests for every test; re-enable it here.
+    private function enableRealThrottle(int $perMinute): void
+    {
+        $this->app->forgetInstance(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+        \Illuminate\Support\Facades\RateLimiter::for('login', fn (\Illuminate\Http\Request $request) => \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)
+            ->by(strtolower((string) $request->input('email')).'|'.$request->ip()));
+        config(['two_factor.login_attempts_per_minute' => $perMinute]);
+    }
 
     private function admin(string $role): Admin
     {

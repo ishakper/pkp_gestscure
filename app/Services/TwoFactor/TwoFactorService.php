@@ -134,10 +134,17 @@ class TwoFactorService
 
     /**
      * Verifies a TOTP code or a recovery code and applies lockout rules.
-     * Returns one of: 'ok', 'invalid', 'locked'.
+     * Returns one of: 'ok', 'invalid', 'locked', 'missing'. An empty submission
+     * is 'missing' and does not count towards the lockout.
      */
     public function attempt(Admin $admin, ?string $code, ?string $recoveryCode): string
     {
+        $code = $code !== null && trim($code) !== '' ? $code : null;
+        $recoveryCode = $recoveryCode !== null && trim($recoveryCode) !== '' ? $recoveryCode : null;
+        if ($code === null && $recoveryCode === null) {
+            return 'missing';
+        }
+
         $record = $this->recordFor($admin);
         if (! $record || ! $record->confirmed_at) {
             return 'invalid';
@@ -146,9 +153,9 @@ class TwoFactorService
             return 'locked';
         }
 
-        $valid = $code !== null && $code !== ''
+        $valid = $code !== null
             ? $this->consumeTotp($record, $code)
-            : ($recoveryCode !== null && $recoveryCode !== '' && $this->consumeRecoveryCode($admin, $record, $recoveryCode));
+            : $this->consumeRecoveryCode($admin, $record, $recoveryCode);
 
         if ($valid) {
             $record->forceFill(['failed_attempts' => 0, 'locked_until' => null])->save();
