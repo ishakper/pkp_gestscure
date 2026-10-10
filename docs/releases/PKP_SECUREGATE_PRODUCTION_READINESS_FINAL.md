@@ -16,7 +16,7 @@ Date: 2026-10-10
 - PR #11: source feature history integrated into PR #13; no separate merge performed.
 - PR #12: CI verification history evaluated; no separate merge performed.
 - PR #13: open and awaiting review.
-- Review approval: pending; latest verified GitHub metadata showed no submitted reviews and no status checks.
+- Review approval: pending; latest GitHub metadata shows no submitted reviews or comments.
 - CI workflow: `.github/workflows/pr13-security.yml` added and executed. SQLite 2FA: PASS. PostgreSQL 16 migrations/concurrency: PASS. Full regression informational: FAIL with 6 `FieldAttendanceTest` failures, 579 passed, 2674 assertions.
 
 ## Tests
@@ -24,7 +24,7 @@ Date: 2026-10-10
 - Targeted integration/security suite: `31 passed`, `220 assertions`, `2 warnings`.
 - 2FA subset: `21 passed`, `175 assertions`.
 - Full suite CI: `579 passed`, `6 failed`, `2674 assertions`; failures remain `FieldAttendanceTest` 422 versus 201.
-- Six failures: `FieldAttendanceTest`, HTTP 422 versus expected 201; recorded as baseline failures and not changed.
+- Six failures: `FieldAttendanceTest`, HTTP 422 versus expected 201. `git diff github/main...HEAD -- tests/Feature/FieldAttendanceTest.php` is empty; prior baseline audit recorded the same failure pattern. A fresh clean-main rerun remains recommended before release.
 - Browser staging: enrollment, QR/manual secret, TOTP, recovery codes, dashboard access, and quick-access rejection passed.
 - Docker build: passed.
 - PostgreSQL 16 migrations/concurrency CI: PASS on PR #13.
@@ -32,7 +32,7 @@ Date: 2026-10-10
 ## Security
 
 - Composer audit identified `PKSA-d5tc-s1qs-h781`, `PKSA-m5cs-t1y6-qpcs`, `PKSA-3r5d-mb8f-1qw9`, `PKSA-mdq4-51ck-6kdq` for `laravel/framework`; `PKSA-m2dq-1fhr-29b1`, `PKSA-m4t9-vsgq-8khn` for `league/commonmark`; `doctrine/annotations` is abandoned.
-- No major framework upgrade applied automatically.
+- No major framework upgrade applied automatically. Laravel 10 constraint blocks the listed patched ranges; practical mitigation: keep debug disabled, validate signed URL/email-rule inputs, constrain Markdown raw HTML/table processing, and schedule supported framework/package upgrade. Human risk acceptance required.
 - Risk acceptance or compatible remediation is required before production release.
 - Production secrets and credentials were not read or changed.
 
@@ -48,7 +48,7 @@ Date: 2026-10-10
 - Proposed artifact: Docker image built from verified integration sources.
 - Configuration prerequisites: `TWO_FACTOR_ENABLED`, required role policy, session/cookie settings, and mock-disabled Hikvision settings require operator review.
 - Change window: not scheduled.
-- Rollback: existing rollback compose files require operator validation before release.
+- Staging rollback rehearsal: PASS. Built immutable tags `pkp-securegate-release:3b7089d` and `pkp-securegate-rollback:3b7089d`; started each with separate disposable SQLite volumes; both returned HTTP 200; volumes and containers removed. Production rollback remains unverified.
 - Post-deployment smoke test: not applicable; deployment not executed.
 
 ## Final Gate Matrix
@@ -60,13 +60,13 @@ INTEGRATION_VERIFIED          PASS
 2FA_SECURITY                  PASS
 BROWSER_E2E                   PASS
 POSTGRES_CONCURRENCY          PASS
-CRITICAL_REGRESSION           REVIEW_REQUIRED
+CRITICAL_REGRESSION           BASELINE FAILURES DOCUMENTED
 DEPENDENCY_SECURITY           RISK_ACCEPTANCE_REQUIRED
-CI_SECURITY                   PASS
+CI_SECURITY                   PASS (SQLite/PostgreSQL; regression informational FAIL)
 REVIEW_APPROVAL               PENDING
 DATABASE_BACKUP               PENDING
 RESTORE_REHEARSAL             PASS
-ROLLBACK_READINESS            PENDING
+ROLLBACK_READINESS            PASS (STAGING ONLY)
 PRODUCTION_AUTHORIZATION     NOT_GRANTED
 PRODUCTION_GO_NO_GO           NO_GO
 DEPLOYMENT                    NOT_EXECUTED
