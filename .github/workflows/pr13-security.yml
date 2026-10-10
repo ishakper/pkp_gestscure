@@ -1,0 +1,63 @@
+name: PR 13 Security Verification
+
+on:
+  pull_request:
+  push:
+    branches: [codex/securegate-2fa-integration]
+
+permissions:
+  contents: read
+
+jobs:
+  sqlite-2fa:
+    name: SQLite 2FA functional tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.2', extensions: bcmath,mbstring,pcntl,pdo_sqlite,zip, coverage: none }
+      - uses: ramsey/composer-install@v3
+        with: { composer-options: --prefer-dist --no-interaction --no-progress }
+      - run: cp .env.example .env
+      - run: php artisan test --filter=TwoFactorAuthTest --colors=never
+        env: { APP_ENV: testing, APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, DB_CONNECTION: sqlite, DB_DATABASE: ':memory:' }
+
+  postgres-concurrency:
+    name: PostgreSQL migrations and 2FA concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_DB: securegate_test, POSTGRES_USER: securegate, POSTGRES_PASSWORD: securegate }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U securegate -d securegate_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.2', extensions: bcmath,mbstring,pcntl,pdo_pgsql,zip, coverage: none }
+      - uses: ramsey/composer-install@v3
+        with: { composer-options: --prefer-dist --no-interaction --no-progress }
+      - run: cp .env.example .env
+      - run: php artisan migrate:fresh --force
+        env: { APP_ENV: testing, APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, DB_CONNECTION: pgsql, DB_HOST: 127.0.0.1, DB_PORT: 5432, DB_DATABASE: securegate_test, DB_USERNAME: securegate, DB_PASSWORD: securegate }
+      - run: php tests/Integration/TwoFactor/runner.php
+        env: { APP_ENV: testing, APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, DB_CONNECTION: pgsql, DB_HOST: 127.0.0.1, DB_PORT: 5432, DB_DATABASE: securegate_test, DB_USERNAME: securegate, DB_PASSWORD: securegate }
+
+  regression:
+    name: Full regression suite (informational)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with: { php-version: '8.2', extensions: bcmath,mbstring,pcntl,pdo_sqlite,zip, coverage: none }
+      - uses: ramsey/composer-install@v3
+        with: { composer-options: --prefer-dist --no-interaction --no-progress }
+      - run: cp .env.example .env
+      - run: php artisan test --colors=never
+        env: { APP_ENV: testing, APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, DB_CONNECTION: sqlite, DB_DATABASE: ':memory:' }
