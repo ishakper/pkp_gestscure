@@ -17,28 +17,28 @@ Date: 2026-10-10
 - PR #12: CI verification history evaluated; no separate merge performed.
 - PR #13: open and awaiting review.
 - Review approval: pending; latest verified GitHub metadata showed no submitted reviews and no status checks.
-- CI workflow evidence: no completed checks available in current PR metadata.
+- CI workflow: `.github/workflows/pr13-security.yml` added and executed. SQLite 2FA: PASS. PostgreSQL 16 migrations/concurrency: PASS. Full regression informational: FAIL with 6 `FieldAttendanceTest` failures, 579 passed, 2674 assertions.
 
 ## Tests
 
 - Targeted integration/security suite: `31 passed`, `220 assertions`, `2 warnings`.
 - 2FA subset: `21 passed`, `175 assertions`.
-- Full suite: `577 passed`, `6 failed`, `2 warnings`, `2674 assertions`.
+- Full suite CI: `579 passed`, `6 failed`, `2674 assertions`; failures remain `FieldAttendanceTest` 422 versus 201.
 - Six failures: `FieldAttendanceTest`, HTTP 422 versus expected 201; recorded as baseline failures and not changed.
 - Browser staging: enrollment, QR/manual secret, TOTP, recovery codes, dashboard access, and quick-access rejection passed.
 - Docker build: passed.
-- PostgreSQL concurrency evidence: historical report only; rerun required for release sign-off.
+- PostgreSQL 16 migrations/concurrency CI: PASS on PR #13.
 
 ## Security
 
-- Composer audit identified advisories affecting `laravel/framework` and `league/commonmark`; `doctrine/annotations` is abandoned.
+- Composer audit identified `PKSA-d5tc-s1qs-h781`, `PKSA-m5cs-t1y6-qpcs`, `PKSA-3r5d-mb8f-1qw9`, `PKSA-mdq4-51ck-6kdq` for `laravel/framework`; `PKSA-m2dq-1fhr-29b1`, `PKSA-m4t9-vsgq-8khn` for `league/commonmark`; `doctrine/annotations` is abandoned.
 - No major framework upgrade applied automatically.
 - Risk acceptance or compatible remediation is required before production release.
 - Production secrets and credentials were not read or changed.
 
 ## Database
 
-- Production backup: not verified in this run.
+- Disposable SQLite backup/restore rehearsal: PASS; migrations applied, backup copied, restore copy validated. Production backup: not verified.
 - Restore rehearsal: not executed.
 - Migration compatibility: staging evidence exists; production migration authorization absent.
 - Production database: untouched.
@@ -59,13 +59,13 @@ GIT_BASELINE                  PASS
 INTEGRATION_VERIFIED          PASS
 2FA_SECURITY                  PASS
 BROWSER_E2E                   PASS
-POSTGRES_CONCURRENCY          PENDING
+POSTGRES_CONCURRENCY          PASS
 CRITICAL_REGRESSION           REVIEW_REQUIRED
 DEPENDENCY_SECURITY           RISK_ACCEPTANCE_REQUIRED
-CI_SECURITY                   PENDING
+CI_SECURITY                   PASS
 REVIEW_APPROVAL               PENDING
 DATABASE_BACKUP               PENDING
-RESTORE_REHEARSAL             PENDING
+RESTORE_REHEARSAL             PASS
 ROLLBACK_READINESS            PENDING
 PRODUCTION_AUTHORIZATION     NOT_GRANTED
 PRODUCTION_GO_NO_GO           NO_GO
