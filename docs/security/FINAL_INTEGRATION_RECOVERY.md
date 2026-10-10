@@ -39,7 +39,7 @@ Composer audit reports upstream advisories for `laravel/framework`, `league/comm
 - `BROWSER_E2E_PASS`: PASS for disposable staging flows executed
 - `REGRESSION_STATUS_VERIFIED`: PASS with 6 unrelated baseline failures recorded
 - `DEPENDENCY_AUDIT_STATUS`: REVIEW REQUIRED
-- `INTEGRATION_PR_CREATED`: pending push/PR creation
-- `REVIEW_REQUEST_SENT`: pending PR creation
+- `INTEGRATION_PR_CREATED`: BLOCKED — GitHub connector returned HTTP 403 `Resource not accessible by integration`; branch is pushed and compare page is mergeable.
+- `REVIEW_REQUEST_SENT`: BLOCKED — no PR exists, so reviewer request cannot be sent.
 - `MERGE_NOT_PERFORMED`: PASS
 - `DEPLOYMENT_NOT_PERFORMED`: PASS
