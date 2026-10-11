@@ -98,13 +98,16 @@ function showToast(message, type = 'success', duration = 3500) {
 // Modal Window Utility (Universal Modal Control)
 // ==========================================
 function openModal(modalId) {
-        if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
     modal.classList.add('active');
     document.body.classList.add('modal-open');
 }
 
 function closeModal(modalId) {
-        if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
+    if (!modal) return;
     modal.classList.remove('active');
     if (!document.querySelector('.modal-overlay.active')) {
         document.body.classList.remove('modal-open');
