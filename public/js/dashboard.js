@@ -283,6 +283,8 @@ async function updateMetricCards() {
 
             const deniedMetric = document.getElementById('metricDeniedLogs');
             if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
+            const summary = { dashboardUserActive: data.activeEmployees ?? data.totalUsers ?? 0, dashboardUserRegistered: data.registeredCredentials ?? 0, dashboardDeviceOnline: data.activeDoors ?? 0, dashboardDeviceTotal: data.totalDoors ?? 0, dashboardDeviceOffline: data.offlineDoors ?? Math.max((data.totalDoors ?? 0) - (data.activeDoors ?? 0), 0), dashboardDeviceMaint: data.maintenanceDoors ?? 0, dashboardAlertDenied: data.deniedLogs24h ?? data.deniedLogs ?? 0, dashboardAlertOffline: data.offlineDoors ?? Math.max((data.totalDoors ?? 0) - (data.activeDoors ?? 0), 0) };
+            Object.entries(summary).forEach(([id, value]) => { const element = document.getElementById(id); if (element) element.innerText = value; });
         }
 
         if (attendance && attendance.success) {
