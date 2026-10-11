@@ -3,7 +3,7 @@ name: PR 13 Security Verification
 on:
   pull_request:
   push:
-    branches: [codex/securegate-2fa-integration]
+    branches: [main]
 
 permissions:
   contents: read
