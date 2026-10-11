@@ -179,3 +179,16 @@ Compare commit, image digest, migration state, `TWO_FACTOR_ENABLED`, role policy
 5. Maintenance-window and deployment authorization.
 
 **Handoff status: `RELEASE_HANDOFF_READY_AWAITING_APPROVAL`. Production remains `NO_GO`.**
+
+## Post-Merge Main Verification — 2026-10-11
+
+- Verified GitHub `main` HEAD: `8b8b0632aef384709bcfadffee45ff54526c8f67`.
+- Merge ancestry: PR #13 merge `dd738e0fbc3757c9523bfba433683b878c1a9f25`, followed by PR #14 merge `8b8b0632aef384709bcfadffee45ff54526c8f67`.
+- Disposable verification image: `pkp-securegate-main-verify-8b8b063`.
+- Full regression against actual merged `main`: **PASS**, `584 passed`, `2709 assertions`, `0 failures`, `2 warnings`, `62.87s`.
+- `FieldAttendanceTest`: **PASS** on merged `main`.
+- `TwoFactorAuthTest`: **PASS** on merged `main`; login, replay, recovery, lockout, API enforcement, and session challenge coverage passed.
+- Production image build completed separately; production target intentionally removes tests and was not used as test evidence.
+- GitHub had no check runs on `main` because workflow push trigger targeted only `codex/securegate-2fa-integration`.
+- CI coverage fix prepared in PR #15: `codex/main-post-merge-ci`, commit `8c77ebb`.
+- Production parity, production backup/restore, Laravel advisory decision, and deployment authorization remain pending.
