@@ -328,12 +328,21 @@ class DatabaseSeeder extends Seeder
      * Production: only seed system admins and infrastructure (no demo employees).
      * Production employees loaded via ProductionEmployeesSeeder separately.
      */
+    private function productionAdminPassword(): string
+    {
+        $password = env('APP_ADMIN_PASSWORD');
+        if (!is_string($password) || strlen($password) < 16) {
+            throw new RuntimeException('APP_ADMIN_PASSWORD must be set to a unique value of at least 16 characters.');
+        }
+
+        return $password;
+    }
     private function seedProductionFoundation(): void
     {
         // 1. Seed System Admin (required for system operation)
         $superAdmin = Admin::firstOrCreate(['email' => 'admin@accesscontrol.local'], [
             'name' => 'System Administrator',
-            'password' => Hash::make(->productionAdminPassword()),
+            'password' => Hash::make($this->productionAdminPassword()),
             'role' => 'super_admin',
             'assigned_building' => null,
         ]);
