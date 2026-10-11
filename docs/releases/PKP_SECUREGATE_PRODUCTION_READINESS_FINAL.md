@@ -84,3 +84,19 @@ POST_DEPLOYMENT              NOT_APPLICABLE
 7. Obtain explicit production deployment authorization.
 
 No merge, production migration, live configuration change, or deployment is permitted from this report alone.
+## Post-Review Remediation — 2026-10-11
+
+- Official GitHub review check: `reviews=[]`, `latestReviews=[]`; YaziedRS has not submitted an official approval. No approval was fabricated.
+- Demo login remediation: removed login email/password prefills and quick-access credential buttons; production seeder now requires `APP_ADMIN_PASSWORD` with minimum length 16 and no fallback value. Added AuthTest coverage.
+- Dependency remediation: `league/commonmark` upgraded from `2.10.0` to `2.10.3`; Composer audit no longer reports CommonMark advisories. Four Laravel framework advisories remain and require risk acceptance or framework upgrade planning.
+- Targeted post-remediation tests: `26 passed`, `210 assertions`, `2 existing warnings`; includes AuthTest and TwoFactorAuthTest.
+- FieldAttendanceTest: no test-file diff against `github/main`; historical six-failure pattern remains documented. Separate baseline-fix PR remains required.
+- Production baseline/image parity: not declared; live production checkout and image were not accessed or modified during remediation.
+
+### Current human decisions
+
+1. YaziedRS must submit official GitHub approval.
+2. Security owner must accept or remediate remaining Laravel advisories.
+3. FieldAttendance baseline-fix PR must be reviewed separately.
+4. Production backup/restore and change window require operator execution/authorization.
+5. Production deployment and merge require explicit authorization.
