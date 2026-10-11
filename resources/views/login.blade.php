@@ -562,7 +562,7 @@
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                     <circle cx="12" cy="7" r="4"></circle>
                 </svg>
-                <input type="email" name="email" id="emailInput" class="cyber-input" placeholder="admin@accesscontrol.local" required value="admin@accesscontrol.local" autocomplete="email">
+                <input type="email" name="email" id="emailInput" class="cyber-input" placeholder="admin@accesscontrol.local" required autocomplete="email">
                 <div class="cyber-underline-glow"></div>
             </div>
         </div>
@@ -575,7 +575,7 @@
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                 </svg>
-                <input type="password" name="password" id="passwordInput" class="cyber-input" placeholder="••••••••" required value="password" autocomplete="current-password">
+                <input type="password" name="password" id="passwordInput" class="cyber-input" placeholder="••••••••" required autocomplete="current-password">
                 <div class="cyber-underline-glow"></div>
             </div>
         </div>
@@ -587,44 +587,7 @@
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </button>
-    </form>
-
-    <!-- Demo Quick Login Accounts -->
-    <div class="demo-accounts">
-        <div class="demo-title">
-            <span>// QUICK_ACCESS_CREDENTIALS</span>
-            <span style="color: var(--primary-cyan); font-size: 0.65rem;">DEMO_KEYS</span>
-        </div>
-        <div class="demo-buttons">
-            <button type="button" class="btn-demo" onclick="fillCreds('admin@accesscontrol.local', 'password')">
-                <strong>SUPER ADMIN</strong>
-                <span>Clearance: Level 0 (Global)</span>
-            </button>
-            <button type="button" class="btn-demo" onclick="fillCreds('admin.gedunga@accesscontrol.local', 'password')">
-                <strong>BUILDING ADMIN</strong>
-                <span>Clearance: Gedung A Only</span>
-            </button>
-        </div>
-    </div>
-</div>
-
-<script>
-    // Quick Credential Fill with cyber flash feedback
-    function fillCreds(email, pass) {
-        const emailInput = document.getElementById('emailInput');
-        const passInput = document.getElementById('passwordInput');
-        emailInput.value = email;
-        passInput.value = pass;
-
-        if (window.anime) {
-            anime({
-                targets: [emailInput, passInput],
-                backgroundColor: ['rgba(56, 189, 248, 0.25)', 'rgba(15, 23, 42, 0.4)'],
-                duration: 600,
-                easing: 'easeOutQuad'
-            });
-        }
-    }
+    </form>`r`n</div>`r`n`r`n<script>    }
 
     // Decoding Text Animation (Cyberpunk Security System Entry)
     function startDecodingAnimation() {

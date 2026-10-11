@@ -333,7 +333,7 @@ class DatabaseSeeder extends Seeder
         // 1. Seed System Admin (required for system operation)
         $superAdmin = Admin::firstOrCreate(['email' => 'admin@accesscontrol.local'], [
             'name' => 'System Administrator',
-            'password' => Hash::make(config('app.admin_password', 'SecurePassword123!')),
+            'password' => Hash::make(->productionAdminPassword()),
             'role' => 'super_admin',
             'assigned_building' => null,
         ]);
