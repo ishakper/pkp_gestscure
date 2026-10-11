@@ -100,3 +100,10 @@ No merge, production migration, live configuration change, or deployment is perm
 3. FieldAttendance baseline-fix PR must be reviewed separately.
 4. Production backup/restore and change window require operator execution/authorization.
 5. Production deployment and merge require explicit authorization.
+## Field Attendance Baseline Fix
+
+- Separate PR created: https://github.com/ishakper/pkp_gestscure/pull/14
+- Branch: `codex/field-attendance-fixture`
+- Fix: freeze `Carbon` at `2026-09-10 08:00:00` during test setup and reset after each test.
+- Verification: `FieldAttendanceTest` 19 passed, 2 warnings; full suite `554 passed`, `2 warnings`, `2492 assertions`, 0 failures.
+- Scope: test fixture only; no production application logic changed.
