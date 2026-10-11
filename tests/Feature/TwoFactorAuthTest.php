@@ -72,6 +72,31 @@ class TwoFactorAuthTest extends TestCase
         $this->assertNotContains($codes[0], $record->recovery_codes, 'recovery codes are stored hashed');
     }
 
+    public function test_cancel_clears_pending_setup_and_rotates_secret(): void
+    {
+        $admin = $this->admin('super_admin');
+
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password'])
+            ->assertRedirect('/two-factor/setup');
+        $this->get('/two-factor/setup')->assertOk();
+        $oldSecret = session(TwoFactorLogin::SETUP_SECRET);
+        $this->assertIsString($oldSecret);
+
+        $this->post('/two-factor/cancel')->assertRedirect('/login');
+        $this->assertNull(session(TwoFactorLogin::SETUP_SECRET));
+        $this->assertNull(session(TwoFactorLogin::PENDING));
+
+        $this->post('/login', ['email' => $admin->email, 'password' => 'password'])
+            ->assertRedirect('/two-factor/setup');
+        $this->get('/two-factor/setup')->assertOk();
+        $newSecret = session(TwoFactorLogin::SETUP_SECRET);
+        $this->assertIsString($newSecret);
+        $this->assertNotSame($oldSecret, $newSecret);
+
+        $this->post('/two-factor/setup', ['code' => $this->google2fa->getCurrentOtp($oldSecret)])
+            ->assertSessionHasErrors('code');
+        $this->assertDatabaseMissing('admin_two_factor', ['admin_id' => $admin->id]);
+    }
     // ------------------------------------------------------------- challenge
 
     public function test_enrolled_admin_is_challenged_and_signed_in_with_a_valid_code(): void
