@@ -1832,6 +1832,9 @@ function stopRealtime() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
+    const employeeForm = document.getElementById('employeeForm');
+    if (employeeForm) employeeForm.addEventListener('submit', saveEmployee);
+
     initSidebar();
 
     // Initial data loading

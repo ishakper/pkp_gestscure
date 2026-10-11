@@ -264,14 +264,18 @@ class DatabaseSeeder extends Seeder
                     $attempts = 0;
                 }
 
-                DoorAssignment::create([
-                    'employee_id' => $employee->id,
-                    'door_id' => $assignedDoor->id,
-                    'sync_status' => $syncStatus,
-                    'sync_attempts' => $attempts,
-                    'last_sync_error' => $syncError,
-                    'last_synced_at' => $syncStatus === 'synced' ? now()->subMinutes(rand(10, 300)) : null,
-                ]);
+                DoorAssignment::updateOrCreate(
+                    [
+                        'employee_id' => $employee->id,
+                        'door_id' => $assignedDoor->id,
+                    ],
+                    [
+                        'sync_status' => $syncStatus,
+                        'sync_attempts' => $attempts,
+                        'last_sync_error' => $syncError,
+                        'last_synced_at' => $syncStatus === 'synced' ? now()->subMinutes(rand(10, 300)) : null,
+                    ]
+                );
             }
 
             $createdEmployees[] = $employee;
@@ -289,8 +293,9 @@ class DatabaseSeeder extends Seeder
             $isUnregistered = ($status === 'Denied' && $i % 4 === 0);
             $reason = $status === 'Denied' ? ($isUnregistered ? 'Unregistered Card Tap' : 'Access Time Window Unauthorized') : null;
 
-            AccessLog::create([
+            AccessLog::updateOrCreate([
                 'log_id' => 'LOG-' . date('Ymd') . '-' . str_pad($i, 3, '0', STR_PAD_LEFT),
+            ], [
                 'door_id' => $door->id,
                 'employee_id' => $isUnregistered ? null : $employee->id,
                 'nik' => $isUnregistered ? 'UNKNOWN-' . rand(1000, 9999) : $employee->nik,

@@ -587,7 +587,7 @@
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </button>
-    </form>`r`n</div>`r`n`r`n<script>    }
+    </form></div><script>
 
     // Decoding Text Animation (Cyberpunk Security System Entry)
     function startDecodingAnimation() {
