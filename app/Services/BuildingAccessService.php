@@ -77,11 +77,9 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereNotIn('person_no', $dummyPersonNos)
-            ->where('is_active', true)
-            ->get();
-    }
+        return Employee::whereNotIn('employee_id', $dummyPersonNos)->get();
 
+    }
     /**
      * Get count of dummy employees (for cleanup tracking).
      */
@@ -90,6 +88,6 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereIn('person_no', $dummyPersonNos)->count();
+        return Employee::whereIn('employee_id', $dummyPersonNos)->count();
     }
 }

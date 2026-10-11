@@ -32,7 +32,7 @@ class ProductionNormalizationService
     public function auditReal96Normalization(): array
     {
         $all_employees = Employee::count();
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('employee_id', self::DUMMY_PERSON_NOS)->get();
         $dummy_count = $dummy_employees->count();
         $real_count = $all_employees - $dummy_count;
 
@@ -76,7 +76,7 @@ class ProductionNormalizationService
             return ['status' => 'NOT_AUTHORIZED', 'message' => 'Requires explicit authorization'];
         }
 
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('employee_id', self::DUMMY_PERSON_NOS)->get();
         $dummy_ids = $dummy_employees->pluck('id')->toArray();
 
         $results = [
@@ -162,9 +162,7 @@ class ProductionNormalizationService
         }
 
         // Get all real employees
-        $eligible_employees = Employee::whereNotIn('person_no', self::DUMMY_PERSON_NOS)
-            ->where('is_active', true)
-            ->get();
+        $eligible_employees = Employee::whereNotIn('employee_id', self::DUMMY_PERSON_NOS)->where('employment_status', 'ACTIVE')->get();
 
         // Get all doors in Building B
         $building_b_doors = $buildingB->doors()->pluck('id')->toArray();
