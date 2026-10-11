@@ -126,3 +126,56 @@ No merge, production migration, live configuration change, or deployment is perm
 - Production backup/restore: **NOT VERIFIED**; disposable rehearsal only.
 - Production authorization: **NOT GRANTED**.
 - Final status: **PRODUCTION_NO_GO**.
+## Final Release Handoff — 2026-10-11
+
+### Verified identities
+
+- PR #13 integration HEAD: `369d15b9253faa1fcd2562eedc62124987b002c8`.
+- PR #14 attendance fixture HEAD: `bf6a9f1712c1c8051e4668fccd03bb6582401140`.
+- Combined disposable candidate: `051304e`; local result `584 passed`, `2709 assertions`, `0 failures`, `2 warnings`.
+- PR #13 standalone CI: SQLite 2FA PASS; PostgreSQL concurrency PASS; full regression FAILURE because PR #14 is not included.
+- PR #13 remains OPEN and MERGEABLE; YaziedRS requested, official reviews remain empty.
+- PR #14 remains OPEN and MERGEABLE; no review or checks are recorded.
+
+### Integration sequence
+
+1. Obtain official approval for PR #13 and review approval for PR #14.
+2. Merge PR #14 fixture fix into approved integration line, then rerun full regression.
+3. Merge PR #13 only after combined checks and security risk decision pass.
+4. Build immutable production image from final merged commit; record image digest.
+5. Execute operator-approved backup, maintenance window, deployment smoke tests, and rollback gate.
+
+### Production parity audit — operator commands only
+
+Do not run against production from this workspace. Operator must record, without exposing secrets:
+
+```text
+docker ps --no-trunc
+docker inspect <container> --format '{{.Image}} {{.Config.Image}}'
+docker image inspect <image> --format '{{index .RepoDigests 0}}'
+docker inspect <container> --format '{{json .Config.Env}}'   # redact values
+git -C <production-checkout> status --short --branch
+git -C <production-checkout> rev-parse HEAD
+docker exec <container> php artisan migrate:status
+```
+
+Compare commit, image digest, migration state, `TWO_FACTOR_ENABLED`, role policy, session/cookie settings, and Hikvision non-mock configuration with approved release candidate. Do not alter state during audit.
+
+### Backup and restore runbook
+
+- Freeze change window and verify destination capacity and encryption before backup.
+- Create consistent PostgreSQL backup with approved operator tooling; record timestamp, database identity, size, checksum, and retention location without placing secrets in Git.
+- Restore into disposable isolated PostgreSQL instance, run checksum/row-count/schema checks, then execute smoke tests and 2FA migrations against restored data.
+- Release gate: restore must complete, integrity checks must match agreed tolerances, and application smoke tests must pass.
+- Rollback trigger: failed migration, auth/2FA failure, data-integrity mismatch, elevated error rate, or Hikvision integration regression.
+- Rollback: stop new traffic, preserve failed image/logs, redeploy last known-good immutable image, restore only through approved database procedure, and verify login, 2FA, dashboard, API, and access-log paths.
+
+### Human decisions still required
+
+1. YaziedRS official GitHub approval for PR #13 and review of latest commit.
+2. PR #14 review and approval; no merge order executed.
+3. Security-owner risk acceptance or remediation plan for four Laravel advisories.
+4. Operator production parity evidence and production backup/restore execution.
+5. Maintenance-window and deployment authorization.
+
+**Handoff status: `RELEASE_HANDOFF_READY_AWAITING_APPROVAL`. Production remains `NO_GO`.**
