@@ -107,3 +107,22 @@ No merge, production migration, live configuration change, or deployment is perm
 - Fix: freeze `Carbon` at `2026-09-10 08:00:00` during test setup and reset after each test.
 - Verification: `FieldAttendanceTest` 19 passed, 2 warnings; full suite `554 passed`, `2 warnings`, `2492 assertions`, 0 failures.
 - Scope: test fixture only; no production application logic changed.
+## Integrated Release Candidate — 2026-10-11
+
+- Candidate base: PR #13 HEAD `097a387acbc4aa8b89a31d9ca3e42f78e46df6eb`.
+- Candidate change: cherry-picked PR #14 commit `bf6a9f1712c1c8051e4668fccd03bb6582401140`; candidate commit `051304e`.
+- Disposable Docker image: `pkp-securegate-integrated-candidate:051304e`.
+- Full regression: **PASS**, `584 passed`, `2 warnings`, `2709 assertions`, `0 failures`, `61.63s`.
+- Targeted integration/security suite: **PASS**, `37 passed`, `2 warnings`, `255 assertions`; includes 2FA, auth hardening, dashboard, and pagination/sidebar coverage.
+- FieldAttendanceTest in combined candidate passed; fixture fix remains isolated to PR #14.
+- Browser E2E evidence remains valid for unchanged runtime 2FA paths; no production browser or hardware access performed.
+- PostgreSQL concurrency and SQLite security workflows remain PASS from PR #13; combined candidate changes only test fixture scope after those workflow results.
+
+### Remaining release gates
+
+- YaziedRS official GitHub approval: **PENDING**.
+- Four Laravel advisories: **RISK ACCEPTANCE OR FRAMEWORK UPGRADE REQUIRED**.
+- Production image/config parity: **NOT VERIFIED**; production was not accessed.
+- Production backup/restore: **NOT VERIFIED**; disposable rehearsal only.
+- Production authorization: **NOT GRANTED**.
+- Final status: **PRODUCTION_NO_GO**.
