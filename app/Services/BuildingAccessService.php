@@ -77,7 +77,9 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereNotIn('employee_id', $dummyPersonNos)->get();
+        return Employee::where('employment_status', 'ACTIVE')
+            ->whereNotIn('employee_id', $dummyPersonNos)
+            ->get();
 
     }
     /**

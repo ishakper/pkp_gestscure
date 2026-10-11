@@ -264,7 +264,7 @@ class DatabaseSeeder extends Seeder
                     $attempts = 0;
                 }
 
-                DoorAssignment::updateOrCreate(
+                DoorAssignment::firstOrCreate(
                     [
                         'employee_id' => $employee->id,
                         'door_id' => $assignedDoor->id,
@@ -293,7 +293,7 @@ class DatabaseSeeder extends Seeder
             $isUnregistered = ($status === 'Denied' && $i % 4 === 0);
             $reason = $status === 'Denied' ? ($isUnregistered ? 'Unregistered Card Tap' : 'Access Time Window Unauthorized') : null;
 
-            AccessLog::updateOrCreate([
+            AccessLog::firstOrCreate([
                 'log_id' => 'LOG-' . date('Ymd') . '-' . str_pad($i, 3, '0', STR_PAD_LEFT),
             ], [
                 'door_id' => $door->id,

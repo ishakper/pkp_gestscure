@@ -58,9 +58,8 @@ jobs:
         env: { APP_ENV: testing, APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=, DB_CONNECTION: pgsql, DB_HOST: 127.0.0.1, DB_PORT: 5432, DB_DATABASE: securegate_test, DB_USERNAME: securegate, DB_PASSWORD: securegate }
 
   regression:
-    name: Full regression suite (informational)
+    name: Full regression suite
     runs-on: ubuntu-latest
-    continue-on-error: true
     timeout-minutes: 20
     services:
       postgres:
