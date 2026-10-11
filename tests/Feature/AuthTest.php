@@ -121,4 +121,14 @@ class AuthTest extends TestCase
 
         $this->assertSame(0, $admin->tokens()->count());
     }
+    public function test_login_page_does_not_expose_demo_credentials_or_prefill_password(): void
+    {
+        $response = $this->get('/login');
+
+        $response->assertOk()
+            ->assertDontSee('QUICK_ACCESS_CREDENTIALS', false)
+            ->assertDontSee('value="admin@accesscontrol.local"', false)
+            ->assertDontSee('value="password"', false)
+            ->assertDontSee("fillCreds(", false);
+    }
 }
