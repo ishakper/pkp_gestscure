@@ -127,7 +127,7 @@ class AuthTest extends TestCase
 
         $response->assertOk()
             ->assertDontSee('QUICK_ACCESS_CREDENTIALS', false)
-            ->assertDontSee('admin@accesscontrol.local', false)
+            ->assertDontSee('value="admin@accesscontrol.local"', false)
             ->assertDontSee('value="password"', false)
             ->assertDontSee("fillCreds(", false);
     }

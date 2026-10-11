@@ -647,7 +647,6 @@
                     '.cyber-status-bar',
                     '.cyber-input-wrap',
                     '.btn-cyber-submit',
-                    '.demo-accounts'
                 ],
                 opacity: [0, 1],
                 translateY: [35, 0],
