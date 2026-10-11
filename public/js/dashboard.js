@@ -7518,4 +7518,7 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
+window.openFacilityModal = openFacilityModal;
+window.submitBuildingConfig = submitBuildingConfig;
+window.submitDoorConfig = submitDoorConfig;
 } // end of window.__secureGateInitialized guard
