@@ -100,6 +100,7 @@ function showToast(message, type = 'success', duration = 3500) {
 function openModal(modalId) {
     const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
     if (!modal) return;
+    if (modal.parentElement !== document.body) document.body.appendChild(modal);
     modal.classList.add('active');
     document.body.classList.add('modal-open');
 }
@@ -1832,6 +1833,9 @@ function stopRealtime() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
+    const employeeForm = document.getElementById('employeeForm');
+    if (employeeForm) employeeForm.addEventListener('submit', saveEmployee);
+
     initSidebar();
 
     // Initial data loading
@@ -7515,4 +7519,7 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
+window.openFacilityModal = openFacilityModal;
+window.submitBuildingConfig = submitBuildingConfig;
+window.submitDoorConfig = submitDoorConfig;
 } // end of window.__secureGateInitialized guard

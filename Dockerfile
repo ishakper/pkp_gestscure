@@ -50,6 +50,7 @@ FROM base AS verification
 COPY composer.json composer.lock ./
 RUN composer install --prefer-dist --no-interaction --no-scripts
 COPY . .
+COPY .env.example .env
 RUN composer dump-autoload --optimize
 ENTRYPOINT ["php"]
 CMD ["artisan", "--version"]

@@ -409,78 +409,12 @@
             transform: translateX(3px);
         }
 
-        /* Demo Accounts (Quick Login) Section */
-        .demo-accounts {
-            margin-top: 2rem;
-            padding-top: 1.35rem;
-            border-top: 1px dashed rgba(255, 255, 255, 0.1);
-        }
-
-        .demo-title {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-dim);
-            margin-bottom: 0.85rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .demo-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.75rem;
-        }
-
-        .btn-demo {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(56, 189, 248, 0.18);
-            border-radius: 0.65rem;
-            padding: 0.65rem 0.85rem;
-            color: var(--text-muted);
-            font-size: 0.75rem;
-            cursor: pointer;
-            text-align: left;
-            transition: all 0.25s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-demo:hover {
-            background: rgba(56, 189, 248, 0.1);
-            border-color: var(--primary-cyan);
-            color: #ffffff;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25);
-        }
-
-        .btn-demo strong {
-            display: block;
-            color: #ffffff;
-            font-size: 0.8rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 700;
-            margin-bottom: 2px;
-        }
-
-        .btn-demo span {
-            font-size: 0.7rem;
-            color: var(--primary-cyan);
-            display: block;
-        }
-
         @media (max-width: 480px) {
             .cyber-card {
                 padding: 2rem 1.5rem;
             }
             .brand-title {
                 font-size: 1.45rem;
-            }
-            .demo-buttons {
-                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -587,7 +521,7 @@
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </button>
-    </form>`r`n</div>`r`n`r`n<script>    }
+    </form></div><script>
 
     // Decoding Text Animation (Cyberpunk Security System Entry)
     function startDecodingAnimation() {

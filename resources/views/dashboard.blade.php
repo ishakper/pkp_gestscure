@@ -4022,7 +4022,7 @@
             <h3 class="modal-title" id="employeeModalTitle">Tambah Karyawan Baru</h3>
             <button class="modal-close-btn" onclick="closeModal('employeeModal')">✖</button>
         </div>
-        <form id="employeeForm" onsubmit="saveEmployee(event)">
+        <form id="employeeForm">
             <input type="hidden" id="empDbId">
             <div class="form-row">
                 <label>User ID (Kode Identitas)</label>
