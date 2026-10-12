@@ -79,4 +79,8 @@ return [
         ],
     ],
 
+    'card_access' => [
+        'ui' => env('CARD_ACCESS_UI'),
+    ],
+
 ];

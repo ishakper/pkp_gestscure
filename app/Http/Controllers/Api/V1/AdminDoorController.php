@@ -62,6 +62,9 @@ class AdminDoorController extends Controller
 
         $scopedDoors = $doors->get();
         $doorIds = $scopedDoors->pluck('id');
+        $offlineDoors = $scopedDoors->whereNotIn('connection_status', ['online', 'maintenance'])->count();
+        $maintenanceDoors = $scopedDoors->where('connection_status', 'maintenance')->count();
+        $deniedLogs24h = AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Denied')->where('created_at', '>=', now()->subDay())->count();
 
         $employees = Employee::query();
         if ($admin && $admin->isBuildingAdmin()) {
@@ -92,6 +95,9 @@ class AdminDoorController extends Controller
                 'totalDoors' => $scopedDoors->count(),
                 'grantedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Granted')->count(),
                 'deniedLogs' => AccessLog::whereIn('door_id', $doorIds)->where('access_status', 'Denied')->count(),
+                'deniedLogs24h' => $deniedLogs24h,
+                'offlineDoors' => $offlineDoors,
+                'maintenanceDoors' => $maintenanceDoors,
             ],
         ]);
     }

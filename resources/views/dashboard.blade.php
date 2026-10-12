@@ -10,6 +10,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    @php
+        $cardAccessMode = config('services.card_access.ui', 'off');
+        $cardAccessEnabled = in_array($cardAccessMode, ['api', 'preview'], true) && in_array('credential.view', $permissions ?? [], true) && ($cardAccessMode !== 'preview' || app()->environment(['local', 'testing']));
+    @endphp
+    @if($cardAccessEnabled)
+    <link rel="stylesheet" href="/css/card-access.css">
+    @endif
     <script>
         (function() {
             try {
@@ -1405,7 +1412,19 @@
                 overflow-x: auto;
             }
         }
-    </style>
+        .dashboard-summary-panel { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
+        .dashboard-summary-block { padding: 1rem; border: 1px solid var(--border-color); border-radius: .75rem; background: rgba(15,23,42,.32); }
+        .dashboard-summary-block h3 { margin: 0 0 .75rem; font-size: 1rem; }
+        .dashboard-summary-grid { display: grid; gap: .75rem; }
+        .dashboard-summary-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .dashboard-summary-grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .dashboard-summary-grid div { padding: .75rem; background: rgba(56,189,248,.08); }
+        .dashboard-summary-grid span, .dashboard-summary-grid strong { display: block; }
+        .dashboard-summary-grid span { color: var(--text-muted); font-size: .75rem; }
+        .dashboard-summary-grid strong { margin-top: .25rem; font-size: 1.35rem; }
+        .dashboard-summary-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
+        .dashboard-summary-actions button { flex: 1; min-width: 110px; }
+        @media (max-width: 640px) { .dashboard-summary-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }    </style>
 </head>
 <body>
 
@@ -1450,6 +1469,9 @@
         @endif
         @if(in_array('access.view', $permissions ?? []) || in_array('access.request', $permissions ?? []) || in_array('credential.view', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Hak Akses" onclick="switchTab('accessTab', this)"><span class="nav-icon">🔑</span><span class="nav-text">Hak Akses</span></button></li>
+        @endif
+        @if($cardAccessEnabled)
+        <li class="nav-item"><button data-tooltip="Card Access" onclick="switchTab('cardAccessTab', this)"><span class="nav-icon">💳</span><span class="nav-text">Card Access</span></button></li>
         @endif
         @if(in_array('attendance.view', $permissions ?? []) || in_array('attendance.self', $permissions ?? []))
         <li class="nav-item"><button data-tooltip="Rekap Kehadiran" onclick="switchTab('attendanceTab', this)"><span class="nav-icon">⏰</span><span class="nav-text">Rekap Kehadiran</span></button></li>
@@ -1535,6 +1557,9 @@
             <div class="top-bar-logo-placeholder" aria-hidden="true"></div>
         </div>
         <div class="top-bar-actions">
+            <select id="dashboardBuildingFilter" class="form-control" style="min-width:12rem;" onchange="onDashboardBuildingChange(this.value)" aria-label="Filter dashboard per gedung" title="Tampilkan data Dashboard untuk satu gedung">
+                <option value="">🏢 Semua Gedung</option>
+            </select>
             <button class="btn-secondary" onclick="refreshOperationalData(this)">
                 🔄 Refresh Live Data
             </button>
@@ -1584,6 +1609,12 @@
 
     <!-- TAB 1: OVERVIEW (UNIFIED DASHBOARD) -->
     <section id="overviewTab" class="tab-content active">
+        <div class="glass-panel dashboard-summary-panel" aria-label="Ringkasan dashboard">
+            <div class="dashboard-summary-block"><h3>Perlu Perhatian</h3><div class="dashboard-summary-grid dashboard-summary-grid--two"><div><span>Offline</span><strong id="dashboardAlertOffline">-</strong></div><div><span>Denied 24h</span><strong id="dashboardAlertDenied">-</strong></div></div></div>
+            <div class="dashboard-summary-block"><h3>Quick Actions</h3><div class="dashboard-summary-actions"><button class="btn-secondary" type="button" onclick="syncHardwareLogs(this)">Sync Logs</button><button class="btn-secondary" type="button" onclick="scheduleMetricCardsUpdate(true)">Metrics</button><button class="btn-secondary" type="button" onclick="switchTab('buildingSetupTab', document.querySelector('[onclick*=\"buildingSetupTab\"]'))">Buildings</button></div></div>
+            <div class="dashboard-summary-block"><h3>Device Status</h3><div class="dashboard-summary-grid dashboard-summary-grid--four"><div><span>Online</span><strong id="dashboardDeviceOnline">-</strong></div><div><span>Offline</span><strong id="dashboardDeviceOffline">-</strong></div><div><span>Maint</span><strong id="dashboardDeviceMaint">-</strong></div><div><span>Total</span><strong id="dashboardDeviceTotal">-</strong></div></div></div>
+            <div class="dashboard-summary-block"><h3>User &amp; Credentials</h3><div class="dashboard-summary-grid dashboard-summary-grid--two"><div><span>Active</span><strong id="dashboardUserActive">-</strong></div><div><span>Registered</span><strong id="dashboardUserRegistered">-</strong></div></div></div>
+        </div>
 
         <!-- SECTION 1: AKTIVITAS TERAKHIR (REUSE SECURITY ACCESS LOGS) -->
         <div class="section-header">
@@ -2719,6 +2750,11 @@
     </section>
 
     <!-- SECTION 10: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY REGISTRY (SPRINT 6) -->
+    @if($cardAccessEnabled)
+    <section class="tab-content" id="cardAccessTab">
+        <div id="cardAccessRoot"></div>
+    </section>
+    @endif
     <section class="tab-content" id="accessTab">
         <!-- Header & Action -->
         <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
@@ -5826,6 +5862,7 @@
         apiToken: @json($apiToken ?? session('api_token')),
         permissions: @json($permissions ?? []),
         sseEnabled: @json(!app()->environment('testing')),
+        cardAccessMode: @json($cardAccessEnabled ? $cardAccessMode : 'off'),
         admin: {
             id: @json(Auth::id() ?? 1),
             name: @json(Auth::user()->name ?? 'Administrator'),
@@ -5834,6 +5871,9 @@
     };
 </script>
 <script src="/js/dashboard.js"></script>
+@if($cardAccessEnabled)
+<script src="/js/card-access.js"></script>
+@endif
 
 </body>
 </html>
