@@ -53,7 +53,9 @@ class CardAccessReadService
 
     public function paginateCards(Admin $actor, array $filters): LengthAwarePaginator
     {
-        $employees = $this->scopedEmployees($actor)->with(['building', 'position', 'credentials', 'doorAssignments.door'])->get();
+        $query = $this->scopedEmployees($actor);
+        $this->applyFilters($query, $filters);
+        $employees = $query->with(['building', 'position', 'credentials', 'doorAssignments.door'])->get();
         $items = $employees->map(fn (Employee $employee) => $this->summary($employee))->filter(function (array $item) use ($filters) {
             if (!empty($filters['lifecycle_state']) && $item['lifecycle_state'] !== $filters['lifecycle_state']) return false;
             if (!empty($filters['sync_status']) && $item['sync_status'] !== $filters['sync_status']) return false;
@@ -107,10 +109,13 @@ class CardAccessReadService
     {
         $query = Employee::query();
         if ($actor->isBuildingAdmin()) {
-            $query->where(function (Builder $scope) use ($actor) {
-                if ($actor->employee?->building_id) $scope->where('building_id', $actor->employee->building_id);
-                if ($actor->assigned_building) $scope->orWhereHas('building', fn (Builder $building) => $building->where('name', $actor->assigned_building));
-            });
+            if ($actor->employee?->building_id) {
+                $query->where('building_id', $actor->employee->building_id);
+            } elseif ($actor->assigned_building) {
+                $query->whereHas('building', fn (Builder $building) => $building->where('name', $actor->assigned_building));
+            } else {
+                $query->whereRaw('1 = 0');
+            }
         }
         return $query;
     }
@@ -150,5 +155,5 @@ class CardAccessReadService
     private function maskedFromDescription(?string $description): ?string { return null; }
     private function activityTitle(string $action): string { return ucwords(str_replace(['_', '-'], ' ', $action)); }
     private function activityEmployee(ActivityLog $log): ?array { return null; }
-    private function scopeActivity(Builder $query, Admin $actor): void { if (!$actor->isBuildingAdmin()) return; $employeeIds = $this->scopedEmployees($actor)->pluck('id'); $query->where(function (Builder $scope) use ($employeeIds) { $scope->where('subject_type', Employee::class)->whereIn('subject_id', $employeeIds)->orWhereNull('subject_id'); }); }
+    private function scopeActivity(Builder $query, Admin $actor): void { if (!$actor->isBuildingAdmin()) return; $employeeIds = $this->scopedEmployees($actor)->pluck('id'); $query->where('subject_type', Employee::class)->whereIn('subject_id', $employeeIds); }
 }
