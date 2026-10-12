@@ -7648,3 +7648,5 @@ window.submitBuildingConfig = submitBuildingConfig;
 window.submitDoorConfig = submitDoorConfig;
 window.apiFetch = apiFetch;
 } // end of window.__secureGateInitialized guard
+
+window.exportAttendanceReport = exportAttendanceReport;
