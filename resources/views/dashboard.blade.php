@@ -15,7 +15,7 @@
         $cardAccessEnabled = in_array($cardAccessMode, ['api', 'preview'], true) && in_array('credential.view', $permissions ?? [], true) && ($cardAccessMode !== 'preview' || app()->environment(['local', 'testing']));
     @endphp
     @if($cardAccessEnabled)
-    <link rel="stylesheet" href="/css/card-access.css">
+    <link rel="stylesheet" href="{{ asset('css/card-access.css') }}?v={{ filemtime(public_path('css/card-access.css')) }}">
     @endif
     <script>
         (function() {
@@ -5870,9 +5870,9 @@
         }
     };
 </script>
-<script src="/js/dashboard.js"></script>
+<script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
 @if($cardAccessEnabled)
-<script src="/js/card-access.js"></script>
+<script src="{{ asset('js/card-access.js') }}?v={{ filemtime(public_path('js/card-access.js')) }}"></script>
 @endif
 
 </body>

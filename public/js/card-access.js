@@ -300,11 +300,11 @@
     const arr = v => (Array.isArray(v) ? v : []);
     function normalizeRecord(r) {
         r = r || {};
-        const e = r.employee || {};
+        const e = r.employee || r;
         const a = r.access || {};
         const d = r.device || {};
         return {
-            employee: { id: e.id, name: e.name || '—', employee_code: e.employee_code || '—', employment_status: e.employment_status || '—',
+            employee: { id: e.id, name: e.name || '—', employee_code: e.employee_code || e.employee_id || '—', employment_status: e.employment_status || '—',
                 building: e.building || '—', department: e.department || null, position: e.position || null },
             credential: r.credential ? Object.assign({ credential_type: 'CARD', status: null, origin: null, registered_at: null, registered_by: null }, r.credential) : null,
             access: { buildings: arr(a.buildings), doors: arr(a.doors), profile: a.profile || null, valid_from: a.valid_from || null, valid_until: a.valid_until || null },
