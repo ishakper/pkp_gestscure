@@ -23,6 +23,23 @@ class CardAccessReadApiTest extends TestCase
         $this->getJson('/api/v1/card-access/overview')->assertForbidden();
     }
 
+    public function test_building_admin_without_scope_is_denied_for_all_card_access_reads(): void
+    {
+        $admin = Admin::factory()->create(['role' => 'building_admin', 'employee_id' => null, 'assigned_building' => null]);
+        Sanctum::actingAs($admin);
+
+        foreach ([
+            '/api/v1/card-access/overview',
+            '/api/v1/card-access/activity',
+            '/api/v1/card-access/cards',
+            '/api/v1/card-access/employees/1',
+        ] as $uri) {
+            $this->getJson($uri)->assertForbidden()->assertJsonPath('message', 'Akun belum memiliki cakupan gedung. Hubungi administrator.');
+        }
+
+        $this->getJson('/api/v1/card-access/employees/1/audit')->assertForbidden();
+    }
+
     public function test_legacy_card_is_not_unregistered_and_raw_values_are_hidden(): void
     {
         $admin = Admin::factory()->create(['role' => 'super_admin']);
