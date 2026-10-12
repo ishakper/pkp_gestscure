@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\ActivityLog;
 use App\Models\Admin;
 use App\Models\Building;
 use App\Models\CredentialRecord;
@@ -38,6 +39,57 @@ class CardAccessReadApiTest extends TestCase
         }
 
         $this->getJson('/api/v1/card-access/employees/1/audit')->assertForbidden();
+
+    }
+    public function test_canonical_employee_scope_wins_over_conflicting_assigned_building(): void
+    {
+        $buildingA = Building::create(['code' => 'TEST-A', 'name' => 'Test A', 'is_active' => true]);
+        $buildingB = Building::create(['code' => 'TEST-B', 'name' => 'Test B', 'is_active' => true]);
+        $adminEmployee = Employee::factory()->create(['building_id' => $buildingA->id]);
+        $admin = Admin::factory()->create(['role' => 'building_admin', 'employee_id' => $adminEmployee->id, 'assigned_building' => $buildingB->name]);
+        $employeeA = Employee::factory()->create(['building_id' => $buildingA->id]);
+        $employeeB = Employee::factory()->create(['building_id' => $buildingB->id]);
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/card-access/cards?per_page=100')->assertOk();
+        $ids = collect($response->json('data'))->pluck('id');
+        $this->assertTrue($ids->contains($employeeA->id));
+        $this->assertFalse($ids->contains($employeeB->id));
+    }
+
+    public function test_assigned_building_fallback_and_cross_scope_filters_are_enforced(): void
+    {
+        $buildingA = Building::create(['code' => 'TEST-FALLBACK-A', 'name' => 'Fallback A', 'is_active' => true]);
+        $buildingB = Building::create(['code' => 'TEST-FALLBACK-B', 'name' => 'Fallback B', 'is_active' => true]);
+        $employeeA = Employee::factory()->create(['building_id' => $buildingA->id, 'card_no' => 'CARD-1234']);
+        $employeeB = Employee::factory()->create(['building_id' => $buildingB->id, 'card_no' => 'CARD-5678']);
+        $admin = Admin::factory()->create(['role' => 'building_admin', 'assigned_building' => $buildingA->name, 'employee_id' => null]);
+        Sanctum::actingAs($admin);
+
+        $response = $this->getJson('/api/v1/card-access/cards?building_id=' . $buildingB->id . '&search=5678&per_page=1')->assertOk();
+        $this->assertSame(0, $response->json('meta.total'));
+        $this->assertSame([], $response->json('data'));
+        $this->getJson('/api/v1/card-access/employees/' . $employeeB->id)->assertNotFound();
+        $this->assertNotSame($employeeA->id, $employeeB->id);
+    }
+
+    public function test_building_activity_excludes_global_and_other_building_logs(): void
+    {
+        $buildingA = Building::create(['code' => 'TEST-ACT-A', 'name' => 'Activity A', 'is_active' => true]);
+        $buildingB = Building::create(['code' => 'TEST-ACT-B', 'name' => 'Activity B', 'is_active' => true]);
+        $adminEmployee = Employee::factory()->create(['building_id' => $buildingA->id]);
+        $employeeA = Employee::factory()->create(['building_id' => $buildingA->id]);
+        $employeeB = Employee::factory()->create(['building_id' => $buildingB->id]);
+        $admin = Admin::factory()->create(['role' => 'building_admin', 'employee_id' => $adminEmployee->id]);
+        ActivityLog::create(['admin_id' => $admin->id, 'action' => 'in_scope', 'subject_type' => Employee::class, 'subject_id' => $employeeA->id, 'description' => 'scope-a', 'timestamp' => now()]);
+        ActivityLog::create(['admin_id' => $admin->id, 'action' => 'out_scope', 'subject_type' => Employee::class, 'subject_id' => $employeeB->id, 'description' => 'scope-b', 'timestamp' => now()]);
+        ActivityLog::create(['admin_id' => $admin->id, 'action' => 'global', 'subject_type' => null, 'subject_id' => null, 'description' => 'global', 'timestamp' => now()]);
+        Sanctum::actingAs($admin);
+
+        $titles = collect($this->getJson('/api/v1/card-access/activity?limit=50')->assertOk()->json('data'))->pluck('title');
+        $this->assertTrue($titles->contains('In Scope'));
+        $this->assertFalse($titles->contains('Out Scope'));
+        $this->assertFalse($titles->contains('Global'));
     }
 
     public function test_legacy_card_is_not_unregistered_and_raw_values_are_hidden(): void
