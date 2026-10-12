@@ -1692,6 +1692,7 @@ function switchTab(tabId, btn) {
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
     if (tabId === 'systemStatusTab') loadSystemHealth();
+    if (tabId === 'cardAccessTab') window.CardAccess?.load('cardAccessRoot');
 }
 
 // ==========================================
@@ -7645,4 +7646,5 @@ window.loadSystemHealth = loadSystemHealth;
 window.openFacilityModal = openFacilityModal;
 window.submitBuildingConfig = submitBuildingConfig;
 window.submitDoorConfig = submitDoorConfig;
+window.apiFetch = apiFetch;
 } // end of window.__secureGateInitialized guard
