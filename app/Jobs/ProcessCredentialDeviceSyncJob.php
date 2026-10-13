@@ -11,18 +11,22 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Throwable;
+use Illuminate\Support\Str;
 class ProcessCredentialDeviceSyncJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     public int $tries = 3;
     public array $backoff = [5, 30, 120];
     public bool $networkStarted = false;
+    private ?string $leaseToken = null;
+    private const LEASE_SECONDS = 120;
     public function __construct(public int $syncId) {}
     public function handle(HikvisionIsapiService $device): void
     {
         $queued = CredentialDeviceSync::find($this->syncId);
         if (!$queued) return;
-        $lock = Cache::lock("device-sync:target:{$queued->employee_id}:{$queued->door_id}", 300);
+        $this->leaseToken = (string) Str::uuid();
+        $lock = Cache::lock("device-sync:target:{$queued->employee_id}:{$queued->door_id}", self::LEASE_SECONDS);
         if (!$lock->get()) throw new \RuntimeException('Target device sync is already processing');
         try {
             $sync = DB::transaction(function (): ?CredentialDeviceSync {
@@ -32,6 +36,9 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
                     'status' => 'PROCESSING',
                     'attempt_count' => $row->attempt_count + 1,
                     'last_attempt_at' => now(),
+                    'lease_token' => $this->leaseToken,
+                    'lease_expires_at' => now()->addSeconds(self::LEASE_SECONDS),
+                    'network_started_at' => null,
                 ]);
                 return $row->fresh(['door', 'employee', 'credentialRecord']);
             });
@@ -42,10 +49,10 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
                 $result = ['status' => false, 'error' => 'STALE_AFTER_DEVICE_WRITE: adapter accepted ADD after application assignment was removed; physical state is unknown'];
             }
             if ($result['status']) {
-                $sync->update(['status' => 'SUCCESS', 'completed_at' => now(), 'error_summary' => null]);
+                $this->finish($sync, 'SUCCESS', null);
                 $this->audit($sync, 'device_sync_succeeded', $result['message']);
             } else {
-                $sync->update(['status' => 'FAILED', 'error_summary' => $result['error']]);
+                $this->finish($sync, 'FAILED', $result['error']);
                 $this->audit($sync, 'device_sync_failed', $result['error']);
             }
         } finally { $lock->release(); }
@@ -57,6 +64,7 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
         if (!\App\Models\DoorAssignment::where('employee_id', $sync->employee_id)->where('door_id', $sync->door_id)->exists()) return ['status' => false, 'error' => 'Stale ADD ignored: desired access assignment no longer exists'];
         if (!$sync->door || !$sync->employee) return ['status' => false, 'error' => 'Device sync target no longer exists'];
         $this->networkStarted = true;
+        $sync->update(['network_started_at' => now()]);
         $result = $device->provisionEmployeeAccess($sync->door, $sync->employee);
         return $result['status'] ? ['status' => true, 'message' => 'Target-door provisioning accepted by adapter; physical verification not performed'] : ['status' => false, 'error' => (string) ($result['error'] ?? 'Device adapter failed')];
     }
@@ -66,10 +74,24 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
     {
         $sync = CredentialDeviceSync::find($this->syncId); if (!$sync) return;
         $unknown = $this->networkStarted;
-        $sync->update([
+        $sync->newQuery()->whereKey($sync->id)->where('lease_token', $this->leaseToken)->update([
             'status' => $unknown ? 'UNKNOWN' : 'FAILED',
             'error_summary' => ($unknown ? 'UNKNOWN: network call may have been accepted; reconciliation required. ' : 'Worker failed before device request. ') . $exception->getMessage(),
+            'lease_token' => null,
+            'lease_expires_at' => null,
+            'completed_at' => now(),
         ]);
         $this->audit($sync, $unknown ? 'device_sync_unknown' : 'device_sync_worker_failed', $unknown ? 'Worker failed after device request started; physical outcome is unresolved.' : 'Worker failed before device request.');
+    }
+
+    private function finish(CredentialDeviceSync $sync, string $status, ?string $error): void
+    {
+        $sync->newQuery()->whereKey($sync->id)->where('lease_token', $this->leaseToken)->update([
+            'status' => $status,
+            'completed_at' => now(),
+            'error_summary' => $error,
+            'lease_token' => null,
+            'lease_expires_at' => null,
+        ]);
     }
 }

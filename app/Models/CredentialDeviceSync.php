@@ -20,12 +20,17 @@ class CredentialDeviceSync extends Model
         'error_summary',
         'completed_at',
         'idempotency_key',
+        'lease_token',
+        'lease_expires_at',
+        'network_started_at',
     ];
 
     protected $casts = [
         'last_attempt_at' => 'datetime',
         'completed_at' => 'datetime',
         'attempt_count' => 'integer',
+        'lease_expires_at' => 'datetime',
+        'network_started_at' => 'datetime',
     ];
 
     public function door() { return $this->belongsTo(Door::class); }
