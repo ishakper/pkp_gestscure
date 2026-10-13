@@ -102,7 +102,10 @@ services:
     networks: [securegate-staging-net]
 
   mock-device:
-    image: nginx:1.27-alpine
+    image: node:22-alpine
+    command: [node, /mock/server.js]
+    volumes:
+      - ./tests/mock-device:/mock:ro
     networks: [securegate-staging-net]
 
 volumes:
