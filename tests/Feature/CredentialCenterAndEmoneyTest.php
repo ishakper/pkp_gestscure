@@ -174,6 +174,16 @@ class CredentialCenterAndEmoneyTest extends TestCase
         $this->assertNull($sync->fresh()->error_summary);
     }
 
+    public function test_unknown_device_sync_retry_returns_http_422(): void
+    {
+        $admin = Admin::create(['name' => 'Unknown Retry Admin', 'email' => 'unknown.retry@pkp.co.id', 'password' => Hash::make('password'), 'role' => 'super_admin']);
+        $credential = CredentialRecord::create(['credential_number' => 'CRD-UNKNOWN-01', 'credential_type' => 'CARD', 'card_number' => '4000000001', 'masked_identifier' => '******0001', 'status' => 'ACTIVE']);
+        $sync = CredentialDeviceSync::create(['door_id' => $this->door->id, 'credential_record_id' => $credential->id, 'operation' => 'ADD', 'status' => 'UNKNOWN', 'attempt_count' => 1, 'error_summary' => 'UNKNOWN: reconciliation required', 'idempotency_key' => 'unknown-retry-01']);
+        Sanctum::actingAs($admin);
+        $this->postJson("/api/v1/access/device-syncs/{$sync->id}/retry")->assertStatus(422);
+        $this->assertSame('UNKNOWN', $sync->fresh()->status);
+    }
+
     public function test_credential_revocation_queues_device_revocation(): void
     {
         $superadmin = Admin::create([
