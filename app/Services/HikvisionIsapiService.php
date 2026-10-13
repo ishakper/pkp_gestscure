@@ -140,7 +140,7 @@ class HikvisionIsapiService
     public function getDeviceStatus(?Door $door = null): array
     {
         // 1. Mock Mode: Direct Internal Controller Invocation
-        if ($this->isMockMode()) {
+        if ($this->isMockMode() && !config('services.hikvision.mock_http', false)) {
             // Simulated offline if IP ends with .99
             if ($door && !empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
                 return [
@@ -368,7 +368,7 @@ class HikvisionIsapiService
         }
 
         // 1. Mock Mode: Return simulated success or offline error
-        if ($this->isMockMode()) {
+        if ($this->isMockMode() && !config('services.hikvision.mock_http', false)) {
             if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
                 return [
                     'status' => false,
@@ -447,7 +447,7 @@ class HikvisionIsapiService
         ];
 
         // 1. Mock Mode: Direct Internal Controller Invocation
-        if ($this->isMockMode()) {
+        if ($this->isMockMode() && !config('services.hikvision.mock_http', false)) {
             try {
                 $request = Request::create('/api/mock/isapi/AccessControl/CardInfo/Record', 'PUT', $payload);
                 $mockController = app(HikvisionMockController::class);
@@ -881,7 +881,7 @@ class HikvisionIsapiService
      */
     public function setUserAccessRight(Door $door, Employee $employee): array
     {
-        if ($this->isMockMode()) {
+        if ($this->isMockMode() && !config('services.hikvision.mock_http', false)) {
             if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
                 return [
                     'status' => false,
@@ -960,7 +960,7 @@ class HikvisionIsapiService
         $employeeNo = $employee->employee_id ?? $employee->nik;
 
         // 1. Mock Mode: Direct Internal Controller Invocation
-        if ($this->isMockMode()) {
+        if ($this->isMockMode() && !config('services.hikvision.mock_http', false)) {
             if (!empty($door->device_ip) && str_ends_with($door->device_ip, '.99')) {
                 return [
                     'status' => false,

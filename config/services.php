@@ -38,6 +38,7 @@ return [
         'password' => env('HIKVISION_ISAPI_PASSWORD'),
         'use_mock' => env('HIKVISION_ISAPI_USE_MOCK', env('HIKVISION_MOCK_MODE', false)),
         'mock_base_url' => env('HIKVISION_ISAPI_MOCK_BASE_URL', null),
+          'mock_http' => (bool) env('HIKVISION_MOCK_HTTP', false),
         'connect_timeout' => (int) env('ISAPI_CONNECT_TIMEOUT', 5),
         'request_timeout' => (int) env('ISAPI_REQUEST_TIMEOUT', 10),
         'allowed_device_ips' => env('ALLOWED_DEVICE_IPS', ''),

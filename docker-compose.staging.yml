@@ -46,6 +46,8 @@ services:
       CARD_ACCESS_UI: api
       HIKVISION_MOCK_MODE: "true"
       HIKVISION_ISAPI_USE_MOCK: "true"
+      HIKVISION_MOCK_HTTP: "true"
+      HIKVISION_ISAPI_MOCK_BASE_URL: http://mock-device
       HIKVISION_ISAPI_HOST: mock-device
       HIKVISION_ISAPI_PORT: 80
       HIKVISION_ISAPI_USERNAME: mock
