@@ -566,7 +566,12 @@ class AccessProvisioningService
 
     public function enqueueDeviceSync(CredentialRecord $credential, Door $door, string $operation = 'ADD'): CredentialDeviceSync
     {
-        $idempotencyKey = sprintf('door_%d_crd_%d_op_%s', $door->id, $credential->id, strtolower($operation));
+        $baseKey = sprintf('door_%d_crd_%d_op_%s', $door->id, $credential->id, strtolower($operation));
+        $idempotencyKey = $baseKey;
+        $existing = CredentialDeviceSync::where('idempotency_key', $baseKey)->first();
+        if ($existing && in_array($existing->status, ['SUCCESS', 'CANCELLED'], true)) {
+            $idempotencyKey = $baseKey . '_generation_' . bin2hex(random_bytes(4));
+        }
 
         $sync = CredentialDeviceSync::firstOrNew([
             'idempotency_key' => $idempotencyKey,
