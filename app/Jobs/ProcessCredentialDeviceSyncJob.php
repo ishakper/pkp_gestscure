@@ -32,6 +32,20 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
             $sync = DB::transaction(function (): ?CredentialDeviceSync {
                 $row = CredentialDeviceSync::with(['door', 'employee'])->lockForUpdate()->find($this->syncId);
                 if (!$row || $row->status !== 'QUEUED') return null;
+                $unresolved = CredentialDeviceSync::query()
+                    ->where('employee_id', $row->employee_id)
+                    ->where('door_id', $row->door_id)
+                    ->where('status', 'UNKNOWN')
+                    ->where('id', '!=', $row->id)
+                    ->exists();
+                if ($unresolved) {
+                    $row->update([
+                        'status' => 'CANCELLED',
+                        'error_summary' => 'Blocked by unresolved device outcome for the same employee and door; reconcile before creating a new intent.',
+                        'completed_at' => now(),
+                    ]);
+                    return null;
+                }
                 $row->update([
                     'status' => 'PROCESSING',
                     'attempt_count' => $row->attempt_count + 1,
