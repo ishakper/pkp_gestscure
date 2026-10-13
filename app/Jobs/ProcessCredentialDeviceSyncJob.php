@@ -66,8 +66,10 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
                 $this->finish($sync, 'SUCCESS', null);
                 $this->audit($sync, 'device_sync_succeeded', $result['message']);
             } else {
-                $this->finish($sync, 'FAILED', $result['error']);
-                $this->audit($sync, 'device_sync_failed', $result['error']);
+                $unknown = $this->networkStarted && $this->isAmbiguousDeviceFailure((string) $result['error']);
+                $status = $unknown ? 'UNKNOWN' : 'FAILED';
+                $this->finish($sync, $status, $result['error']);
+                $this->audit($sync, $unknown ? 'device_sync_unknown' : 'device_sync_failed', $unknown ? 'Device response is unresolved; reconciliation required before retry.' : $result['error']);
             }
         } finally { $lock->release(); }
     }
@@ -94,6 +96,11 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
         ]);
         return $result['status'] ? ['status' => true, 'message' => 'Target-door provisioning accepted by adapter; physical verification not performed'] : ['status' => false, 'error' => (string) ($result['error'] ?? 'Device adapter failed')];
     }
+    private function isAmbiguousDeviceFailure(string $error): bool
+    {
+        return str_contains(strtolower($error), 'timeout') || str_contains(strtolower($error), 'connection error') || str_contains(strtolower($error), 'may have been accepted');
+    }
+
     private function audit(CredentialDeviceSync $sync, string $action, string $description): void
     { ActivityLog::create(['admin_id' => null, 'action' => $action, 'subject_type' => 'CredentialDeviceSync', 'subject_id' => $sync->id, 'description' => $description, 'timestamp' => now()]); }
     public function failed(Throwable $exception): void
