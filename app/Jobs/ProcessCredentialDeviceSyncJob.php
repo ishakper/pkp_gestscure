@@ -39,6 +39,7 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
             $prior = CredentialDeviceSync::where('employee_id', $sync->employee_id)
                 ->where('door_id', $sync->door_id)
                 ->where('operation', $sync->operation)
+                ->where('credential_record_id', $sync->credential_record_id)
                 ->where('id', '!=', $sync->id)
                 ->where('status', 'SUCCESS')
                 ->latest('id')

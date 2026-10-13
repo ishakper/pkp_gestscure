@@ -103,6 +103,7 @@
         SYNCING: { label: 'Syncing', tone: 'info' },
         PENDING: { label: 'Pending', tone: 'attention' },
         FAILED:  { label: 'Failed',  tone: 'critical' },
+        CANCELLED: { label: 'Cancelled', tone: 'neutral' },
         PARTIAL: { label: 'Partial', tone: 'critical', hint: 'Sebagian terminal gagal diperbarui.' },
         UNKNOWN: { label: 'Unknown', tone: 'neutral' },
     };
