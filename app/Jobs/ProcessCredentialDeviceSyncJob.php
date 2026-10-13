@@ -16,6 +16,7 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
     public int $tries = 3;
     public array $backoff = [5, 30, 120];
+    public bool $networkStarted = false;
     public function __construct(public int $syncId) {}
     public function handle(HikvisionIsapiService $device): void
     {
@@ -73,6 +74,7 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
         if ($sync->operation !== 'ADD') return ['status' => false, 'error' => 'Unsupported device sync operation'];
         if (!\App\Models\DoorAssignment::where('employee_id', $sync->employee_id)->where('door_id', $sync->door_id)->exists()) return ['status' => false, 'error' => 'Stale ADD ignored: desired access assignment no longer exists'];
         if (!$sync->door || !$sync->employee) return ['status' => false, 'error' => 'Device sync target no longer exists'];
+        $this->networkStarted = true;
         $result = $device->provisionEmployeeAccess($sync->door, $sync->employee);
         return $result['status'] ? ['status' => true, 'message' => 'Target-door provisioning accepted by adapter; physical verification not performed'] : ['status' => false, 'error' => (string) ($result['error'] ?? 'Device adapter failed')];
     }
@@ -81,7 +83,11 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
     public function failed(Throwable $exception): void
     {
         $sync = CredentialDeviceSync::find($this->syncId); if (!$sync) return;
-        $sync->update(['status' => 'FAILED', 'error_summary' => 'Worker failure: ' . $exception->getMessage()]);
-        $this->audit($sync, 'device_sync_worker_failed', 'Worker failed before device confirmation.');
+        $unknown = $this->networkStarted;
+        $sync->update([
+            'status' => $unknown ? 'UNKNOWN' : 'FAILED',
+            'error_summary' => ($unknown ? 'UNKNOWN: network call may have been accepted; reconciliation required. ' : 'Worker failed before device request. ') . $exception->getMessage(),
+        ]);
+        $this->audit($sync, $unknown ? 'device_sync_unknown' : 'device_sync_worker_failed', $unknown ? 'Worker failed after device request started; physical outcome is unresolved.' : 'Worker failed before device request.');
     }
 }

@@ -622,7 +622,7 @@ class AccessProvisioningService
 
     public function retryDeviceSync(CredentialDeviceSync $sync, ?Admin $actor = null): CredentialDeviceSync
     {
-        if ($sync->status === 'CANCELLED' || str_starts_with((string) $sync->error_summary, 'DEVICE_REVOKE_UNSUPPORTED:')) {
+        if ($sync->status === 'CANCELLED' || $sync->status === 'UNKNOWN' || str_starts_with((string) $sync->error_summary, 'DEVICE_REVOKE_UNSUPPORTED:')) {
             abort(422, 'Sync job tidak dapat diulang: intent dibatalkan atau operasi perangkat tidak didukung.');
         }
         $this->assertDoorAccess($sync->door, $actor);
