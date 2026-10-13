@@ -19,21 +19,27 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
     public function __construct(public int $syncId) {}
     public function handle(HikvisionIsapiService $device): void
     {
-        $sync = DB::transaction(function (): ?CredentialDeviceSync {
-            $row = CredentialDeviceSync::with(['door', 'employee'])->lockForUpdate()->find($this->syncId);
-            if (!$row || $row->status !== 'QUEUED') return null;
-            $row->update([
-                'status' => 'PROCESSING',
-                'attempt_count' => $row->attempt_count + 1,
-                'last_attempt_at' => now(),
-            ]);
-            return $row->fresh(['door', 'employee', 'credentialRecord']);
-        });
-        if (!$sync) return;
-        $lock = Cache::lock("device-sync:target:{$sync->employee_id}:{$sync->door_id}", 300);
+        $queued = CredentialDeviceSync::find($this->syncId);
+        if (!$queued) return;
+        $lock = Cache::lock("device-sync:target:{$queued->employee_id}:{$queued->door_id}", 300);
         if (!$lock->get()) throw new \RuntimeException('Target device sync is already processing');
         try {
+            $sync = DB::transaction(function (): ?CredentialDeviceSync {
+                $row = CredentialDeviceSync::with(['door', 'employee'])->lockForUpdate()->find($this->syncId);
+                if (!$row || $row->status !== 'QUEUED') return null;
+                $row->update([
+                    'status' => 'PROCESSING',
+                    'attempt_count' => $row->attempt_count + 1,
+                    'last_attempt_at' => now(),
+                ]);
+                return $row->fresh(['door', 'employee', 'credentialRecord']);
+            });
+            if (!$sync) return;
+
             $result = $this->process($sync, $device);
+            if ($result['status'] && $sync->operation === 'ADD' && !\App\Models\DoorAssignment::where('employee_id', $sync->employee_id)->where('door_id', $sync->door_id)->exists()) {
+                $result = ['status' => false, 'error' => 'STALE_AFTER_DEVICE_WRITE: adapter accepted ADD after application assignment was removed; physical state is unknown'];
+            }
             if ($result['status']) {
                 $sync->update(['status' => 'SUCCESS', 'completed_at' => now(), 'error_summary' => null]);
                 $this->audit($sync, 'device_sync_succeeded', $result['message']);
