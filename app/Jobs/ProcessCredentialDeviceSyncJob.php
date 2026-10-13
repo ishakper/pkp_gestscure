@@ -65,7 +65,19 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
         if (!$sync->door || !$sync->employee) return ['status' => false, 'error' => 'Device sync target no longer exists'];
         $this->networkStarted = true;
         $sync->update(['network_started_at' => now()]);
-        $result = $device->provisionEmployeeAccess($sync->door, $sync->employee);
+        $result = $device->provisionEmployeeAccess($sync->door, $sync->employee, [
+            'before_mutation' => function (string $step) use ($sync): void {
+                $owned = CredentialDeviceSync::query()
+                    ->whereKey($sync->id)
+                    ->where('status', 'PROCESSING')
+                    ->where('lease_token', $this->leaseToken)
+                    ->where('lease_expires_at', '>', now())
+                    ->exists();
+                if (!$owned) {
+                    throw new \RuntimeException("Device sync lease lost before {$step} mutation");
+                }
+            },
+        ]);
         return $result['status'] ? ['status' => true, 'message' => 'Target-door provisioning accepted by adapter; physical verification not performed'] : ['status' => false, 'error' => (string) ($result['error'] ?? 'Device adapter failed')];
     }
     private function audit(CredentialDeviceSync $sync, string $action, string $description): void

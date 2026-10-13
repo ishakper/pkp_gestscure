@@ -1065,6 +1065,9 @@ class HikvisionIsapiService
         }
 
         // 2. Step 1: UserInfo SetUp
+        if (isset($options['before_mutation']) && is_callable($options['before_mutation'])) {
+            ($options['before_mutation'])('user_info');
+        }
         $userInfoRes = $this->setUserInfo($door, $employee, $options);
         if (!$userInfoRes['status']) {
             return [
@@ -1084,6 +1087,9 @@ class HikvisionIsapiService
         // 3. Step 2: CardInfo Record (if card_no present)
         $cardRes = null;
         if (!empty($employee->card_no)) {
+            if (isset($options['before_mutation']) && is_callable($options['before_mutation'])) {
+                ($options['before_mutation'])('card');
+            }
             $cardRes = $this->syncCardUser(
                 $employee->employee_id ?? $employee->nik,
                 $employee->card_no,
@@ -1108,6 +1114,9 @@ class HikvisionIsapiService
         }
 
         // 4. Step 3: UserRightPlan SetUp
+        if (isset($options['before_mutation']) && is_callable($options['before_mutation'])) {
+            ($options['before_mutation'])('access_right');
+        }
         $rightRes = $this->setUserAccessRight($door, $employee);
         if (!$rightRes['status']) {
             return [
