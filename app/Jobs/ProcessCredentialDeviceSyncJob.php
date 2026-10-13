@@ -36,6 +36,23 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
             });
             if (!$sync) return;
 
+            $prior = CredentialDeviceSync::where('employee_id', $sync->employee_id)
+                ->where('door_id', $sync->door_id)
+                ->where('operation', $sync->operation)
+                ->where('id', '!=', $sync->id)
+                ->where('status', 'SUCCESS')
+                ->latest('id')
+                ->first();
+            if ($prior) {
+                $sync->update([
+                    'status' => 'CANCELLED',
+                    'error_summary' => 'Superseded duplicate intent; prior sync completed without a second device mutation.',
+                    'completed_at' => now(),
+                ]);
+                $this->audit($sync, 'device_sync_superseded', 'Duplicate intent superseded by completed sync ' . $prior->id . '.');
+                return;
+            }
+
             $result = $this->process($sync, $device);
             if ($result['status'] && $sync->operation === 'ADD' && !\App\Models\DoorAssignment::where('employee_id', $sync->employee_id)->where('door_id', $sync->door_id)->exists()) {
                 $result = ['status' => false, 'error' => 'STALE_AFTER_DEVICE_WRITE: adapter accepted ADD after application assignment was removed; physical state is unknown'];
