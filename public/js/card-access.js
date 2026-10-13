@@ -319,10 +319,26 @@
             allowed_actions: Array.isArray(r.allowed_actions) ? r.allowed_actions : undefined,
         };
     }
+    function displayValue(value, fallback) {
+        if (value === null || value === undefined || value === '') return fallback || '—';
+        if (typeof value === 'object') return value.name || value.label || value.employee_id || value.id || fallback || '—';
+        return String(value);
+    }
     function normalizeAuditItem(i) {
         i = i || {};
-        return { at: i.at || i.created_at || null, title: i.title || i.action || i.type || 'Event', by: i.by || i.operator || i.actor || '—', tone: i.tone || 'neutral' };
+        return {
+            at: i.at || i.created_at || null,
+            title: displayValue(i.title || i.action || i.type, 'Event'),
+            by: displayValue(i.by || i.operator || i.actor),
+            employee: displayValue(i.employee),
+            operator: displayValue(i.operator || i.by || i.actor),
+            target: displayValue(i.target),
+            result: displayValue(i.result),
+            type: i.type || null,
+            tone: i.tone || 'neutral'
+        };
     }
+
 
     // ---- Read-only API binding — Backend Contract Lock v1.1 ----
     // `http` is the dashboard's authenticated GET helper (apiFetch). Only GET
@@ -347,7 +363,7 @@
                 sync_health: { items: Array.isArray(health) ? health : arr(health.items), as_of: health.as_of || asOf },
             };
         });
-        adapter.getRecentActivity = (opts) => get('/card-access/activity' + qs({ limit: (opts && opts.limit) || 10 })).then(res => arr(res && res.data));
+        adapter.getRecentActivity = (opts) => get('/card-access/activity' + qs({ limit: (opts && opts.limit) || 10 })).then(res => arr(res && res.data).map(normalizeAuditItem));
         adapter.listCards = (q) => {
             q = q || {};
             return get('/card-access/cards' + qs({
@@ -1744,3 +1760,5 @@
     };
     global.CardAccess = CardAccess;
 })(window);
+
+
