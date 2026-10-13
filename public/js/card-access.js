@@ -304,10 +304,10 @@
         const a = r.access || {};
         const d = r.device || {};
         return {
-            employee: { id: e.id, name: e.name || '—', employee_code: e.employee_code || e.employee_id || '—', employment_status: e.employment_status || '—',
+            employee: { id: e.id, name: e.name || 'Identitas belum tersedia', employee_code: e.employee_code || e.employee_id || 'Identitas belum tersedia', employment_status: e.employment_status || '—',
                 building: e.building || '—', department: e.department || null, position: e.position || null },
             credential: r.credential ? Object.assign({ credential_type: 'CARD', status: null, origin: null, registered_at: null, registered_by: null }, r.credential) : null,
-            access: { buildings: arr(a.buildings), doors: arr(a.doors), profile: a.profile || null, valid_from: a.valid_from || null, valid_until: a.valid_until || null },
+            access: { buildings: arr(a.buildings).map(v => displayValue(v, null)).filter(Boolean), doors: arr(a.doors).map(v => v && typeof v === 'object' ? (v.door_id || v.id) : v).filter(Boolean), profile: a.profile || null, valid_from: a.valid_from || null, valid_until: a.valid_until || null },
             device: {
                 person_match: d.person_match || 'UNKNOWN', credential_match: d.credential_match || 'UNKNOWN', access_match: d.access_match || 'UNKNOWN',
                 device_card_masked: d.device_card_masked || null, device_access: arr(d.device_access), device_person: d.device_person || null,
@@ -345,6 +345,11 @@
     // requests are issued from here; mutations stay CONTRACT_PENDING.
     function createApiAdapter(http) {
         const get = path => http(path, { isBackground: false });
+        const mutate = (path, method, payload) => http(path, {
+            method,
+            body: payload === undefined ? undefined : JSON.stringify(payload),
+            isBackground: false,
+        });
         const qs = params => {
             const parts = Object.keys(params).filter(k => params[k] !== '' && params[k] !== null && params[k] !== undefined)
                 .map(k => encodeURIComponent(k) + '=' + encodeURIComponent(params[k]));
@@ -378,6 +383,56 @@
         adapter.getAttentionQueue = () => adapter.listCards({ attention: true, perPage: 10 }).then(r => r.items);
         adapter.getEmployeeAccess = (id) => get('/card-access/employees/' + encodeURIComponent(id)).then(res => normalizeRecord(res && res.data));
         adapter.getAuditHistory = (id) => get('/card-access/employees/' + encodeURIComponent(id) + '/audit').then(res => arr(res && res.data).map(normalizeAuditItem));
+        adapter.getAccessAssignment = (id) => adapter.getEmployeeAccess(id).then(record => record.access);
+        adapter.previewAccessChange = (id, draft) => adapter.getAccessAssignment(id).then(current => ({
+            current,
+            next: draft,
+            added: arr(draft && draft.doors).filter(door => !arr(current && current.doors).includes(door)),
+            removed: arr(current && current.doors).filter(door => !arr(draft && draft.doors).includes(door)),
+        }));
+        adapter.getAccessCatalog = (params) => get('/user-management/doors-lookup' + qs(params || {})).then(res => {
+            const doors = arr(res && res.data);
+            if (!doors.length || doors.some(door => !door.door_id || !(door.name || door.door_name))) throw Object.assign(new Error('Invalid door catalog'), { code: 'API_UNAVAILABLE' });
+            const groups = {};
+            doors.forEach(door => {
+                const building = door.location || door.building || 'Tanpa gedung';
+                (groups[building] ||= []).push({ id: door.door_id, label: door.name || door.door_id });
+            });
+            const catalog = { buildings: Object.keys(groups), doors: groups, profiles: [], valid: Object.keys(groups).length > 0 };
+            adapter.catalogValid = catalog.valid;
+            return catalog;
+        });
+        adapter.applyAccessChange = (id, draft) => {
+            if (!adapter.catalogValid) return Promise.reject(Object.assign(new Error('Door catalog unavailable'), { code: 'API_UNAVAILABLE' }));
+            const key = value => value && typeof value === 'object' ? (value.door_id || value.id) : value;
+            const current = arr(draft && draft.current_doors).map(key).filter(Boolean);
+            const next = arr(draft && draft.doors).map(key).filter(Boolean);
+            const add = next.filter(door => !current.includes(door));
+            const remove = current.filter(door => !next.includes(door));
+            const operations = [
+                ...add.map(door => ({ action: 'assign', door, promise: mutate('/user-management/employees/' + encodeURIComponent(id) + '/door-access', 'POST', { door_id: door }) })),
+                ...remove.map(door => ({ action: 'revoke', door, promise: mutate('/user-management/employees/' + encodeURIComponent(id) + '/door-access/' + encodeURIComponent(door), 'DELETE') })),
+            ];
+            return Promise.allSettled(operations.map(operation => operation.promise)).then(results => {
+                const failures = results.filter(r => r.status === 'rejected');
+                const deviceStatuses = results.map((result, index) => ({ action: operations[index].action, door: operations[index].door, status: result.status === 'fulfilled' ? result.value?.data?.device_status || null : null }));
+                return adapter.getAccessAssignment(id).then(access => ({ results, access, failures, deviceStatuses, confirmed: true }));
+            }, () => ({ results: [], access: null, failures: [{ reason: 'refresh failed' }], deviceStatuses: [], confirmed: false }));
+        };
+        adapter.listDeviceSync = (q) => get('/access/device-syncs' + qs({ status: q && q.status, page: q && q.page, per_page: 100 })).then(res => {
+            const payload = res && res.data;
+            const items = arr(payload && payload.data ? payload.data : payload);
+            return items.map(item => {
+                const raw = Object.assign({}, item, { employee: item.employee || item.credential_record?.employee || item.credentialRecord?.employee, credential: item.credential || item.credential_record || item.credentialRecord });
+                const record = normalizeRecord(raw);
+                record._sync_id = item.id;
+                record.device.sync_status = String(item.status || record.device.sync_status || 'UNKNOWN').toUpperCase();
+                record.device.last_sync_at = item.updated_at || item.completed_at || record.device.last_sync_at;
+                record.device.error = item.error || item.error_summary ? { code: item.error?.code || item.status || 'SYNC_FAILED', message: item.error?.message || item.error_summary || null } : record.device.error;
+                return record;
+            });
+        });
+        adapter.retrySync = (syncId) => mutate('/access/device-syncs/' + encodeURIComponent(syncId) + '/retry', 'POST');
         // Existing facility endpoint (organization.view).
         adapter.listBuildings = () => get('/admin/buildings').then(res => arr(res && res.data).map(b => ({ id: b.id, name: b.name })));
         return adapter;
@@ -825,20 +880,22 @@
     // AccessPermissionMatrix: buildings (left) + doors of the focused building (right).
     function AccessPermissionMatrix(catalog, draft, focusBuilding, original, opts) {
         const disabled = opts && opts.readOnly;
-        const buildingRows = catalog.buildings.map(b => {
+        const buildingRows = catalog.buildings.map((b, index) => {
             const on = draft.buildings.includes(b);
             const changed = original && (original.buildings.includes(b) !== on);
             return '<div class="ca-toggle-row' + (b === focusBuilding ? ' is-selected' : '') + (changed ? ' is-changed' : '') + '">' +
                 '<span class="ca-toggle-label" data-ca-action="focus-building" data-building="' + esc(b) + '">' + esc(b) + ' <span class="ca-dim">· ' + (on ? 'Enabled' : 'Disabled') + '</span></span>' +
-                '<label class="ca-switch"><input type="checkbox" data-ca-toggle="building" data-building="' + esc(b) + '"' + (on ? ' checked' : '') + (disabled ? ' disabled' : '') + ' aria-label="Akses ' + esc(b) + '"><span></span></label></div>';
+                '<label class="ca-switch" for="ca-building-' + index + '"><input id="ca-building-' + index + '" type="checkbox" data-ca-toggle="building" data-building="' + esc(b) + '"' + (on ? ' checked' : '') + (disabled ? ' disabled' : '') + ' aria-label="Akses ' + esc(b) + '"><span></span></label></div>';
         }).join('');
         const doors = catalog.doors[focusBuilding] || [];
         const buildingOn = draft.buildings.includes(focusBuilding);
-        const doorRows = doors.map(dname => {
-            const on = draft.doors.includes(dname);
-            const changed = original && (original.doors.includes(dname) !== on);
-            return '<div class="ca-toggle-row' + (changed ? ' is-changed' : '') + '"><span class="ca-toggle-label">' + esc(dname) + ' <span class="ca-dim">· ' + (on ? 'Enabled' : 'Disabled') + '</span></span>' +
-                '<label class="ca-switch"><input type="checkbox" data-ca-toggle="door" data-door="' + esc(dname) + '"' + (on ? ' checked' : '') + (disabled || !buildingOn ? ' disabled' : '') + ' aria-label="Akses pintu ' + esc(dname) + '"><span></span></label></div>';
+        const doorRows = doors.map((dname, index) => {
+            const doorId = dname && typeof dname === 'object' ? dname.id : dname;
+            const label = dname && typeof dname === 'object' ? dname.label : dname;
+            const on = draft.doors.includes(doorId);
+            const changed = original && (original.doors.includes(doorId) !== on);
+            return '<div class="ca-toggle-row' + (changed ? ' is-changed' : '') + '"><span class="ca-toggle-label">' + esc(label) + ' <span class="ca-dim">· ' + (on ? 'Enabled' : 'Disabled') + '</span></span>' +
+                '<label class="ca-switch" for="ca-door-' + index + '"><input id="ca-door-' + index + '" type="checkbox" data-ca-toggle="door" data-door="' + esc(doorId) + '"' + (on ? ' checked' : '') + (disabled || !buildingOn ? ' disabled' : '') + ' aria-label="Akses pintu ' + esc(label) + '"><span></span></label></div>';
         }).join('');
         return '<div class="ca-perm-layout"><div class="ca-box" style="margin:0"><div class="ca-box-head"><span class="ca-box-title">Building Access</span></div>' + buildingRows + '</div>' +
             '<div class="ca-box" style="margin:0"><div class="ca-box-head"><span class="ca-box-title">Door Access · ' + esc(focusBuilding) + '</span></div>' +
@@ -1049,13 +1106,19 @@
             return;
         }
         el.innerHTML = '<div class="ca-box"><div class="ca-box-body"><span class="ca-skel"></span></div></div>';
+        const loadToken = (this._permissionsLoadToken || 0) + 1;
+        this._permissionsLoadToken = loadToken;
         Promise.all([this.adapter.getAccessCatalog(), this.adapter.listCards({ perPage: 100 })]).then(([catalog, res]) => {
             this._catalog = catalog;
+            this.adapter.catalogValid = Boolean(catalog.valid);
             const employees = res.items.filter(r => r.lifecycle_state !== 'REVOKED');
             const id = Number(employeeId || (this._perm && this._perm.id) || (employees[0] && employees[0].employee.id));
             const rec = employees.find(r => r.employee.id === id) || employees[0];
             if (!rec) { el.innerHTML = EmptyState('NO_RESULTS'); return; }
-            const original = { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice() };
+            return this.adapter.getEmployeeAccess(rec.employee.id).then(detail => {
+                if (this._permissionsLoadToken !== loadToken) return;
+                Object.assign(rec, detail);
+                const original = { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice() };
             this._perm = { id: rec.employee.id, rec, original, draft: Object.assign({}, rec.access, { buildings: rec.access.buildings.slice(), doors: rec.access.doors.slice(), reason: '' }), focus: rec.access.buildings[0] || catalog.buildings[0] };
             el.innerHTML = '<div class="ca-box"><div class="ca-box-head" style="flex-wrap:wrap"><div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap">' +
                 '<span class="ca-box-title">Employee</span><div class="search-box"><select data-ca-action-change="perm-employee" aria-label="Pilih karyawan">' +
@@ -1066,6 +1129,7 @@
                 '<button type="button" class="btn-secondary" data-ca-action="perm-reset">Batal</button><button type="button" class="btn-primary" data-ca-action="perm-review" disabled>Review Changes</button></span></div></div>' +
                 '<div class="ca-dim">Perubahan toggle tidak langsung disimpan. Semua perubahan ditinjau dulu lalu diterapkan dan disinkronkan sekaligus.</div>';
             this.renderMatrix();
+            });
         }).catch(err => this.handleError(el, err));
     };
 
@@ -1111,10 +1175,10 @@
             const actions = r => {
                 const st = r.device.sync_status;
                 const id = r.employee.id;
-                const primary = (SYNC_NEEDS_RETRY.includes(st) || r.verification === 'OUT_OF_SYNC') ? actionBtn('resync', id, '⚡ Retry Sync', this.can('CAN_SYNC'))
+                const primary = (SYNC_NEEDS_RETRY.includes(st) || r.verification === 'OUT_OF_SYNC') ? actionBtn('resync', r._sync_id || id, '⚡ Retry Sync', this.can('CAN_SYNC'))
                     : (r.verification === 'NEEDS_VERIFICATION' || st === 'PENDING') ? actionBtn('verify', id, '✔ Verify', this.can('CAN_SYNC'))
                     : actionBtn('diagnostics', id, 'Diagnostics', true);
-                const item = (a, label, ok) => '<button type="button" role="menuitem" data-ca-action="' + a + '" data-id="' + id + '"' + (ok ? '' : ' disabled title="Tidak memiliki izin"') + '>' + label + '</button>';
+                const item = (a, label, ok) => '<button type="button" role="menuitem" data-ca-action="' + a + '" data-id="' + (a === 'resync' ? (r._sync_id || id) : id) + '"' + (ok ? '' : ' disabled title="Tidak memiliki izin"') + '>' + label + '</button>';
                 return '<div style="display:flex;gap:0.35rem;align-items:center;justify-content:flex-end">' + primary +
                     '<div class="ca-menu"><button type="button" class="ca-menu-btn" data-ca-action="menu" aria-haspopup="true" aria-label="Aksi sinkronisasi ' + esc(r.employee.name) + '">⋯</button><div class="ca-menu-list" role="menu">' +
                     item('resync', '⚡ Retry Sync', this.can('CAN_SYNC')) + item('verify', '✔ Verify', this.can('CAN_SYNC')) + item('diagnostics', '🩺 Diagnostics', true) + '<hr>' + item('audit', '🛡 Audit', this.can('CAN_VIEW_AUDIT')) + '</div></div></div>';
@@ -1590,7 +1654,18 @@
                 this._perm.focus = t.dataset.building; return this.renderMatrix();
             case 'perm-reset': return this.loadPermissions(this._perm && this._perm.id);
             case 'perm-review': return this.reviewAccess();
-            case 'perm-apply': return this.adapter.applyAccessChange(this._perm.id, this._perm.draft).then(() => { this.closeModal(); this.simulated('Perubahan akses tersimpan. Sinkronisasi perangkat: Pending.'); this.loadPermissions(this._perm.id); }).catch(err => this.toastError(err));
+            case 'perm-apply': {
+                const button = t;
+                button.disabled = true; button.dataset.busy = '1';
+                return this.adapter.getAccessAssignment(this._perm.id).then(current => this.adapter.applyAccessChange(this._perm.id, Object.assign({}, this._perm.draft, { current_doors: current.doors }))).then(result => {
+                    if (!result.confirmed) { this.toast('Perubahan dikirim, tetapi state backend belum terkonfirmasi.', 'error'); return; }
+                    if (result.failures.length) { this.toast('Sebagian perubahan gagal. Pintu sukses/gagal ditampilkan setelah refresh.', 'error'); }
+                    else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'not_queued')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat belum dilakukan.', 'error'); }
+                    else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'failed')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat gagal.', 'error'); }
+                    else { this.toast('Perubahan akses tersimpan. Sinkronisasi perangkat: Pending.', 'info'); }
+                    return this.loadPermissions(this._perm.id);
+                }).catch(err => this.toastError(err)).finally(() => { button.disabled = false; delete button.dataset.busy; });
+            }
             // flow
             case 'flow-close': return this.closeFlow();
             case 'flow-back':
@@ -1760,5 +1835,6 @@
     };
     global.CardAccess = CardAccess;
 })(window);
+
 
 

@@ -1,0 +1,121 @@
+services:
+  staging-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: securegate_staging
+      POSTGRES_USER: securegate_test
+      POSTGRES_PASSWORD: ${STAGING_DB_PASSWORD}
+    volumes:
+      - securegate-staging-db:/var/lib/postgresql/data
+    networks: [securegate-staging-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securegate_test -d securegate_staging"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  staging-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    image: securegate-staging:integration-card-access-existing-api
+    ports:
+      - "127.0.0.1:18090:80"
+    depends_on:
+      staging-db:
+        condition: service_healthy
+    environment:
+      APP_NAME: SecureGate Staging
+      APP_ENV: testing
+      APP_DEBUG: false
+      APP_KEY: ${STAGING_APP_KEY}
+      APP_URL: http://127.0.0.1:18090
+      APP_TIMEZONE: Asia/Jakarta
+      DB_CONNECTION: pgsql
+      DB_HOST: staging-db
+      DB_PORT: 5432
+      DB_DATABASE: securegate_staging
+      DB_USERNAME: securegate_test
+      DB_PASSWORD: ${STAGING_DB_PASSWORD}
+      SESSION_DRIVER: file
+      SESSION_FILESYSTEM_DISK: local
+      CACHE_STORE: file
+      QUEUE_CONNECTION: database
+      SKIP_MIGRATIONS: "true"
+      CARD_ACCESS_UI: api
+      HIKVISION_MOCK_MODE: "true"
+      HIKVISION_ISAPI_USE_MOCK: "true"
+      HIKVISION_ISAPI_HOST: mock-device
+      HIKVISION_ISAPI_PORT: 80
+      HIKVISION_ISAPI_USERNAME: mock
+      HIKVISION_ISAPI_PASSWORD: mock
+      ISAPI_DEVICE_SECRET: ${STAGING_DEVICE_SECRET}
+      ALLOWED_DEVICE_IPS: 127.0.0.1,192.168.1.100
+    networks: [securegate-staging-net]
+
+  verification-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: securegate_verification
+      POSTGRES_USER: securegate_verify
+      POSTGRES_PASSWORD: ${VERIFICATION_DB_PASSWORD}
+    networks: [securegate-staging-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securegate_verify -d securegate_verification"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  verification-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: verification
+    image: securegate-verification:integration-card-access-existing-api
+    entrypoint: [""]
+    depends_on:
+      verification-db:
+        condition: service_healthy
+    environment:
+      APP_ENV: testing
+      APP_DEBUG: false
+      APP_KEY: ${STAGING_APP_KEY}
+      DB_CONNECTION: pgsql
+      DB_HOST: verification-db
+      DB_PORT: 5432
+      DB_DATABASE: securegate_verification
+      DB_USERNAME: securegate_verify
+      DB_PASSWORD: ${VERIFICATION_DB_PASSWORD}
+      CACHE_STORE: array
+      CACHE_DRIVER: array
+      QUEUE_CONNECTION: sync
+      SESSION_DRIVER: array
+      HIKVISION_MOCK_MODE: "true"
+      HIKVISION_ISAPI_USE_MOCK: "true"
+      HIKVISION_ISAPI_HOST: mock-device
+      HIKVISION_ISAPI_PORT: 80
+      ISAPI_DEVICE_SECRET: ${VERIFICATION_DEVICE_SECRET}
+      ALLOWED_DEVICE_IPS: 127.0.0.1,192.168.1.100
+    command: >-
+      sh -lc 'php artisan migrate:fresh --force && vendor/bin/phpunit -c phpunit.staging.xml --filter="CardAccess|AccessProvisioning|PerangkatPintu|RemoteUnlock|BiometricProvisioning|Device"'
+    networks: [securegate-staging-net]
+
+  mock-device:
+    image: nginx:1.27-alpine
+    networks: [securegate-staging-net]
+
+volumes:
+  securegate-staging-db:
+    name: securegate-staging-db-disposable
+
+networks:
+  securegate-staging-net:
+    name: securegate-staging-net-disposable
+    driver: bridge
+
+
+
+
+
+

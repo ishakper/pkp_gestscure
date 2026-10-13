@@ -8,6 +8,7 @@ use App\Http\Requests\StoreEmployeeRequest;
 use App\Http\Requests\UpdateEmployeeRequest;
 use App\Http\Resources\EmployeeResource;
 use App\Jobs\SyncDoorAccessJob;
+use App\Jobs\ProcessCredentialDeviceSyncJob;
 use App\Models\ActivityLog;
 use App\Models\BiometricStatus;
 use App\Models\Door;
@@ -423,6 +424,52 @@ class EmployeeController extends Controller
             )
         ]
     )]
+    public function revokeDoorAccess(Request $request, $id, $doorId)
+    {
+        $employee = $this->findEmployeeByIdentifier($id);
+        $door = Door::where('door_id', $doorId)
+            ->when(DbKey::isValid($doorId), fn ($query) => $query->orWhere('id', $doorId))
+            ->firstOrFail();
+        $this->authorize('physicalControl', $door);
+
+        $assignment = DoorAssignment::where('employee_id', $employee->id)->where('door_id', $door->id)->first();
+        if (!$assignment) {
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Hak akses pintu sudah tidak aktif.',
+                'data' => ['employee_id' => $employee->employee_id, 'door_id' => $door->door_id, 'application_status' => 'revoked', 'device_status' => 'unchanged', 'device_sync_ids' => []],
+            ]);
+        }
+
+        $syncIds = [];
+        $credentials = \App\Models\CredentialRecord::where('employee_id', $employee->id)->where('status', 'ACTIVE')->get();
+        $service = app(\App\Services\AccessProvisioningService::class);
+        foreach ($credentials as $credential) {
+            $syncIds[] = $service->enqueueDeviceSync($credential, $door, 'REVOKE')->id;
+        }
+
+        if (config('queue.default') !== 'sync') {
+            foreach ($syncIds as $syncId) ProcessCredentialDeviceSyncJob::dispatch($syncId);
+        }
+
+        $assignmentId = $assignment->id;
+        $assignment->delete();
+        $this->audit($request, 'revoke_door_access', $employee, "Revoked door {$door->door_id} (assignment {$assignmentId}); device revoke " . ($syncIds ? 'queued' : 'not queued'));
+
+        return response()->json([
+            'status' => 'success',
+            'message' => $syncIds
+                ? "Hak akses {$door->door_id} dicabut dari aplikasi; pencabutan perangkat diantrikan."
+                : "Akses aplikasi dicabut; pencabutan perangkat belum dilakukan.",
+            'data' => [
+                'employee_id' => $employee->employee_id,
+                'door_id' => $door->door_id,
+                'application_status' => 'revoked',
+                'device_status' => $syncIds ? 'queued' : 'not_queued',
+                'device_sync_ids' => $syncIds,
+            ],
+        ]);
+    }
     #[OA\Post(
         path: '/user-management/employees/{id}/enroll-card',
         summary: 'Enroll Kartu Akses RFID Baru',
@@ -637,3 +684,9 @@ class EmployeeController extends Controller
     private function assignInitialDoors(Employee $employee,array $doorIds): void { foreach (Door::whereIn('door_id',$doorIds)->orWhereIn('id',DbKey::filter($doorIds))->get() as $door) { $assignment=DoorAssignment::firstOrCreate(['employee_id'=>$employee->id,'door_id'=>$door->id],['sync_status'=>'pending','sync_attempts'=>'0']); SyncDoorAccessJob::dispatch($assignment->id); } }
     private function audit(Request $request,string $action,Employee $employee,string $description): void { ActivityLog::create(['admin_id'=>$request->user()?->id,'action'=>$action,'subject_type'=>'Employee','subject_id'=>$employee->id,'description'=>$description.' ['.$employee->employee_id.']','timestamp'=>now()]); }
 }
+
+
+
+
+
+

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AccessProfile;
 use App\Models\AccessRequest;
 use App\Models\CredentialDeviceSync;
+use App\Jobs\ProcessCredentialDeviceSyncJob;
 use App\Models\CredentialRecord;
 use App\Models\EmoneyCard;
 use App\Policies\AccessProvisioningPolicy;
@@ -629,6 +630,7 @@ class AccessProvisioningController extends Controller
 
         $sync = CredentialDeviceSync::with('door')->findOrFail($id);
         $retried = $this->service->retryDeviceSync($sync, $actor);
+        if (config('queue.default') !== 'sync') ProcessCredentialDeviceSyncJob::dispatch($retried->id);
 
         return response()->json([
             'success' => true,
@@ -797,3 +799,9 @@ class AccessProvisioningController extends Controller
         ]);
     }
 }
+
+
+
+
+
+

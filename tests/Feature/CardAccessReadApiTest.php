@@ -112,6 +112,21 @@ class CardAccessReadApiTest extends TestCase
         $this->getJson('/api/v1/card-access/cards?per_page=1')->assertOk()->assertJsonStructure(['data', 'meta' => ['page', 'per_page', 'total', 'last_page']]);
     }
 
+    public function test_detail_reads_assignment_building_and_canonical_door(): void
+    {
+        $building = Building::create(['code' => 'TEST-DETAIL', 'name' => 'Detail Building', 'is_active' => true]);
+        $door = Door::create(['door_id' => 'DETAIL-DOOR', 'name' => 'Detail Door', 'building_id' => $building->id, 'location' => 'Detail Building', 'status' => 'online']);
+        $employee = Employee::factory()->create(['building_id' => $building->id]);
+        DoorAssignment::create(['employee_id' => $employee->id, 'door_id' => $door->id, 'sync_status' => 'pending', 'sync_attempts' => 0]);
+        $admin = Admin::factory()->create(['role' => 'super_admin']);
+        Sanctum::actingAs($admin);
+
+        $this->getJson("/api/v1/card-access/employees/{$employee->id}")
+            ->assertOk()
+            ->assertJsonPath('data.access.buildings.0', 'Detail Building')
+            ->assertJsonPath('data.access.doors.0.door_id', 'DETAIL-DOOR');
+    }
+
     public function test_audit_requires_audit_permission(): void
     {
         $admin = Admin::factory()->create(['role' => 'employee']);

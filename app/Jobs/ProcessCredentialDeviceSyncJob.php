@@ -1,0 +1,63 @@
+<?php
+namespace App\Jobs;
+use App\Models\ActivityLog;
+use App\Models\CredentialDeviceSync;
+use App\Services\HikvisionIsapiService;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Throwable;
+class ProcessCredentialDeviceSyncJob implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+    public int $tries = 3;
+    public array $backoff = [5, 30, 120];
+    public function __construct(public int $syncId) {}
+    public function handle(HikvisionIsapiService $device): void
+    {
+        $sync = DB::transaction(function (): ?CredentialDeviceSync {
+            $row = CredentialDeviceSync::with(['door', 'employee'])->lockForUpdate()->find($this->syncId);
+            if (!$row || $row->status !== 'QUEUED') return null;
+            $row->update([
+                'status' => 'PROCESSING',
+                'attempt_count' => $row->attempt_count + 1,
+                'last_attempt_at' => now(),
+            ]);
+            return $row->fresh(['door', 'employee', 'credentialRecord']);
+        });
+        if (!$sync) return;
+        $lock = Cache::lock("device-sync:target:{$sync->employee_id}:{$sync->door_id}", 300);
+        if (!$lock->get()) throw new \RuntimeException('Target device sync is already processing');
+        try {
+            $result = $this->process($sync, $device);
+            if ($result['status']) {
+                $sync->update(['status' => 'SUCCESS', 'completed_at' => now(), 'error_summary' => null]);
+                $this->audit($sync, 'device_sync_succeeded', $result['message']);
+            } else {
+                $sync->update(['status' => 'FAILED', 'error_summary' => $result['error']]);
+                $this->audit($sync, 'device_sync_failed', $result['error']);
+            }
+        } finally { $lock->release(); }
+    }
+    private function process(CredentialDeviceSync $sync, HikvisionIsapiService $device): array
+    {
+        if ($sync->operation === 'REVOKE') return ['status' => false, 'error' => 'DEVICE_REVOKE_UNSUPPORTED: adapter has no target-door revoke operation'];
+        if ($sync->operation !== 'ADD') return ['status' => false, 'error' => 'Unsupported device sync operation'];
+        if (!\App\Models\DoorAssignment::where('employee_id', $sync->employee_id)->where('door_id', $sync->door_id)->exists()) return ['status' => false, 'error' => 'Stale ADD ignored: desired access assignment no longer exists'];
+        if (!$sync->door || !$sync->employee) return ['status' => false, 'error' => 'Device sync target no longer exists'];
+        $result = $device->provisionEmployeeAccess($sync->door, $sync->employee);
+        return $result['status'] ? ['status' => true, 'message' => 'Target-door provisioning accepted by adapter; physical verification not performed'] : ['status' => false, 'error' => (string) ($result['error'] ?? 'Device adapter failed')];
+    }
+    private function audit(CredentialDeviceSync $sync, string $action, string $description): void
+    { ActivityLog::create(['admin_id' => null, 'action' => $action, 'subject_type' => 'CredentialDeviceSync', 'subject_id' => $sync->id, 'description' => $description, 'timestamp' => now()]); }
+    public function failed(Throwable $exception): void
+    {
+        $sync = CredentialDeviceSync::find($this->syncId); if (!$sync) return;
+        $sync->update(['status' => 'FAILED', 'error_summary' => 'Worker failure: ' . $exception->getMessage()]);
+        $this->audit($sync, 'device_sync_worker_failed', 'Worker failed before device confirmation.');
+    }
+}

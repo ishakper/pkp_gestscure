@@ -68,6 +68,59 @@ class SecurityHardeningTest extends TestCase
         Queue::assertPushed(SyncDoorAccessJob::class);
     }
 
+    public function test_super_admin_can_revoke_one_door_and_audit_application_state(): void
+    {
+        $admin = $this->admin('super_admin');
+        $employee = $this->employee();
+        $door = $this->door('DOOR-A', 'Gedung A');
+        $assignment = DoorAssignment::create(['employee_id' => $employee->id, 'door_id' => $door->id, 'sync_status' => 'synced', 'sync_attempts' => 1]);
+        Sanctum::actingAs($admin);
+
+        $this->deleteJson("/api/v1/user-management/employees/{$employee->id}/door-access/{$door->door_id}")
+            ->assertOk()->assertJsonPath('data.application_status', 'revoked')->assertJsonPath('data.device_status', 'not_queued');
+        $this->assertDatabaseMissing('door_assignments', ['id' => $assignment->id]);
+        $this->assertDatabaseHas('activity_logs', ['action' => 'revoke_door_access', 'subject_type' => 'Employee', 'subject_id' => $employee->id]);
+    }
+
+    public function test_revoke_door_queues_device_revoke_for_active_credentials(): void
+    {
+        Sanctum::actingAs($this->admin('super_admin'));
+        $employee = $this->employee();
+        $door = $this->door('DOOR-A', 'Gedung A');
+        $otherDoor = $this->door('DOOR-C', 'Gedung A');
+        DoorAssignment::create(['employee_id' => $employee->id, 'door_id' => $door->id, 'sync_status' => 'synced']);
+        $otherAssignment = DoorAssignment::create(['employee_id' => $employee->id, 'door_id' => $otherDoor->id, 'sync_status' => 'synced']);
+        \App\Models\CredentialRecord::create(['credential_number' => 'CRD-1001', 'employee_id' => $employee->id, 'masked_identifier' => '****1001', 'status' => 'ACTIVE']);
+
+        $this->deleteJson("/api/v1/user-management/employees/{$employee->id}/door-access/{$door->door_id}")
+            ->assertOk()->assertJsonPath('data.device_status', 'queued')->assertJsonPath('data.application_status', 'revoked');
+
+        $this->assertDatabaseMissing('door_assignments', ['employee_id' => $employee->id, 'door_id' => $door->id]);
+        $this->assertDatabaseHas('door_assignments', ['id' => $otherAssignment->id]);
+        $this->assertDatabaseHas('credential_device_syncs', ['employee_id' => $employee->id, 'door_id' => $door->id, 'operation' => 'REVOKE', 'status' => 'QUEUED']);
+    }
+    public function test_revoke_door_is_idempotent_when_assignment_is_missing(): void
+    {
+        Sanctum::actingAs($this->admin('super_admin'));
+        $employee = $this->employee();
+        $door = $this->door('DOOR-A', 'Gedung A');
+
+        $this->deleteJson("/api/v1/user-management/employees/{$employee->id}/door-access/{$door->door_id}")
+            ->assertOk()->assertJsonPath('data.application_status', 'revoked');
+        $this->assertDatabaseCount('activity_logs', 0);
+    }
+
+    public function test_building_admin_cannot_revoke_door_outside_scope(): void
+    {
+        Sanctum::actingAs($this->admin('infra_admin', 'Gedung A'));
+        $employee = $this->employee();
+        $door = $this->door('DOOR-B', 'Gedung B');
+        DoorAssignment::create(['employee_id' => $employee->id, 'door_id' => $door->id]);
+
+        $this->deleteJson("/api/v1/user-management/employees/{$employee->id}/door-access/{$door->door_id}")->assertForbidden();
+        $this->assertDatabaseHas('door_assignments', ['employee_id' => $employee->id, 'door_id' => $door->id]);
+        $this->assertDatabaseMissing('activity_logs', ['action' => 'revoke_door_access']);
+    }
     private function admin(string $role, ?string $building = null): Admin
     {
         return Admin::create([
@@ -99,3 +152,4 @@ class SecurityHardeningTest extends TestCase
         ]);
     }
 }
+
