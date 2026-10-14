@@ -298,15 +298,21 @@ async function updateMetricCards() {
         const canViewAttendance = hasCapability('attendance.view');
         const scope = state.buildingFilter;
         const metricsRequest = scope
-            ? buildingMetrics(scope, requestSignal).then(data => ({ status: 'success', data })).catch(() => null)
-            : apiFetch('/admin/dashboard-metrics', { isBackground: true, signal: requestSignal }).catch(() => null);
+            ? buildingMetrics(scope, requestSignal).then(data => ({ status: 'success', data })).catch(error => ({ status: 'error', error }))
+            : apiFetch('/admin/dashboard-metrics', { isBackground: true, signal: requestSignal }).then(data => ({ status: 'success', data })).catch(error => ({ status: 'error', error }));
         const [res, attendance] = await Promise.all([
             metricsRequest,
             canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true, signal: requestSignal }).catch(() => null) : Promise.resolve(null),
         ]);
         if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
-        if (res && res.status === 'success') {
+        if (!res || res.status !== 'success') {
+            if (!res?.error?.name || res.error.name !== 'AbortError') showToast('Metrik tidak lengkap. Muat ulang untuk mencoba lagi.', 'error');
+            ['metricActiveEmployees', 'metricTotalUsers', 'metricRegisteredCredentials', 'metricDeniedLogs'].forEach(id => { const element = document.getElementById(id); if (element) element.innerText = '—'; });
+            return;
+        }
+
+        if (res.status === 'success') {
             const data = res.data;
             const metricValue = (key) => Object.prototype.hasOwnProperty.call(data, key) && data[key] !== null ? data[key] : '—';
             const activeUserMetric = document.getElementById('metricActiveEmployees');
@@ -461,8 +467,10 @@ async function fetchEmployeesForBuilding(buildingId, signal) {
     const all = [];
     for (let page = 1; ; page++) {
         const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true, signal });
+        const totalPages = Number(res.pagination?.total_pages);
+        if (!Number.isInteger(totalPages) || totalPages < 1) throw new Error('Invalid pagination metadata');
         all.push(...(res.data || []));
-        if (page >= Number(res.pagination?.total_pages || 1)) break;
+        if (page >= totalPages) break;
     }
     return all;
 }
