@@ -52,7 +52,7 @@ class DashboardBuildingFilterTest extends TestCase
     {
         $this->assertStringContainsString('doorsInBuildingScope(state.allDoors)', $this->body('async function loadDoors('));
         $this->assertStringContainsString('&building_id=${encodeURIComponent(state.buildingFilter)}', $this->body('async function loadEmployees('));
-        $this->assertStringContainsString('buildingMetrics(scope)', $this->body('async function updateMetricCards('));
+        $this->assertStringContainsString('buildingMetrics(scope, requestSignal)', $this->body('async function updateMetricCards('));
         $this->assertStringContainsString('doorsInBuildingScope(state.allDoors)', $this->body('async function loadAccessLogs('));
     }
 
