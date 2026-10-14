@@ -1093,7 +1093,7 @@ function openAddEmployeeModal() {
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
     document.getElementById('empFp').checked = true;
     document.getElementById('empCard').checked = true;
-    document.getElementById('employeeModal').classList.add('active');
+    openModal('employeeModal');
 }
 
 function openEditEmployeeModal(empId) {
@@ -1114,7 +1114,7 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
-    document.getElementById('employeeModal').classList.add('active');
+    openModal('employeeModal');
 }
 
 async function saveEmployee(e) {
@@ -1794,6 +1794,14 @@ function initSidebar() {
     // 5. Keyboard Shortcuts: Esc to close, Ctrl+B / Cmd+B to toggle
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
+            const activeModals = [...document.querySelectorAll('.modal-overlay.active')];
+            const activeModal = activeModals[activeModals.length - 1];
+            if (activeModal) {
+                e.preventDefault();
+                e.stopPropagation();
+                closeModal(activeModal);
+                return;
+            }
             if (document.body.classList.contains('sidebar-open')) {
                 toggleSidebar(false);
             }
