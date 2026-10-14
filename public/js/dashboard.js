@@ -263,6 +263,7 @@ let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
 let metricsAbortController = null;
 let metricsForceRefreshPending = false;
+let employeesRequestVersion = 0;
 
 function scheduleMetricCardsUpdate(force = false) {
     if (document.hidden || isRedirectingToLogin) return;
@@ -766,6 +767,7 @@ async function loadEmployees(page = state.employeePage) {
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
     state.employeePage = Math.max(1, Number(page) || 1);
+    const requestVersion = ++employeesRequestVersion;
 
     const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
     if (tbody) tbody.innerHTML = loadingHtml;
@@ -778,6 +780,7 @@ async function loadEmployees(page = state.employeePage) {
         if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
 
         const res = await apiFetch(url);
+        if (requestVersion !== employeesRequestVersion) return;
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
@@ -792,6 +795,7 @@ async function loadEmployees(page = state.employeePage) {
             renderEmployeePagination();
         }
     } catch (err) {
+        if (requestVersion !== employeesRequestVersion) return;
         const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
