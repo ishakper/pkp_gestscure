@@ -1125,7 +1125,15 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empDept').value = emp.department;
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
-    document.getElementById('empBuilding').value = emp.building?.id || ''; document.getElementById('empDivision').value = emp.division?.id || ''; document.getElementById('empPosition').value = emp.position?.id || '';
+    const relationFields = [['empBuilding', emp.building], ['empDivision', emp.division], ['empPosition', emp.position]];
+    relationFields.forEach(([field, relation]) => {
+        const select = document.getElementById(field);
+        const value = relation?.id ? String(relation.id) : '';
+        if (value && !Array.from(select.options).some(option => option.value === value)) {
+            select.add(new Option(relation.name || value, value));
+        }
+        select.value = value;
+    });
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
