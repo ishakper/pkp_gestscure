@@ -46,3 +46,7 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - `public/js/dashboard.js` syntax check: PASS. Runtime UI evidence: OPEN; use disposable for mutations and `18090` read-only only.
 
 - Dashboard/Pengguna browser smoke `18091`: desktop/mobile metrics render, building filter present, search empty-state path exercised, console/pageerror zero; artifact `artifacts/dashboard-runtime/result.json`. Login POST only; no business mutation. Fixture >5 pages and edit/persistence remain OPEN.
+
+- Dashboard pagination runtime `18091`: fixture run `dash202610142225443047`, Gedung A `121` ACTIVE and Gedung B `37` INACTIVE; desktop/mobile filter selected building `120`, pagination `7` pages, Next page `2`, Previous page `1`, search narrowed to one row, no pageerror. Evidence: `artifacts/dashboard-pagination/result.json` and screenshots.
+- Defect fixed in `ddf2e67`: inline Pengguna handlers were not exposed globally; Next/Previous raised `loadEmployees is not defined`.
+- Detail/edit persistence, organization dropdowns, mid-page error/invalid pagination, and rapid-filter cancellation remain OPEN.
