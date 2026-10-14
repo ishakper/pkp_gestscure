@@ -26,3 +26,10 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - Mutation runners must target disposable DB only and reject `18090`/snapshot identities.
 - No production/parity writes, deployment, server sync-back, device access, or snapshot migration.
 - Do not claim operational readiness while any `OPEN`, `BLOCKED`, or `UNSUPPORTED` row remains on critical paths.
+
+## Batch 1 final evidence (2026-10-14)
+- Timeout desktop/mobile: PASS, fixtures `tw1441`/`tw1442`, artifact `artifacts/timeout-final`.
+- Authorization API: PASS, fixture `az1445`: own `200`; cross/no-permission `403`; DB/audit readback confirms denial has no business write. Invalid UNKNOWN attempt `az1445` returned `500`; retained as invalid fixture run, not PASS.
+- UNKNOWN API: PASS, fixture `az1446`: authenticated retry returns `422`; status remains `UNKNOWN`; no retry job created.
+- UNKNOWN UI desktop/mobile: OPEN. Browser reached Device Sync view but rendered no `az1446` fixture row; observed only filter label `Unknown`. No retry control or mutation beyond login observed. Evidence: `artifacts/unknown-ui-az1446`.
+- Snapshot preview `18090` untouched. Physical revoke/readback remains UNSUPPORTED.
