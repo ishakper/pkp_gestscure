@@ -4117,6 +4117,7 @@
             <h3 class="modal-title" id="employeeModalTitle">Tambah Karyawan Baru</h3>
             <button class="modal-close-btn" onclick="closeModal('employeeModal')">✖</button>
         </div>
+        <div id="employeeLookupNotice" class="error-message" role="status" hidden></div>
         <form id="employeeForm">
             <input type="hidden" id="empDbId">
             <div class="form-row">

@@ -35,6 +35,7 @@ let state = {
     selectedEmployeeForAssign: null,
     searchDebounceTimer: null,
     organization: { buildings: [], divisions: [], positions: [] },
+    organizationLookupError: '',
     onboarding: {
         metrics: {},
         cases: [],
@@ -236,6 +237,7 @@ async function apiFetch(endpoint, options = {}) {
         if (!response.ok) {
             const error = new Error(data.message || `Request failed with status ${response.status}`);
             error.status = response.status;
+            error.details = data.errors || null;
             throw error;
         }
 
@@ -751,13 +753,16 @@ async function checkAllDoors(btn) {
 async function loadOrganizationLookup() {
     try {
         const res = await apiFetch('/user-management/organization/lookup');
-        if (res.status !== 'success') return;
+        if (res.status !== 'success') { state.organizationLookupError = 'Data organisasi belum tersedia. Nilai relasi karyawan tetap dipertahankan.'; return; }
+        state.organizationLookupError = '';
         state.organization = res.data;
         for (const [field, values] of [['empBuilding', res.data.buildings], ['empDivision', res.data.divisions], ['empPosition', res.data.positions]]) {
             const el = document.getElementById(field); if (!el) continue;
+            const currentValue = el.value;
             el.innerHTML = '<option value="">Pilih</option>' + values.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+            if (currentValue && Array.from(el.options).some(option => option.value === currentValue)) el.value = currentValue;
         }
-    } catch (err) { console.warn('Organization lookup unavailable', err); }
+    } catch (err) { state.organizationLookupError = 'Data organisasi gagal dimuat. Nilai relasi karyawan tetap dipertahankan.'; console.warn('Organization lookup unavailable', err); }
 }
 
 async function loadEmployees(page = state.employeePage) {
@@ -1134,6 +1139,8 @@ function openEditEmployeeModal(empId) {
         }
         select.value = value;
     });
+    const lookupNotice = document.getElementById('employeeLookupNotice');
+    if (lookupNotice) { lookupNotice.textContent = state.organizationLookupError; lookupNotice.hidden = !state.organizationLookupError; }
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
@@ -1172,7 +1179,8 @@ async function saveEmployee(e) {
             await loadEmployees();
         }
     } catch (err) {
-        showToast(`Gagal menyimpan data karyawan: ${err.message}`, 'error');
+        const fieldErrors = err.details ? Object.values(err.details).flat().join(' ') : '';
+        showToast(`Gagal menyimpan data karyawan: ${fieldErrors || err.message}`, 'error');
     }
 }
 
