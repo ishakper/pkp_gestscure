@@ -10,11 +10,11 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 | DATA-02 | Reference snapshot preservation | Reference dump and DB retained | PASS | `bc4a57f` | Dump checksum/restore manifest | Keep immutable |
 | B1-01 | First assign desktop/mobile | Valid target, assignment/audit assertions passed | PASS | `4e6455d` | Batch 1 artifacts | Do not rerun without relevant change |
 | B1-02 | Refresh failure/recovery | Retry desktop/mobile previously passed | PASS (tested path) | `4e6455d` | Prior incremental artifacts | Do not rerun without relevant change |
-| B1-03 | Partial failure, two doors | Existing runner contains `UNVERIFIED` placeholder | OPEN | — | `securegate-e2e-harness/batch1-ui-failures.cjs` | Implement controlled per-door fault and DB/job/audit assertions |
-| B1-04 | Authorization scopes | Existing runner contains `UNVERIFIED` placeholder | OPEN | — | `securegate-e2e-harness/batch1-ui-failures.cjs` | Execute own/cross/no-permission with valid fixture accounts |
-| B1-05 | Timeout-after-write | UI/request scaffold exists; write persistence not proven | OPEN | — | `securegate-e2e-harness/batch1-ui-failures.cjs` | Prove DB write before response fault and no duplicate mutation |
-| B1-06 | UNKNOWN denial | Existing runner path is incomplete/contract-dependent | OPEN | — | `securegate-e2e-harness/batch1-ui-failures.cjs` | Assert reason, bounded Retry and authenticated 422 |
-| FUNC-01 | Full regression | Target verification: 76 tests / 316 assertions PASS | PARTIAL | `49bdeb1` | Verification runner output | Run full 605-test suite on final checkpoint |
+| B1-03 | Partial failure, two doors | Desktop/mobile: one success, one controlled failure; DB/audit/UI match | PASS (tested path) | `4e6455d` | `pp1419`, `pp1420` | Do not rerun without relevant change |
+| B1-04 | Authorization scopes | Own `200`; cross/no-permission `403`; no business write/job | PASS (API path) | `d2ecf6f` | `az1445` | UI scope audit remains separate |
+| B1-05 | Timeout-after-write | Backend write persists, browser response-loss, reconciliation renders, mutation count one | PASS (tested path) | `tw1441`, `tw1442` | `artifacts/timeout-final` | Do not rerun without relevant change |
+| B1-06 | UNKNOWN denial | Authenticated retry `422`; UNKNOWN UI desktop/mobile; retry controls hidden; no mutation | PASS (tested path) | `az1446`, `az1447` | `artifacts/unknown-ui-az1447` | Keep invalid `az1445` separate |
+| FUNC-01 | Full regression | Disposable verification: 605 tests / 2802 assertions PASS | PASS (tested config) | `70fad3c` | `artifacts/full-regression-final-20261014.log` | Re-run only after relevant source/config change |
 | SNAP-01 | Snapshot UI/data mapping | Login operator session unavailable | BLOCKED | — | Preview login requires operator session | Login with existing operator account, read-only |
 | FILE-01 | Upload/storage preservation | PostgreSQL dump excludes file storage | OPEN | — | Snapshot note | Inspect storage separately, read-only |
 | DEVICE-01 | Physical revoke/readback | Not proven by mock | UNSUPPORTED | — | Capability limitation | Keep blocked |
@@ -37,3 +37,10 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - Root cause of earlier empty row: fixture actor lacked `employee_id`/employee building scope while Device Sync query requires building scope. Fixed disposable fixture helper only; application query unchanged.
 - Full regression 2026-10-14: `605 tests`, `2614 assertions`, exit `2`; `9 errors`, `47 failures`. Log: `artifacts/full-regression-20261014.log`. This is not a Batch 1 gate failure diagnosis; failures are broader device/attendance/reconciliation suite gaps and remain open.
 - Preview `18090` was not rebuilt or changed because full regression did not pass. Snapshot DB and worker/outbound isolation remain preserved.
+
+## Batch 2 — Dashboard and Pengguna (2026-10-14)
+
+- Scope opened: metrics/building filter, employee search and pagination, organization dropdowns, employee detail/access, edit validation/persistence, responsive/error/loading states.
+- Initial source audit found KPI active-user fallback could report total users when active count was zero; removed.
+- Initial source audit found dashboard credential metric capped employee lookup at five pages; removed cap and retained API pagination termination.
+- `public/js/dashboard.js` syntax check: PASS. Runtime UI evidence: OPEN; use disposable for mutations and `18090` read-only only.
