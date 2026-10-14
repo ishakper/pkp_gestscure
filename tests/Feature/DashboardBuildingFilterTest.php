@@ -62,6 +62,22 @@ class DashboardBuildingFilterTest extends TestCase
         $this->assertStringContainsString('if (scope !== state.buildingFilter) return;', $this->body('async function updateMetricCards('));
     }
 
+    public function test_metric_pagination_uses_api_total_pages_and_cancels_stale_requests(): void
+    {
+        $this->assertStringContainsString('new AbortController()', $this->script);
+        $this->assertStringContainsString('metricsAbortController?.abort()', $this->script);
+        $this->assertStringContainsString('if (page >= Number(res.pagination?.total_pages || 1)) break;', $this->script);
+        $this->assertStringNotContainsString('page <= 5', $this->script);
+        $this->assertStringContainsString('signal', $this->body('async function fetchEmployeesForBuilding('));
+    }
+
+    public function test_missing_metric_fields_are_not_converted_by_client_to_total_users(): void
+    {
+        $body = $this->body('async function updateMetricCards(');
+        $this->assertStringContainsString('metricValue = (key) =>', $body);
+        $this->assertStringContainsString('if (scope !== state.buildingFilter) return;', $body);
+    }
+
     public function test_api_parameters_the_selector_relies_on_exist(): void
     {
         Sanctum::actingAs(Admin::create([

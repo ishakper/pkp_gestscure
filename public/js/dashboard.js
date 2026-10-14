@@ -261,6 +261,7 @@ async function apiFetchForm(endpoint, formData) {
 // ==========================================
 let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
+let metricsAbortController = null;
 
 function scheduleMetricCardsUpdate(force = false) {
     if (document.hidden || isRedirectingToLogin) return;
@@ -279,36 +280,40 @@ function scheduleMetricCardsUpdate(force = false) {
 
 async function updateMetricCards() {
     if (document.hidden || isRedirectingToLogin) return;
+    metricsAbortController?.abort();
+    metricsAbortController = new AbortController();
+    const requestSignal = metricsAbortController.signal;
     lastMetricsFetchTime = Date.now();
 
     try {
         const canViewAttendance = hasCapability('attendance.view');
         const scope = state.buildingFilter;
         const metricsRequest = scope
-            ? buildingMetrics(scope).then(data => ({ status: 'success', data })).catch(() => null)
-            : apiFetch('/admin/dashboard-metrics', { isBackground: true }).catch(() => null);
+            ? buildingMetrics(scope, requestSignal).then(data => ({ status: 'success', data })).catch(() => null)
+            : apiFetch('/admin/dashboard-metrics', { isBackground: true, signal: requestSignal }).catch(() => null);
         const [res, attendance] = await Promise.all([
             metricsRequest,
-            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true }).catch(() => null) : Promise.resolve(null),
+            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true, signal: requestSignal }).catch(() => null) : Promise.resolve(null),
         ]);
         if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
         if (res && res.status === 'success') {
             const data = res.data;
+            const metricValue = (key) => Object.prototype.hasOwnProperty.call(data, key) && data[key] !== null ? data[key] : '—';
             const activeUserMetric = document.getElementById('metricActiveEmployees');
-            if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
+            if (activeUserMetric) activeUserMetric.innerText = metricValue('activeEmployees');
             const userMetric = document.getElementById('metricTotalUsers');
-            if (userMetric) userMetric.innerText = data.totalUsers ?? 0;
+            if (userMetric) userMetric.innerText = metricValue('totalUsers');
 
             const regCredMetric = document.getElementById('metricRegisteredCredentials');
-            if (regCredMetric) regCredMetric.innerText = data.registeredCredentials ?? 0;
+            if (regCredMetric) regCredMetric.innerText = metricValue('registeredCredentials');
 
             const doorMetric = document.getElementById('metricActiveDoors');
-            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
+            if (doorMetric) doorMetric.innerText = `${metricValue('activeDoors')} / ${metricValue('totalDoors')}`;
 
             const deniedMetric = document.getElementById('metricDeniedLogs');
-            if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
-            const summary = { dashboardUserActive: data.activeEmployees ?? data.totalUsers ?? 0, dashboardUserRegistered: data.registeredCredentials ?? 0, dashboardDeviceOnline: data.activeDoors ?? 0, dashboardDeviceTotal: data.totalDoors ?? 0, dashboardDeviceOffline: data.offlineDoors ?? Math.max((data.totalDoors ?? 0) - (data.activeDoors ?? 0), 0), dashboardDeviceMaint: data.maintenanceDoors ?? 0, dashboardAlertDenied: data.deniedLogs24h ?? data.deniedLogs ?? 0, dashboardAlertOffline: data.offlineDoors ?? Math.max((data.totalDoors ?? 0) - (data.activeDoors ?? 0), 0) };
+            if (deniedMetric) deniedMetric.innerText = metricValue('deniedLogs');
+            const summary = { dashboardUserActive: metricValue('activeEmployees'), dashboardUserRegistered: metricValue('registeredCredentials'), dashboardDeviceOnline: metricValue('activeDoors'), dashboardDeviceTotal: metricValue('totalDoors'), dashboardDeviceOffline: metricValue('offlineDoors'), dashboardDeviceMaint: metricValue('maintenanceDoors'), dashboardAlertDenied: metricValue('deniedLogs24h'), dashboardAlertOffline: metricValue('offlineDoors') };
             Object.entries(summary).forEach(([id, value]) => { const element = document.getElementById(id); if (element) element.innerText = value; });
         }
 
@@ -415,20 +420,20 @@ function refreshDashboardScope() {
     scheduleMetricCardsUpdate(true);
 }
 
-async function fetchTotalRecords(url) {
-    const res = await apiFetch(url, { isBackground: true });
+async function fetchTotalRecords(url, signal) {
+    const res = await apiFetch(url, { isBackground: true, signal });
     return Number(res.pagination?.total_records ?? 0);
 }
 
 // KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
-async function buildingMetrics(buildingId) {
+async function buildingMetrics(buildingId, signal) {
     const doors = doorsInBuildingScope(state.allDoors);
     const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
     const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
-        fetchTotalRecords(`${base}&per_page=1`),
-        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`),
-        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`))),
-        fetchEmployeesForBuilding(buildingId),
+        fetchTotalRecords(`${base}&per_page=1`, signal),
+        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`, signal),
+        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`, signal))),
+        fetchEmployeesForBuilding(buildingId, signal),
     ]);
     const registered = employees.filter(emp =>
         emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
@@ -443,10 +448,10 @@ async function buildingMetrics(buildingId) {
     };
 }
 
-async function fetchEmployeesForBuilding(buildingId) {
+async function fetchEmployeesForBuilding(buildingId, signal) {
     const all = [];
     for (let page = 1; ; page++) {
-        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true });
+        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true, signal });
         all.push(...(res.data || []));
         if (page >= Number(res.pagination?.total_pages || 1)) break;
     }
