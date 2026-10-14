@@ -86,6 +86,7 @@ services:
     environment:
       APP_ENV: testing
       APP_DEBUG: false
+      DISPOSABLE_VERIFICATION: "true"
       APP_KEY: ${STAGING_APP_KEY}
       DB_CONNECTION: pgsql
       DB_HOST: verification-db
@@ -104,7 +105,7 @@ services:
       ISAPI_DEVICE_SECRET: ${VERIFICATION_DEVICE_SECRET}
       ALLOWED_DEVICE_IPS: 127.0.0.1,192.168.1.100
     command: >-
-      sh -lc 'php artisan migrate:fresh --force && vendor/bin/phpunit -c phpunit.staging.xml --filter="CardAccess|AccessProvisioning|PerangkatPintu|RemoteUnlock|BiometricProvisioning|Device"'
+      sh -lc 'php tests/staging/assert-disposable.php && php artisan migrate:fresh --force && vendor/bin/phpunit -c phpunit.staging.xml --filter="CardAccess|AccessProvisioning|PerangkatPintu|RemoteUnlock|BiometricProvisioning|Device"'
     networks: [securegate-staging-net]
 
   mock-device:
