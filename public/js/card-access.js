@@ -1665,6 +1665,7 @@
                     else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'not_queued')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat belum dilakukan.', 'error'); }
                     else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'failed')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat gagal.', 'error'); }
                     else { this.toast('Perubahan akses tersimpan. Sinkronisasi perangkat: Pending.', 'info'); }
+                    this.closeModal();
                     return this.loadPermissions(this._perm.id);
                 }).catch(err => { this.closeModal(); this.toastError(err); const slot = this.panel('permissions').querySelector('[data-ca-slot="dirty"]'); if (slot) slot.innerHTML = '<span>State belum terkonfirmasi. </span><button type="button" class="btn-secondary btn-sm" data-ca-action="perm-refresh">Retry baca</button>'; }).finally(() => { button.disabled = false; delete button.dataset.busy; });
             }
