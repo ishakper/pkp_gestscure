@@ -102,10 +102,15 @@ services:
       HIKVISION_ISAPI_USE_MOCK: "true"
       HIKVISION_ISAPI_HOST: mock-device
       HIKVISION_ISAPI_PORT: 80
-      ISAPI_DEVICE_SECRET: ${VERIFICATION_DEVICE_SECRET}
+      ISAPI_DEVICE_SECRET: secret_simulator_key_2026
+      HIKVISION_ISAPI_USERNAME: mock
+      HIKVISION_ISAPI_PASSWORD: mock
+      HIKVISION_ISAPI_MOCK_BASE_URL: http://mock-device/api/mock/isapi
+      DOOR_A_WEBHOOK_SECRET: secret_door_a_9981
+      DOOR_B_WEBHOOK_SECRET: secret_door_b_9982
       ALLOWED_DEVICE_IPS: 127.0.0.1,192.168.1.100
     command: >-
-      sh -lc 'php tests/staging/assert-disposable.php && php artisan migrate:fresh --force && vendor/bin/phpunit -c phpunit.staging.xml --filter="CardAccess|AccessProvisioning|PerangkatPintu|RemoteUnlock|BiometricProvisioning|Device"'
+      sh -lc 'php tests/staging/assert-disposable.php && php artisan migrate:fresh --force && vendor/bin/phpunit -c phpunit.staging.xml --log-junit /tmp/full-regression.xml'
     networks: [securegate-staging-net]
 
   mock-device:
