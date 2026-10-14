@@ -30,14 +30,31 @@ class ProcessCredentialDeviceSyncJob implements ShouldQueue
         if (!$lock->get()) throw new \RuntimeException('Target device sync is already processing');
         try {
             $sync = DB::transaction(function (): ?CredentialDeviceSync {
-                $row = CredentialDeviceSync::with(['door', 'employee'])->lockForUpdate()->find($this->syncId);
+                $candidate = CredentialDeviceSync::query()->find($this->syncId);
+                if (!$candidate) return null;
+                if (DB::getDriverName() === 'pgsql') {
+                    DB::selectOne(
+                        'select pg_advisory_xact_lock(hashtext(?))',
+                        ["device-sync:target:{$candidate->employee_id}:{$candidate->door_id}"]
+                    );
+                }
+                $targetRows = CredentialDeviceSync::query()
+                    ->where('employee_id', $candidate->employee_id)
+                    ->where('door_id', $candidate->door_id)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+                $row = $targetRows->firstWhere('id', $this->syncId);
                 if (!$row || $row->status !== 'QUEUED') return null;
-                $unresolved = CredentialDeviceSync::query()
-                    ->where('employee_id', $row->employee_id)
-                    ->where('door_id', $row->door_id)
-                    ->where('status', 'UNKNOWN')
-                    ->where('id', '!=', $row->id)
-                    ->exists();
+                $activeProcessing = $targetRows->first(
+                    fn (CredentialDeviceSync $targetRow): bool => $targetRow->id !== $row->id && $targetRow->status === 'PROCESSING'
+                );
+                if ($activeProcessing) {
+                    throw new \RuntimeException('Target device sync is already processing');
+                }
+                $unresolved = $targetRows->contains(
+                    fn (CredentialDeviceSync $targetRow): bool => $targetRow->id !== $row->id && $targetRow->status === 'UNKNOWN'
+                );
                 if ($unresolved) {
                     $row->update([
                         'status' => 'CANCELLED',

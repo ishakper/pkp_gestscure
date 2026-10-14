@@ -1654,18 +1654,19 @@
                 if (this.flow) { this.flow.focus = t.dataset.building; return this.renderFlow(); }
                 this._perm.focus = t.dataset.building; return this.renderMatrix();
             case 'perm-reset': return this.loadPermissions(this._perm && this._perm.id);
+            case 'perm-refresh': return this.loadPermissions(this._perm && this._perm.id);
             case 'perm-review': return this.reviewAccess();
             case 'perm-apply': {
                 const button = t;
                 button.disabled = true; button.dataset.busy = '1';
                 return this.adapter.getAccessAssignment(this._perm.id).then(current => this.adapter.applyAccessChange(this._perm.id, Object.assign({}, this._perm.draft, { current_doors: current.doors }))).then(result => {
-                    if (!result.confirmed) { this.toast('Perubahan dikirim, tetapi state backend belum terkonfirmasi.', 'error'); return; }
+                    if (!result.confirmed) { this.closeModal(); this.toast('Perubahan dikirim, tetapi state backend belum terkonfirmasi.', 'error'); const slot = this.panel('permissions').querySelector('[data-ca-slot="dirty"]'); if (slot) slot.innerHTML = '<span>State belum terkonfirmasi. </span><button type="button" class="btn-secondary btn-sm" data-ca-action="perm-refresh">Retry baca</button>'; return; }
                     if (result.failures.length) { this.toast('Sebagian perubahan gagal. Pintu sukses/gagal ditampilkan setelah refresh.', 'error'); }
                     else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'not_queued')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat belum dilakukan.', 'error'); }
                     else if (result.deviceStatuses.some(item => item.action === 'revoke' && item.status === 'failed')) { this.toast('Akses aplikasi dicabut; pencabutan perangkat gagal.', 'error'); }
                     else { this.toast('Perubahan akses tersimpan. Sinkronisasi perangkat: Pending.', 'info'); }
                     return this.loadPermissions(this._perm.id);
-                }).catch(err => this.toastError(err)).finally(() => { button.disabled = false; delete button.dataset.busy; });
+                }).catch(err => { this.closeModal(); this.toastError(err); const slot = this.panel('permissions').querySelector('[data-ca-slot="dirty"]'); if (slot) slot.innerHTML = '<span>State belum terkonfirmasi. </span><button type="button" class="btn-secondary btn-sm" data-ca-action="perm-refresh">Retry baca</button>'; }).finally(() => { button.disabled = false; delete button.dataset.busy; });
             }
             // flow
             case 'flow-close': return this.closeFlow();

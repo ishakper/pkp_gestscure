@@ -22,6 +22,8 @@ services:
     image: securegate-staging:integration-card-access-existing-api
     ports:
       - "127.0.0.1:18090:80"
+    volumes:
+      - ./tests/staging:/var/www/html/tests/staging:ro
     depends_on:
       staging-db:
         condition: service_healthy
@@ -79,6 +81,8 @@ services:
     depends_on:
       verification-db:
         condition: service_healthy
+    volumes:
+      - ./tests/staging:/var/www/html/tests/staging:ro
     environment:
       APP_ENV: testing
       APP_DEBUG: false
@@ -118,9 +122,3 @@ networks:
   securegate-staging-net:
     name: securegate-staging-net-disposable
     driver: bridge
-
-
-
-
-
-

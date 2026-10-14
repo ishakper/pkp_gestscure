@@ -1,0 +1,20 @@
+<?php
+require '/var/www/html/vendor/autoload.php';
+$app = require '/var/www/html/bootstrap/app.php';
+$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+use App\Models\ActivityLog; use App\Models\Admin; use App\Models\Building; use App\Models\CredentialDeviceSync; use App\Models\CredentialRecord; use App\Models\Door; use App\Models\DoorAssignment; use App\Models\Employee; use Illuminate\Support\Facades\Hash;
+if(config('database.default')!=='pgsql'||config('database.connections.pgsql.database')!=='securegate_staging') throw new RuntimeException('Refusing non-disposable database');
+$run=preg_replace('/[^a-z0-9-]/i','-',$argv[2]??date('YmdHis')); $command=$argv[1]??'fixture';
+if(in_array($command,['fixture','fixture-clean'],true)){
+ $clean=$command==='fixture-clean'; $building=Building::create(['code'=>"B-UI-$run",'name'=>"UI Batch $run"]);
+ $doors=collect(['A','B'])->map(fn(string $s)=>Door::create(['door_id'=>"UI-$run-$s",'door_name'=>"UI Door $run $s",'location'=>$building->name,'building_id'=>$building->id,'building_name'=>$building->name,'device_ip'=>'192.0.2.10','connection_status'=>'online']));
+ $employee=Employee::create(['employee_id'=>"UI-$run",'nik'=>"UI-NIK-$run",'name'=>"UI Fixture $run",'department'=>'QA','role'=>'Staff','employment_status'=>'ACTIVE']);
+ $credential=CredentialRecord::create(['credential_number'=>"UI-CRED-$run",'employee_id'=>$employee->id,'credential_type'=>'CARD','card_number'=>"UI-CARD-$run",'masked_identifier'=>'****'.substr($run,-4),'status'=>'ACTIVE']);
+ if(!$clean)$doors->each(fn(Door $d)=>DoorAssignment::create(['employee_id'=>$employee->id,'door_id'=>$d->id,'sync_status'=>'pending']));
+ $own=Admin::create(['name'=>"UI Own $run",'email'=>"ui-own-$run@example.test",'password'=>Hash::make('password'),'role'=>'building_admin','assigned_building'=>$building->name,'must_change_password'=>false]);
+ $other=Building::create(['code'=>"B-UI-X-$run",'name'=>"UI Other $run"]); $cross=Admin::create(['name'=>"UI Cross $run",'email'=>"ui-cross-$run@example.test",'password'=>Hash::make('password'),'role'=>'building_admin','assigned_building'=>$other->name,'must_change_password'=>false]); $none=Admin::create(['name'=>"UI None $run",'email'=>"ui-none-$run@example.test",'password'=>Hash::make('password'),'role'=>'employee','must_change_password'=>false]);
+ $unknown=$clean?null:CredentialDeviceSync::create(['door_id'=>$doors->first()->id,'credential_record_id'=>$credential->id,'employee_id'=>$employee->id,'operation'=>'ADD','status'=>'UNKNOWN','attempt_count'=>1,'error_summary'=>'UI fixture unknown','idempotency_key'=>"ui-unknown-$run"]);
+ echo json_encode(['run_id'=>$run,'employee_id'=>$employee->id,'employee_business_id'=>$employee->employee_id,'door_ids'=>$doors->pluck('id')->values(),'door_business_ids'=>$doors->pluck('door_id')->values(),'building_id'=>$building->id,'building_name'=>$building->name,'credential_id'=>$credential->id,'accounts'=>['own'=>$own->id,'cross'=>$cross->id,'none'=>$none->id],'unknown_sync_id'=>$unknown?->id],JSON_THROW_ON_ERROR),PHP_EOL; exit(0);
+}
+if($command!=='assert')throw new InvalidArgumentException('Use fixture, fixture-clean or assert'); $employeeId=(int)($argv[3]??0); $doorIds=array_values(array_filter(array_map('intval',explode(',',$argv[4]??'')))); $syncIds=array_values(array_filter(array_map('intval',explode(',',$argv[5]??''))));
+$assignments=DoorAssignment::where('employee_id',$employeeId)->whereIn('door_id',$doorIds)->get(['id','employee_id','door_id','sync_status','sync_attempts','last_sync_error'])->toArray(); $syncs=CredentialDeviceSync::where('employee_id',$employeeId)->when($syncIds,fn($q)=>$q->whereIn('id',$syncIds))->get(['id','door_id','status','attempt_count','error_summary','lease_token','lease_expires_at'])->toArray(); $audits=ActivityLog::where('subject_type','Employee')->where('subject_id',$employeeId)->latest('id')->get(['id','admin_id','action','subject_type','subject_id','description'])->toArray(); echo json_encode(['employee_id'=>$employeeId,'door_ids'=>$doorIds,'assignment_count'=>count($assignments),'assignments'=>$assignments,'syncs'=>$syncs,'audits'=>$audits],JSON_THROW_ON_ERROR),PHP_EOL;
