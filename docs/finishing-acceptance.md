@@ -50,3 +50,11 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - Dashboard pagination runtime `18091`: fixture run `dash202610142225443047`, Gedung A `121` ACTIVE and Gedung B `37` INACTIVE; desktop/mobile filter selected building `120`, pagination `7` pages, Next page `2`, Previous page `1`, search narrowed to one row, no pageerror. Evidence: `artifacts/dashboard-pagination/result.json` and screenshots.
 - Defect fixed in `ddf2e67`: inline Pengguna handlers were not exposed globally; Next/Previous raised `loadEmployees is not defined`.
 - Detail/edit persistence, organization dropdowns, mid-page error/invalid pagination, and rapid-filter cancellation remain OPEN.
+
+## Batch 2 update (2026-10-15)
+- Lookup failure/loss recovery: PASS on disposable `18091`; existing relations preserved under `503` and delayed lookup, invalid department `422` visible in DOM, no business write. App checkpoint: `ebe75b7`.
+- Mid-page metrics failure: PASS after `90d327c`; page `2` synthetic `503` yields `—` metrics, visible recovery error, no stale complete total, loading terminates.
+- Invalid pagination metadata: PASS after `90d327c`; missing `total_pages` causes one bounded request, `—` metrics, visible error, no loop.
+- Force→non-force scheduler: PASS; controlled trace shows force timer `100ms` created and callback executes, no cooldown replacement; rapid B→A ends on A without stale scope overwrite. Evidence runner output retained in task artifacts.
+- Active disposable image: `securegate-batch1-app-20261014`, image digest `1107fd07246c...`; `dashboard.js` source/container/HTTP SHA-256 `8D16E6027806FACF7AC61B6078D0C8CF72105D8BD28B1200999D40CAFD9E4FC3`.
+- Snapshot preview `18090` untouched. Physical revoke/readback remains UNSUPPORTED. Full regression and preview refresh remain pending final integration review.
