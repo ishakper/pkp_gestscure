@@ -1194,6 +1194,8 @@
         .unknown-user { color: #fca5a5; font-style: italic; font-size: 0.8rem; }
 
         /* Modals */
+        body.modal-open { overflow: hidden; }
+
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -1220,6 +1222,7 @@
             padding: 1.75rem;
             max-height: 90vh;
             overflow-y: auto;
+            overscroll-behavior: contain;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
         }
 

@@ -99,20 +99,38 @@ function showToast(message, type = 'success', duration = 3500) {
 // ==========================================
 // Modal Window Utility (Universal Modal Control)
 // ==========================================
+let activeModalTrigger = null;
+let modalScrollTop = 0;
+
+function modalFocusable(modal) {
+    return [...modal.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+        .filter((element) => !element.disabled && element.offsetParent !== null);
+}
+
 function openModal(modalId) {
     const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
     if (!modal) return;
     if (modal.parentElement !== document.body) document.body.appendChild(modal);
+    activeModalTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modalScrollTop = window.scrollY;
     modal.classList.add('active');
+    modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('modal-open');
+    const first = modalFocusable(modal)[0] || modal;
+    if (first === modal) modal.setAttribute('tabindex', '-1');
+    requestAnimationFrame(() => first.focus({ preventScroll: true }));
 }
 
 function closeModal(modalId) {
     const modal = typeof modalId === 'string' ? document.getElementById(modalId) : modalId;
     if (!modal) return;
     modal.classList.remove('active');
+    modal.setAttribute('aria-hidden', 'true');
     if (!document.querySelector('.modal-overlay.active')) {
         document.body.classList.remove('modal-open');
+        window.scrollTo(0, modalScrollTop);
+        if (activeModalTrigger && document.contains(activeModalTrigger)) activeModalTrigger.focus({ preventScroll: true });
+        activeModalTrigger = null;
     }
 }
 window.openModal = openModal;
