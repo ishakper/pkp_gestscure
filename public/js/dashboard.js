@@ -2011,6 +2011,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initial data loading. Doors load first so a remembered building can scope the access log.
     restoreBuildingFilter();
     loadDashboardBuildings();
+    loadOrganizationLookup();
     loadDoors().finally(loadAccessLogs);
     loadEmployees();
     if (hasCapability('audit.view')) {
