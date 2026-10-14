@@ -33,3 +33,5 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - UNKNOWN API: PASS, fixture `az1446`: authenticated retry returns `422`; status remains `UNKNOWN`; no retry job created.
 - UNKNOWN UI desktop/mobile: OPEN. Browser reached Device Sync view but rendered no `az1446` fixture row; observed only filter label `Unknown`. No retry control or mutation beyond login observed. Evidence: `artifacts/unknown-ui-az1446`.
 - Snapshot preview `18090` untouched. Physical revoke/readback remains UNSUPPORTED.
+- UNKNOWN UI: PASS, fixture `az1447`; API response includes sync `48`, employee `UI-az1447`, door `UI-az1447-A`, status `UNKNOWN`, reason `UI fixture unknown`; desktop/mobile render row with `UNKNOWN` and `NOT VERIFIED`, visible retry controls `0`, and no non-login mutation. Trace: `artifacts/unknown-ui-az1446/trace-desktop.json`, `trace-mobile.json`; screenshots/results: `artifacts/unknown-ui-az1447`.
+- Root cause of earlier empty row: fixture actor lacked `employee_id`/employee building scope while Device Sync query requires building scope. Fixed disposable fixture helper only; application query unchanged.
