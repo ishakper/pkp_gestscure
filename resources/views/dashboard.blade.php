@@ -310,6 +310,8 @@
 
         /* Main Content Area */
         .main-content {
+            position: relative;
+            isolation: isolate;
             margin-left: 0;
             flex: 1;
             padding: 2rem 2.5rem;
@@ -324,6 +326,58 @@
         html.sidebar-open .main-content {
             margin-left: 270px;
             max-width: calc(100vw - 270px);
+        }
+
+        .main-content > :not(.pkp-watermark) {
+            position: relative;
+            z-index: 1;
+        }
+
+        .pkp-watermark {
+            position: absolute;
+            z-index: 0;
+            top: 36vh;
+            left: 50%;
+            width: clamp(20rem, 48vw, 42rem);
+            height: auto;
+            opacity: 0.08;
+            pointer-events: none;
+            user-select: none;
+            transform: translate(-50%, -50%);
+            animation: pkp-watermark-drift 21s ease-in-out infinite;
+        }
+
+        @keyframes pkp-watermark-drift {
+            0%, 100% {
+                opacity: 0.065;
+                transform: translate(-50%, calc(-50% - 4px)) scale(1);
+            }
+            50% {
+                opacity: 0.085;
+                transform: translate(-50%, calc(-50% + 4px)) scale(1.01);
+            }
+        }
+
+        @media (max-width: 640px) {
+            .pkp-watermark {
+                width: clamp(15rem, 64vw, 25rem);
+                opacity: 0.065;
+                animation-duration: 22s;
+            }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .pkp-watermark {
+                animation: none;
+                opacity: 0.07;
+                transform: translate(-50%, -50%);
+            }
+        }
+
+        @media print {
+            .pkp-watermark {
+                display: none;
+            }
         }
 
         /* Smooth fade-out of internal navigation items when closed */
@@ -1550,6 +1604,8 @@
 
 <!-- Main Workspace -->
 <main class="main-content" id="mainContent">
+
+    <img class="pkp-watermark" src="{{ asset('images/pkp-watermark.png') }}?v={{ substr(hash_file('sha256', public_path('images/pkp-watermark.png')), 0, 12) }}" alt="" aria-hidden="true">
 
     <!-- Top Bar -->
     <div class="top-bar">
@@ -5877,3 +5933,4 @@
 
 </body>
 </html>
+
