@@ -262,9 +262,11 @@ async function apiFetchForm(endpoint, formData) {
 let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
 let metricsAbortController = null;
+let metricsForceRefreshPending = false;
 
 function scheduleMetricCardsUpdate(force = false) {
     if (document.hidden || isRedirectingToLogin) return;
+    if (!force && metricsForceRefreshPending) return;
     clearTimeout(metricsDebounceTimer);
 
     const now = Date.now();
@@ -272,7 +274,11 @@ function scheduleMetricCardsUpdate(force = false) {
     const cooldown = 15000; // minimum 15 seconds between metrics updates
 
     if (force || elapsed >= cooldown) {
-        metricsDebounceTimer = setTimeout(updateMetricCards, 100);
+        metricsForceRefreshPending = force;
+        metricsDebounceTimer = setTimeout(() => {
+            metricsForceRefreshPending = false;
+            updateMetricCards();
+        }, 100);
     } else {
         metricsDebounceTimer = setTimeout(updateMetricCards, cooldown - elapsed);
     }
