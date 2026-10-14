@@ -44,3 +44,5 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - Initial source audit found KPI active-user fallback could report total users when active count was zero; removed.
 - Initial source audit found dashboard credential metric capped employee lookup at five pages; removed cap and retained API pagination termination.
 - `public/js/dashboard.js` syntax check: PASS. Runtime UI evidence: OPEN; use disposable for mutations and `18090` read-only only.
+
+- Dashboard/Pengguna browser smoke `18091`: desktop/mobile metrics render, building filter present, search empty-state path exercised, console/pageerror zero; artifact `artifacts/dashboard-runtime/result.json`. Login POST only; no business mutation. Fixture >5 pages and edit/persistence remain OPEN.
