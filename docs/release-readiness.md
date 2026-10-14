@@ -31,3 +31,7 @@ Dashboard/Pengguna selesai pada cakupan teruji dan aktif di preview lokal. Batch
 
 ## Notification Rule
 Report only meaningful status changes, regressions, target mismatch, data/secret/scope/device risk, external blockers, or completion of all release gates. Readiness is not deployment authorization. Post-deploy status remains separate.
+## Device Batch Update (2026-10-15)
+- Diagnose single mock: PASS for disposable harness target `D-985762D` (`192.0.2.65`); UI request reached `/admin/doors/D-985762D/check-connection`, mock returned online, toast confirmed responsive terminal.
+- Diagnose All: OPEN. Endpoint iterates all visible `Door` rows; complete target isolation for mixed legacy/harness staging rows is not yet proven.
+- Device controls Edit, Maintenance, View Logs, Sync Users, and Remote Unlock remain OPEN for end-to-end mock evidence.
