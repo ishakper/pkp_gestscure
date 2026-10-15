@@ -123,3 +123,23 @@ Database rollback is not part of app rollback. Dropping additive columns is proh
 
 - Old app compatibility is proven only for boot/read/query against additive schema. Old worker compatibility is not proven.
 - Old worker remains stopped until queue/job payload compatibility, lease behavior, and drain/reconciliation procedure are separately rehearsed.
+
+## Backend Handoff Freeze (2026-10-15)
+
+- Count definitions for UI handoff: `109` = all employee rows including soft-deleted; `97` = rows with `deleted_at IS NULL`; `96` = non-deleted rows with `employment_status=ACTIVE`. These are distinct metrics and must not share a generic total-users label.
+- Evidence frozen: backup/hash, restore, additive schema rehearsal, business digests, candidate boot, candidate queue configuration, and mock worker correlation. No repeated smoke or new feature work planned.
+
+## Limited App-only Rollback
+
+- Pause/drain only candidate queue names before switching app; do not consume candidate queue with old workers.
+- New lease-aware jobs and payloads are not eligible for old workers. Keep old workers stopped.
+- `PROCESSING` rows require lease/readback inspection; `UNKNOWN` rows remain unresolved and are never converted to success or deleted.
+- App-only rollback switches to the last-known-good image while preserving DB, additive columns, queue rows, audit, and lease state.
+- Reactivate a worker only after its image supports the same job payload, lease semantics, mock/production boundary, and reconciliation procedure. No old-worker reactivation is planned for current rollback.
+
+## Remaining Release Dependencies
+
+- UI branch/PR from Yazied and ownership review.
+- Combined candidate image, full regression, and impacted acceptance/rehearsal.
+- Final candidate/server diff review and release approval.
+- Production schema migration authorization remains separate from disposable rehearsal.
