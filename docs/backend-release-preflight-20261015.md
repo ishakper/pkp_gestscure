@@ -29,3 +29,11 @@ Status: `BELUM SIAP DEPLOY`
 ## Integration Gate
 
 After Yazied UI branch/PR arrives: verify base and file ownership, integrate surgically, build one combined candidate image, run full regression, then test that same image against an isolated backup copy. Update this document using the exact combined commit/image; do not reuse readiness from an older candidate.
+## Runtime Worker Rehearsal (2026-10-15)
+
+- Worker path tested: `SyncDoorAccessJob` only; `ProcessCredentialDeviceSyncJob` is not included in this evidence.
+- Disposable DB identity: container `securegate-device-batch-pg-20261015`, database `securegate_device_batch_20261015`; no production/schema-server inference.
+- Fixture: employee `1`, door `6`, assignment `1`; queue `worker-device-20261015`; one job was stored, one isolated worker consumed it, and no competing supervisor used that queue.
+- Final readback: `door_assignments.id=1` became `sync_status=synced`, `sync_attempts=1`, `last_sync_error=NULL`; queue row count became `0`; audit `sync_door_success` recorded for subject `1`.
+- App/worker image: `securegate-device-batch:handoff-970546c`; mock target `mock-device`; real-device outbound remained blocked.
+- Artifact: `runtime-worker-rehearsal-20261015.json` outside Git. Mock container did not retain request access logs, so request-log correlation remains an evidence gap; success is based on worker completion, target-mock config, state, and audit—not physical-device confirmation.
