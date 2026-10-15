@@ -64,7 +64,10 @@ class RemoteUnlockDoorTest extends TestCase
      */
     public function test_remote_control_door_service_in_mock_mode(): void
     {
-        Config::set('services.hikvision.use_mock', true);
+        Config::set([
+            'services.hikvision.use_mock' => true,
+            'services.hikvision.mock_http' => false,
+        ]);
 
         $result = $this->service->remoteControlDoor($this->doorB, 'open');
 
