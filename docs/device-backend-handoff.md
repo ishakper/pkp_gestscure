@@ -38,4 +38,13 @@ Source checkpoint: `970546ce91edd9881a5eb0b81587a288402edaa1`
 - Service source/runtime SHA-256: `2D9C93994764D2F57A040D4FBF73F2FDF33B64E706B42B1AB95F6E3A06C8396F`.
 - Remote Unlock suite: `14 tests / 30 assertions`, exit `0`.
 - Provisioning/queue/authorization suite: `33 tests / 146 assertions`, exit `0`.
+- Combined targeted backend regression: `47 tests / 166 assertions`, exit `0`.
+- Full Feature regression: `599 passed / 11 failed` out of `610 tests`, `2769 assertions`; failures are outside the device-control scope (one dashboard.js expectation owned by Yazied and ten existing hardware/attendance permission-fixture failures). No unrelated patch applied.
 - Disposable guard and PostgreSQL verification DB only. No production, snapshot, or physical-device writes.
+
+## Runtime Reproducibility
+
+- Disposable DB identity verified: `securegate_device_batch_20261015` with test-only user `securegate_device_test`.
+- Clean runtime image: `securegate-device-batch:handoff-970546c`, manifest `sha256:5e036ccb61b14408e68f325c5487abade2b5186bd19fb1308cd161e4768ab87e`.
+- Verification image: `securegate-verification:handoff-95dac55-r2`, image ID `sha256:47bf0867cadd07134ff168f0796a8d620bcb3f40991988521ec595feb48905e6`.
+- JUnit artifacts are stored outside the repository under the local device-artifacts directory.
