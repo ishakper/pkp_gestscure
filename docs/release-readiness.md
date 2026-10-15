@@ -35,3 +35,5 @@ Report only meaningful status changes, regressions, target mismatch, data/secret
 - Diagnose single mock: PASS for disposable harness target `D-985762D` (`192.0.2.65`); UI request reached `/admin/doors/D-985762D/check-connection`, mock returned online, toast confirmed responsive terminal.
 - Diagnose All: OPEN. Endpoint iterates all visible `Door` rows; complete target isolation for mixed legacy/harness staging rows is not yet proven.
 - Device controls Edit, Maintenance, View Logs, Sync Users, and Remote Unlock remain OPEN for end-to-end mock evidence.
+- Follow-up: mock adapter container emitted no retained log for the prior single Diagnose window; online result remains UI/API evidence only until adapter/request correlation is captured.
+- Diagnose All was not run against mixed staging data; no new DB/runtime was claimed as complete.
