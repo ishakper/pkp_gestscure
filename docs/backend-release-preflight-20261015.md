@@ -108,3 +108,18 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 6. Re-run login, API, audit, and read-only dashboard checks.
 
 Database rollback is not part of app rollback. Dropping additive columns is prohibited.
+
+## Employee Count Reconciliation (2026-10-15)
+
+- Both candidate and last-known-good app read the same DB: `securegate-preserve-rehearsal-pg-20261015`, database `preserve_restore`, user `preserve_restore`; read times were `2026-10-15T14:43:57+07:00` and `2026-10-15T14:43:58+07:00`.
+- Direct SQL `select count(*) from employees`: `109`.
+- `Employee::withTrashed()->count()`: `109`.
+- Default `Employee::count()`: `97`; the model uses Laravel `SoftDeletes`, so this is the non-deleted subset (`where deleted_at is null`).
+- `whereNull(deleted_at)->where(employment_status, ACTIVE)`: `96`; one non-deleted employee is not ACTIVE. The API index also applies optional request filters and pagination, so UI/API totals must be labeled by query/filter, not as total physical rows.
+- Candidate and old app returned identical SQL/model values. No data was changed to reconcile the numbers.
+- Digest method retained: MD5 of ordered concatenated `id`, employee/door foreign keys, status/name fields for `door_assignments`, `employees`, and `doors`; this is an invariant check for those columns only, not a whole-database checksum.
+
+## Worker Rollback Boundary
+
+- Old app compatibility is proven only for boot/read/query against additive schema. Old worker compatibility is not proven.
+- Old worker remains stopped until queue/job payload compatibility, lease behavior, and drain/reconciliation procedure are separately rehearsed.
