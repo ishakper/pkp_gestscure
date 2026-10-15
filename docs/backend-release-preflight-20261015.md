@@ -66,3 +66,17 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 - Candidate-only runtime changes requiring explicit compatibility review: mock HTTP parser boundary in `HikvisionIsapiService`, `ProcessCredentialDeviceSyncJob`, lease metadata migration, and related backend contract/tests.
 - Preserved server behavior: existing `SyncDoorAccessJob` and `BiometricProvisioningController` file content matches candidate hashes.
 - Rollback risk: candidate queue/lease path cannot be activated against current production schema without an approved schema plan and isolated rehearsal.
+
+## Backup and Schema Rehearsal (2026-10-15)
+
+- Host backup locations were inventoried; historical dumps exist under `/home/infra/backups` and `/home/infra/access-door-management/backups`.
+- New authorized backup: `/home/infra/backups/securegate-predeploy-20261015T070607Z.dump`; size `448927` bytes; mode `600`; SHA-256 `4802fa917791e3612ad3faff742107e422ee05b56f0a73aa5007ef228106bba9`; archive check `PASS` via PostgreSQL 16 `pg_restore --list`.
+- Restore target: brand-new container `securegate-release-rehearsal-pg-20261015`, database `securegate_rehearsal`, user `securegate_rehearsal`, volume `securegate-release-rehearsal-vol-20261015`. Existing DBs/volumes were preserved.
+- Restored baseline counts: `door_assignments=98`, `employees=109`, `doors=4`, `credential_device_syncs=0`.
+- Reviewed additive lease rehearsal ran only on the new restored DB: nullable `lease_token` plus unique index, indexed `lease_expires_at`, and nullable `network_started_at`. No production migration ran.
+- Candidate app/worker smoke against this restored copy remains OPEN because candidate image is not installed on the server audit host. Do not treat schema-only rehearsal as candidate compatibility PASS.
+
+## Release Options
+
+- Option A (recommended): additive schema migration first on an approved maintenance path, then app image, then isolated worker; retain new nullable columns on rollback. Requires migration rehearsal with the exact candidate image and production approval.
+- Option B: limited release only if lease-dependent routes/jobs are excluded at source and tested as absent, not merely hidden by `SKIP_MIGRATIONS` or a feature flag. Current source does not have evidence for this separation; do not select Option B.
