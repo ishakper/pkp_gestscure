@@ -73,6 +73,48 @@ class RemoteUnlockDoorTest extends TestCase
         $this->assertEquals('Simulated door unlock successful', $result['message']);
     }
 
+    public function test_remote_control_door_accepts_json_only_for_mock_http(): void
+    {
+        Config::set([
+            'services.hikvision.use_mock' => true,
+            'services.hikvision.mock_http' => true,
+            'services.hikvision.mock_target_header' => true,
+        ]);
+        Http::fake(['*' => Http::response(['statusCode' => 1, 'request_id' => 'mock-1'], 200)]);
+
+        $result = $this->service->remoteControlDoor($this->doorB, 'open');
+
+        $this->assertTrue($result['status']);
+        Http::assertSent(fn ($request) => $request->hasHeader('X-Test-Device-Target', '192.168.90.15'));
+    }
+
+    public function test_remote_control_door_rejects_invalid_mock_http_json(): void
+    {
+        Config::set([
+            'services.hikvision.use_mock' => true,
+            'services.hikvision.mock_http' => true,
+            'services.hikvision.mock_target_header' => true,
+        ]);
+        Http::fake(['*' => Http::response(['invalid' => true], 200)]);
+
+        $result = $this->service->remoteControlDoor($this->doorB, 'open');
+
+        $this->assertFalse($result['status']);
+        $this->assertSame(200, $result['statusCode']);
+    }
+
+    public function test_remote_control_door_does_not_accept_json_when_mock_mode_is_off(): void
+    {
+        Config::set([
+            'services.hikvision.use_mock' => false,
+            'services.hikvision.mock_http' => true,
+        ]);
+        Http::fake(['*' => Http::response(['statusCode' => 1], 200)]);
+
+        $result = $this->service->remoteControlDoor($this->doorB, 'open');
+
+        $this->assertFalse($result['status']);
+    }
     public function test_remote_control_door_rejects_unverified_commands(): void
     {
         Config::set('services.hikvision.use_mock', true);

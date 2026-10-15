@@ -35,7 +35,7 @@ Report only meaningful status changes, regressions, target mismatch, data/secret
 - Local integration branch contains the isolated device-batch changes; no push or deployment has occurred from this checkout.
 - Dashboard/Pengguna evidence remains frozen at the previously recorded PASS scope.
 - Device controls: Maintenance is PASS end-to-end on disposable `DOOR-B` with UI, DB state, and two `override_door_status` audit entries matching. Door edit/diagnose evidence remains scoped to the fixtures recorded in the acceptance matrix.
-- Remote Unlock mock HTTP returned JSON `statusCode=1` while service accepted only XML, causing HTTP 500. A mock-only parser compatibility patch is present in the working tree but runtime verification remains OPEN.
+- Remote Unlock mock HTTP JSON `statusCode=1` is accepted only in mock mode; one disposable `DOOR-B` click returned UI success and one `remote_door_opened` audit row. Physical unlock remains unverified and unsupported.
 - Sync Users navigation is confirmed; provisioning/job behavior remains OPEN pending employee, credential, and assignment fixture.
 - Mobile Diagnose/Edit and invalid-IP browser validation remain OPEN.
 
