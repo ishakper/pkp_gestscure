@@ -89,3 +89,22 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 - Candidate worker smoke used a new fixture and unique queue `restore-worker3-20261015`: job `5` -> assignment `124` -> one worker -> five mock requests targeting `192.0.2.255` -> assignment `synced` and audit. Restored production jobs were not processed.
 - Artifact: `candidate-restore-worker-smoke-20261015.json` outside Git. This is preliminary compatibility evidence, not final combined-candidate acceptance.
 - First smoke attempt failed before app processing because the disposable network lacked the `mock-device` alias; no old job was retried. A fresh fixture passed after alias correction.
+
+## Candidate Identity and Preservation (2026-10-15)
+
+- Source/runtime candidate image: source checkpoint `970546ce91edd9881a5eb0b81587a288402edaa1`; image `securegate-device-batch:handoff-970546c`; manifest `sha256:5e036ccb61b14408e68f325c5487abade2b5186bd19fb1308cd161e4768ab87e`.
+- Documentation checkpoint is newer than the image source; docs commits do not imply a rebuilt runtime image.
+- Candidate release-like rehearsal used `QUEUE_CONNECTION=database`, `SKIP_MIGRATIONS=true`, scheduler disabled, unique test queue, and mock-only outbound. Restored queue rows were not processed.
+- Business preservation rehearsal on a second fresh restore produced identical digests before/after additive migration: door assignments `803c0c3c0cb277a3ed600f6816a1d4e4`, employees `e25edfd0e9091472630371e5055f2437`, doors `bb52228a148873201cb20604d2502a56`; counts remained `109/4/98`.
+- Last-known-good app image `pkp-securegate:3d6e3ef-prod` booted and read the additive schema; routes loaded and counts were `97/4/98`. No old worker was started.
+
+## Rollback Order
+
+1. Stop/drain candidate worker and prevent new candidate queue intake.
+2. Verify app/worker health, queue depth, failed jobs, lease rows, and audit state.
+3. Switch app only to the last-known-good immutable image; keep additive columns and data.
+4. Start only the approved old worker configuration after compatibility checks.
+5. Reconcile `UNKNOWN` lease/device outcomes explicitly; never delete lease columns or infer physical success.
+6. Re-run login, API, audit, and read-only dashboard checks.
+
+Database rollback is not part of app rollback. Dropping additive columns is prohibited.
