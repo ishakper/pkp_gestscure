@@ -27,6 +27,18 @@ Snapshot: 14 October 2026, 16:01:15 WIB. Preview: `http://127.0.0.1:18090/`.
 - No production/parity writes, deployment, server sync-back, device access, or snapshot migration.
 - Do not claim operational readiness while any `OPEN`, `BLOCKED`, or `UNSUPPORTED` row remains on critical paths.
 
+## Device handoff matrix (2026-10-15)
+
+| ID | Scope | Status | Evidence / boundary |
+|---|---|---|---|
+| DEV-MAINT-01 | `DOOR-B` maintenance enter/exit | PASS (disposable) | UI, `is_manual_override` DB readback, and two `override_door_status` audit rows match |
+| DEV-UNLOCK-01 | Mock Remote Unlock | OPEN | Prior POST returned 500 because mock JSON `statusCode=1` was parsed as failed XML; scoped parser patch not runtime-verified |
+| DEV-SYNC-01 | Sync Users | OPEN | `openDoorUsers(doorId)` navigation confirmed; no employee/credential/assignment provisioning fixture yet |
+| DEV-MOBILE-01 | Mobile Diagnose/Edit | OPEN | Existing mobile harness not rerun after current device batch changes |
+| DEV-IP-01 | Invalid IP submit | OPEN | Browser-vs-backend rejection and zero-write DB evidence incomplete |
+
+Release remains `BELUM SIAP DEPLOY`; no production, snapshot, server, or physical-device mutation is authorized.
+
 ## Batch 1 final evidence (2026-10-14)
 - Timeout desktop/mobile: PASS, fixtures `tw1441`/`tw1442`, artifact `artifacts/timeout-final`.
 - Authorization API: PASS, fixture `az1445`: own `200`; cross/no-permission `403`; DB/audit readback confirms denial has no business write. Invalid UNKNOWN attempt `az1445` returned `500`; retained as invalid fixture run, not PASS.

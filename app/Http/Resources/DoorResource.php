@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Models\Building;
+
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,6 +11,11 @@ class DoorResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $inferredBuildings = $this->building_id || !$this->location ? collect() : Building::query()
+            ->where(fn ($query) => $query->where('name', $this->location)->orWhere('code', $this->location))
+            ->get(['id', 'name']);
+        $inferredBuilding = $inferredBuildings->count() === 1 ? $inferredBuildings->first() : null;
+
         return [
             'id' => $this->id,
             'door_id' => $this->door_id,
@@ -16,6 +23,9 @@ class DoorResource extends JsonResource
             'location' => $this->location,
             'building_id' => $this->building_id,
             'building_name' => $this->building?->name,
+            'building_inferred_id' => $inferredBuilding?->id,
+            'building_inferred_name' => $inferredBuilding?->name,
+            'building_inference_ambiguous' => $inferredBuildings->count() > 1,
             'zone_id' => $this->zone_id,
             'device_ip' => $this->device_ip ?? $this->ip_address,
             'gateway' => $this->gateway,

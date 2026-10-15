@@ -20,6 +20,15 @@ class AdminDoorController extends Controller
 {
     public function __construct(private readonly PortalAccess $portalAccess) {}
 
+    private function diagnosisReason(array $statusResult): string
+    {
+        $statusCode = (int) ($statusResult['statusCode'] ?? 0);
+        if ($statusCode === 401) return 'auth_error';
+        if ($statusCode === 502) return 'invalid_response';
+        if ($statusCode === 500 && str_contains(strtolower((string) ($statusResult['error'] ?? '')), 'connection')) return 'timeout_or_unreachable';
+        return $statusCode >= 400 ? 'device_error' : 'unknown';
+    }
+
     #[OA\Get(
         path: '/admin/dashboard-metrics',
         summary: 'Metrik Dashboard Admin',
@@ -356,6 +365,7 @@ class AdminDoorController extends Controller
         $isOnline = (bool) ($statusResult['status'] ?? false);
         $connStatus = $isOnline ? 'online' : 'offline';
         $healthStatus = $isOnline ? 'online' : ((int) ($statusResult['statusCode'] ?? 0) === 401 ? 'auth_error' : 'offline');
+        $diagnosisReason = $isOnline ? 'online' : $this->diagnosisReason($statusResult);
 
         $door->update([
             'status' => $connStatus,
@@ -381,6 +391,7 @@ class AdminDoorController extends Controller
                 : "Terminal pintu {$door->door_id} offline: " . ($statusResult['error'] ?? 'Device unreachable'),
             'is_online' => $isOnline,
             'health_status' => $healthStatus,
+            'diagnosis_reason' => $diagnosisReason,
             'data' => new DoorResource($door->fresh()),
             'isapi_details' => $statusResult['data'] ?? null,
         ]);
@@ -426,6 +437,7 @@ class AdminDoorController extends Controller
             $isOnline = (bool) ($statusResult['status'] ?? false);
             $connStatus = $isOnline ? 'online' : 'offline';
             $healthStatus = $isOnline ? 'online' : ((int) ($statusResult['statusCode'] ?? 0) === 401 ? 'auth_error' : 'offline');
+        $diagnosisReason = $isOnline ? 'online' : $this->diagnosisReason($statusResult);
 
             $door->update([
                 'status' => $connStatus,
@@ -440,6 +452,7 @@ class AdminDoorController extends Controller
                 'is_online' => $isOnline,
                 'status' => $connStatus,
                 'health_status' => $healthStatus,
+                'diagnosis_reason' => $diagnosisReason,
                 'last_checked_at' => $door->last_checked_at->toIso8601String(),
             ];
         }

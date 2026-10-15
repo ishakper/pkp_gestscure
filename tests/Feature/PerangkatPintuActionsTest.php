@@ -87,6 +87,57 @@ class PerangkatPintuActionsTest extends TestCase
         ]);
     }
 
+    public function test_onboard_requires_canonical_building(): void
+    {
+        $this->actingAs($this->superAdmin)->postJson('/api/v1/admin/doors', [
+            'door_id' => 'NO-BUILDING', 'name' => 'No Building', 'device_ip' => '192.168.90.30',
+            'device_model' => 'DS-K1T804AMF', 'isapi_username' => 'admin', 'isapi_password' => 'password',
+        ])->assertUnprocessable()->assertJsonValidationErrors('building_id');
+    }
+
+    public function test_partial_update_preserves_canonical_assignment_and_omitted_fields(): void
+    {
+        $before = $this->door->fresh()->only(['building_id', 'location', 'device_ip', 'device_model']);
+        $this->actingAs($this->superAdmin)->putJson("/api/v1/admin/doors/{$this->door->door_id}", [
+            'door_id' => $this->door->door_id, 'name' => 'Name Only Update',
+            'device_ip' => $this->door->device_ip, 'device_model' => $this->door->device_model,
+        ])->assertOk();
+
+        $after = $this->door->fresh();
+        $this->assertSame('Name Only Update', $after->name);
+        $this->assertSame($before['building_id'], $after->building_id);
+        $this->assertSame($before['location'], $after->location);
+        $this->assertSame($before['device_ip'], $after->device_ip);
+        $this->assertSame($before['device_model'], $after->device_model);
+    }
+
+    public function test_partial_update_keeps_legacy_assignment_null(): void
+    {
+        $legacy = Door::create([
+            'door_id' => 'LEGACY-PARTIAL', 'name' => 'Legacy Door', 'location' => $this->building->name,
+            'building_id' => null, 'device_ip' => '192.168.90.31', 'device_model' => 'DS-K1T804AMF',
+            'status' => 'online', 'connection_status' => 'online',
+        ]);
+        $this->actingAs($this->superAdmin)->putJson("/api/v1/admin/doors/{$legacy->door_id}", [
+            'door_id' => $legacy->door_id, 'name' => 'Legacy Renamed',
+            'device_ip' => $legacy->device_ip, 'device_model' => $legacy->device_model,
+        ])->assertOk();
+
+        $this->assertDatabaseHas('doors', [
+            'id' => $legacy->id, 'name' => 'Legacy Renamed', 'building_id' => null, 'location' => $this->building->name,
+        ]);
+    }
+
+    public function test_invalid_building_rejected_without_write(): void
+    {
+        $before = $this->door->fresh()->getAttributes();
+        $this->actingAs($this->superAdmin)->putJson("/api/v1/admin/doors/{$this->door->door_id}", [
+            'door_id' => $this->door->door_id, 'name' => 'Should Not Save', 'building_id' => 999999,
+            'device_ip' => $this->door->device_ip, 'device_model' => $this->door->device_model,
+        ])->assertUnprocessable()->assertJsonValidationErrors('building_id');
+        $this->assertSame($before, $this->door->fresh()->getAttributes());
+    }
+
     public function test_admin_with_null_assigned_building_can_toggle_maintenance_status(): void
     {
         // 1. Enable maintenance as infra_admin (assigned_building is null)

@@ -125,6 +125,10 @@ class HikvisionIsapiService
             ->timeout($requestTimeout)
             ->acceptJson();
 
+        if ($this->isMockMode() && config('services.hikvision.mock_http', false) && config('services.hikvision.mock_target_header', false) && $door?->device_ip) {
+            $client = $client->withHeaders(['X-Test-Device-Target' => $door->device_ip]);
+        }
+
         if (!$this->isMockMode()) {
             $creds = $this->getDeviceCredentials($door);
             $client = $client->withDigestAuth($creds['username'], $creds['password']);
@@ -205,6 +209,16 @@ class HikvisionIsapiService
                 // Fallback to json if XML parsing was empty or not XML
                 if (empty($data)) {
                     $data = $response->json() ?? [];
+                }
+
+                if ($this->isMockMode() && config('services.hikvision.mock_http', false) && config('services.hikvision.mock_target_header', false)
+                    && (!is_array($data) || (!array_key_exists('statusCode', $data) && !array_key_exists('DeviceInfo', $data)))) {
+                    return [
+                        'status' => false,
+                        'statusCode' => 502,
+                        'data' => $data,
+                        'error' => 'Invalid mock device response.',
+                    ];
                 }
 
                 // Map model, serialNumber, firmware, and doorStatus cleanly
@@ -402,8 +416,12 @@ class HikvisionIsapiService
             $isSuccessStatus = in_array($response->status(), [200, 204], true);
             $hasSuccessXml = stripos($body, '<statusString>OK</statusString>') !== false
                 || stripos($body, '<subStatusCode>ok</subStatusCode>') !== false;
+            $mockPayload = $this->isMockMode() && config('services.hikvision.mock_http', false)
+                ? json_decode($body, true)
+                : null;
+            $hasSuccessMock = is_array($mockPayload) && (int) ($mockPayload['statusCode'] ?? 0) === 1;
 
-            if ($isSuccessStatus && ($hasSuccessXml || ($response->status() === 204 && trim($body) === ''))) {
+            if ($isSuccessStatus && ($hasSuccessXml || $hasSuccessMock || ($response->status() === 204 && trim($body) === ''))) {
                 return [
                     'status' => true,
                     'statusCode' => 200,

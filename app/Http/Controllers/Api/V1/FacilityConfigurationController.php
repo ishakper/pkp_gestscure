@@ -196,9 +196,9 @@ class FacilityConfigurationController extends Controller
         $this->authorizePermission($request, 'device.manage');
         $door = Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->firstOrFail();
         $data = $this->validateDoor($request, $door);
-        $building = Building::findOrFail($data['building_id']);
-        $door->update($this->doorPayload($data, $building));
-        $this->audit($request, 'door_updated', 'Door', $door->id, "Door {$door->door_id} configuration updated for {$building->name}");
+        $building = array_key_exists('building_id', $data) && $data['building_id'] !== null ? Building::findOrFail($data['building_id']) : $door->building;
+        $door->update($this->doorPayload($data, $building, $door));
+        $this->audit($request, 'door_updated', 'Door', $door->id, "Door {$door->door_id} configuration updated");
         return response()->json(['status' => 'success', 'data' => $this->doorData($door->fresh())]);
     }
 
@@ -365,23 +365,23 @@ class FacilityConfigurationController extends Controller
     private function validateDoor(Request $request, ?Door $door = null): array
     {
         return $request->validate([
-            'door_id' => ['required', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('doors', 'door_id')->ignore($door?->id)],
-            'name' => ['required', 'string', 'max:120'],
-            'building_id' => ['required', 'integer', 'exists:buildings,id'],
+            'door_id' => [$door ? 'sometimes' : 'required', 'string', 'max:50', 'regex:/^[A-Za-z0-9_-]+$/', Rule::unique('doors', 'door_id')->ignore($door?->id)],
+            'name' => [$door ? 'sometimes' : 'required', 'string', 'max:120'],
+            'building_id' => [$door ? 'sometimes' : 'required', 'nullable', 'integer', 'exists:buildings,id'],
             'zone_id' => ['nullable', 'integer', Rule::exists('zones', 'id')->where(fn ($query) => $query->where('building_id', $request->integer('building_id')))],
-            'device_ip' => ['required', 'ip', Rule::unique('doors', 'device_ip')->ignore($door?->id)],
+            'device_ip' => [$door ? 'sometimes' : 'required', 'ip', Rule::unique('doors', 'device_ip')->ignore($door?->id)],
             'gateway' => ['nullable', 'ip'],
-            'device_model' => ['required', 'string', 'max:120'],
+            'device_model' => [$door ? 'sometimes' : 'required', 'string', 'max:120'],
         ]);
     }
 
-    private function doorPayload(array $data, Building $building): array
+    private function doorPayload(array $data, ?Building $building, ?Door $door = null): array
     {
         return [
-            'door_id' => strtoupper($data['door_id']), 'name' => $data['name'],
-            'building_id' => $building->id, 'zone_id' => $data['zone_id'] ?? null,
-            'location' => $building->name, 'device_ip' => $data['device_ip'],
-            'gateway' => $data['gateway'] ?? null, 'device_model' => $data['device_model'],
+            'door_id' => strtoupper($data['door_id'] ?? $door?->door_id), 'name' => $data['name'] ?? $door?->name,
+            'building_id' => $building?->id ?? $door?->building_id, 'zone_id' => array_key_exists('zone_id', $data) ? $data['zone_id'] : $door?->zone_id,
+            'location' => $building?->name ?? $door?->location, 'device_ip' => $data['device_ip'] ?? $door?->device_ip,
+            'gateway' => array_key_exists('gateway', $data) ? $data['gateway'] : $door?->gateway, 'device_model' => $data['device_model'] ?? $door?->device_model,
         ];
     }
 

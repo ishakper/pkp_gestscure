@@ -570,7 +570,7 @@ async function toggleDoorStatus(doorId, enabled) {
         showToast(err.message || 'Perubahan maintenance tidak dapat disimpan.', 'error');
     }
 }
-
+window.toggleDoorStatus = toggleDoorStatus;
 function openDoorLogs(doorId) {
     ['logDoorFilter', 'logDoorFilterTab'].forEach(id => {
         const filter = document.getElementById(id);
@@ -742,7 +742,9 @@ async function checkAllDoors(btn) {
         });
 
         if (res.status === 'success') {
-            showToast(`Audit ISAPI Selesai: ${res.online_count}/${res.total_audited} terminal online.`, 'success');
+            const auditComplete = res.online_count === res.total_audited;
+            const reasons = (res.data || []).filter(item => !item.is_online).map(item => `${item.door_id}: ${item.diagnosis_reason || 'device_error'}`).join('; ');
+            showToast(`Audit ISAPI ${auditComplete ? 'Selesai' : 'Selesai dengan kegagalan'}: ${res.online_count}/${res.total_audited} terminal online.${reasons ? ` Alasan: ${reasons}` : ''}`, auditComplete ? 'success' : 'warning');
             await loadDoors();
         }
     } catch (err) {
@@ -6093,6 +6095,7 @@ async function openFacilityModal(doorId = null) {
         const gwEl = document.getElementById('facilityDoorGateway');
         const modelEl = document.getElementById('facilityDoorModel');
         const submitBtn = document.getElementById('facilityDoorSubmit');
+        const notice = document.getElementById('facilityDoorBuildingNotice');
 
         if (origIdEl) origIdEl.value = door?.door_id || '';
         if (idEl) idEl.value = door?.door_id || '';
@@ -6101,14 +6104,19 @@ async function openFacilityModal(doorId = null) {
         if (gwEl) gwEl.value = door?.gateway || '192.168.90.1';
         if (modelEl) modelEl.value = door?.device_model || door?.model || 'DS-K1T804AMF';
         if (submitBtn) submitBtn.textContent = door ? 'Update Door' : 'Register Door';
+        if (notice) { notice.hidden = true; notice.textContent = ''; }
 
         if (select && door) {
+            select.required = Boolean(door.building_id);
             if (door.building_id) {
                 select.value = String(door.building_id);
-            } else if (door.building_name || door.location) {
-                const loc = door.building_name || door.location;
-                const matched = (response?.data || []).find(b => b.name === loc || loc.includes(b.name) || b.name.includes(loc));
-                if (matched) select.value = String(matched.id);
+            } else if (door.building_inferred_name || door.location) {
+                if (notice) {
+                    notice.hidden = false;
+                    notice.textContent = door.building_inference_ambiguous
+                        ? 'Building legacy ambigu; pilih Building secara eksplisit sebelum menyimpan.'
+                        : `Building legacy terdeteksi dari location (${door.building_inferred_name || door.location}), bukan assignment canonical. Pilih Building untuk menyimpan.`;
+                }
             }
         }
     } catch (err) {
@@ -6129,10 +6137,11 @@ async function submitBuildingConfig(event) {
 async function submitDoorConfig(event) {
     event.preventDefault();
     const original = document.getElementById('facilityOriginalDoorId').value;
+    const buildingValue = document.getElementById('facilityDoorBuilding').value;
     const payload = {
         door_id: document.getElementById('facilityDoorId').value,
         name: document.getElementById('facilityDoorName').value,
-        building_id: Number(document.getElementById('facilityDoorBuilding').value),
+        ...(buildingValue ? { building_id: Number(buildingValue) } : {}),
         device_ip: document.getElementById('facilityDoorIp').value,
         gateway: document.getElementById('facilityDoorGateway').value || null,
         device_model: document.getElementById('facilityDoorModel').value
