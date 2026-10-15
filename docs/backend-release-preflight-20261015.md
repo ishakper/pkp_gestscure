@@ -37,3 +37,17 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 - Final readback: `door_assignments.id=1` became `sync_status=synced`, `sync_attempts=1`, `last_sync_error=NULL`; queue row count became `0`; audit `sync_door_success` recorded for subject `1`.
 - App/worker image: `securegate-device-batch:handoff-970546c`; mock target `mock-device`; real-device outbound remained blocked.
 - Artifact: `runtime-worker-rehearsal-20261015.json` outside Git. Mock container did not retain request access logs, so request-log correlation remains an evidence gap; success is based on worker completion, target-mock config, state, and audit—not physical-device confirmation.
+
+## Mock Request Correlation (2026-10-15)
+
+- Fresh fixture only: employee `3`, door `8`, assignment `3`, mock target `192.0.2.252`.
+- Queue/job: `worker-correlation2-20261015`, database job ID `3`; one isolated worker consumed it.
+- Mock adapter correlation: five requests for the same target: two `GET /System/deviceInfo`, then `PUT /AccessControl/UserInfo/SetUp?format=json`, `PUT /AccessControl/CardInfo/Record`, and `PUT /AccessControl/UserRightPlan/SetUp?format=json`. Adapter generated unique request IDs and retained redacted bodies.
+- Final disposable DB readback: assignment `3` became `synced`, queue row `3` was gone, and audit `sync_door_success` referenced subject `3`. Failed-job readback was performed on the same disposable DB.
+- Artifact: `runtime-worker-mock-correlation-20261015.json` outside Git. This proves mock request correlation for `SyncDoorAccessJob`; it does not prove a physical device result or `ProcessCredentialDeviceSyncJob` execution.
+- Lease columns were verified only on container `securegate-device-batch-pg-20261015`, database `securegate_device_batch_20261015`; this is not production schema evidence.
+
+## Server and Backup Audit Status
+
+- Active server/source/image comparison is not available from this checkout; no server credential or production connection was used. Candidate/server diff remains OPEN.
+- No authorized current pre-deploy backup, checksum, or archive was available for this run. No backup was fabricated and no restore was attempted against snapshot/reference resources.
