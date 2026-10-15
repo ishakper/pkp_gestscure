@@ -80,3 +80,12 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 
 - Option A (recommended): additive schema migration first on an approved maintenance path, then app image, then isolated worker; retain new nullable columns on rollback. Requires migration rehearsal with the exact candidate image and production approval.
 - Option B: limited release only if lease-dependent routes/jobs are excluded at source and tested as absent, not merely hidden by `SKIP_MIGRATIONS` or a feature flag. Current source does not have evidence for this separation; do not select Option B.
+
+## Candidate Against Restored Backup (2026-10-15)
+
+- Backup SHA verified on server and local audit copy: `4802fa917791e3612ad3faff742107e422ee05b56f0a73aa5007ef228106bba9` (64 characters). Archive TOC check passed with PostgreSQL 16 `pg_restore --list`.
+- Local restore target: new container `securegate-candidate-restore-pg-20261015`, database `securegate_restore`, volume `securegate-candidate-restore-vol-20261015`. Existing staging/snapshot resources were not used.
+- Candidate image `securegate-device-batch:handoff-970546c` booted against the restored copy. Relevant routes loaded, orphan assignment checks returned zero, lease columns were present after the reviewed additive migration, and queue config remained `sync` before the controlled worker test.
+- Candidate worker smoke used a new fixture and unique queue `restore-worker3-20261015`: job `5` -> assignment `124` -> one worker -> five mock requests targeting `192.0.2.255` -> assignment `synced` and audit. Restored production jobs were not processed.
+- Artifact: `candidate-restore-worker-smoke-20261015.json` outside Git. This is preliminary compatibility evidence, not final combined-candidate acceptance.
+- First smoke attempt failed before app processing because the disposable network lacked the `mock-device` alias; no old job was retried. A fresh fixture passed after alias correction.
