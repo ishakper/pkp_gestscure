@@ -51,3 +51,18 @@ After Yazied UI branch/PR arrives: verify base and file ownership, integrate sur
 
 - Active server/source/image comparison is not available from this checkout; no server credential or production connection was used. Candidate/server diff remains OPEN.
 - No authorized current pre-deploy backup, checksum, or archive was available for this run. No backup was fabricated and no restore was attempted against snapshot/reference resources.
+
+## Read-only Server Audit (2026-10-15)
+
+- SSH alias: `pkp-securegate-prod`; host: `infra-Standard-PC-i440FX-PIIX-1996`; audit time: `2026-10-15T06:57:55Z`.
+- Active app: container `pkp_securegate_prod`, image `pkp-securegate:3d6e3ef-prod`, image digest `sha256:3d2a6d2098affec029dcf9612d080d4b16461c67a6949ae1d32ade3568839763`, entrypoint `/usr/local/bin/entrypoint.sh`, supervisor command.
+- Effective production DB identity: database `securegate`, DB user `securegate`; lease columns `lease_token`, `lease_expires_at`, and `network_started_at` are absent. Disposable lease columns must not be treated as production schema evidence.
+- Hash comparison: `SyncDoorAccessJob.php` and `BiometricProvisioningController.php` match candidate; `HikvisionIsapiService.php` differs; `ProcessCredentialDeviceSyncJob.php` and lease migration are absent from the active server image. These are runtime/schema compatibility blockers.
+- Server backup inventory under application `storage/backups` returned no files. No backup was copied, restored, or modified.
+- Server feature/config audit was limited to non-secret metadata. No production switch, migration, config change, or deployment performed.
+
+## Candidate/Server Diff
+
+- Candidate-only runtime changes requiring explicit compatibility review: mock HTTP parser boundary in `HikvisionIsapiService`, `ProcessCredentialDeviceSyncJob`, lease metadata migration, and related backend contract/tests.
+- Preserved server behavior: existing `SyncDoorAccessJob` and `BiometricProvisioningController` file content matches candidate hashes.
+- Rollback risk: candidate queue/lease path cannot be activated against current production schema without an approved schema plan and isolated rehearsal.
