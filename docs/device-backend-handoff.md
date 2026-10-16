@@ -48,3 +48,8 @@ Source checkpoint: `970546ce91edd9881a5eb0b81587a288402edaa1`
 - Clean runtime image: `securegate-device-batch:handoff-970546c`, manifest `sha256:5e036ccb61b14408e68f325c5487abade2b5186bd19fb1308cd161e4768ab87e`.
 - Verification image: `securegate-verification:handoff-95dac55-r2`, image ID `sha256:47bf0867cadd07134ff168f0796a8d620bcb3f40991988521ec595feb48905e6`.
 - JUnit artifacts are stored outside the repository under the local device-artifacts directory.
+## Full Regression Failure Analysis (2026-10-15)
+
+- Ten webhook/attendance failures were fixture configuration failures: tests sent `secret_simulator_key_2026` from loopback, while the generic image run used the device-batch secret. Re-run with the declared disposable secret and `ALLOWED_DEVICE_IPS=127.0.0.1`: `11 tests / 66 assertions`, exit `0`.
+- Remaining full-suite failure is `Tests\Feature\DashboardBuildingFilterTest::test_metric_pagination_uses_api_total_pages_and_cancels_stale_requests`, `/var/www/html/tests/Feature/DashboardBuildingFilterTest.php:69`. Expected pagination guard text is absent from `public/js/dashboard.js`; UI file is Yazied-owned and unchanged here. Reproduce with the full Feature runner; do not disable or rewrite the assertion in backend work.
+- Backend device-control targeted suite remains `47 tests / 166 assertions`, exit `0`.
