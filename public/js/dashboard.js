@@ -470,7 +470,7 @@ async function fetchEmployeesForBuilding(buildingId, signal) {
         const totalPages = Number(res.pagination?.total_pages);
         if (!Number.isInteger(totalPages) || totalPages < 1) throw new Error('Invalid pagination metadata');
         all.push(...(res.data || []));
-        if (page >= Number(res.pagination?.total_pages || 1)) break;
+        if (page >= totalPages) break; // if (page >= Number(res.pagination?.total_pages || 1)) break;
     }
     return all;
 }
