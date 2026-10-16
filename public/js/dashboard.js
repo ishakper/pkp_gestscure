@@ -541,7 +541,7 @@ function renderDoorCards(doors) {
                 </div>
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance}, this)">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
                     <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
@@ -553,7 +553,18 @@ function renderDoorCards(doors) {
     renderTargets.forEach(target => target.innerHTML = html);
 }
 
-async function toggleDoorStatus(doorId, enabled) {
+const pendingMaintenanceToggles = new Set();
+
+async function toggleDoorStatus(doorId, enabled, btn) {
+    if (pendingMaintenanceToggles.has(doorId)) return;
+    pendingMaintenanceToggles.add(doorId);
+
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `⏳ Menyimpan...`;
+    }
+
     try {
         const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/status`, {
             method: 'PATCH',
@@ -568,6 +579,12 @@ async function toggleDoorStatus(doorId, enabled) {
         }
     } catch (err) {
         showToast(err.message || 'Perubahan maintenance tidak dapat disimpan.', 'error');
+    } finally {
+        pendingMaintenanceToggles.delete(doorId);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
     }
 }
 window.toggleDoorStatus = toggleDoorStatus;
@@ -712,10 +729,15 @@ async function pingSingleDoor(doorId, btn) {
             method: 'POST',
         });
 
+        const time = res.data?.last_checked_at
+            ? new Date(res.data.last_checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            : new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
         if (res.status === 'success' || res.is_online) {
-            showToast(`✓ Terminal ${doorId} online & responsif via ISAPI!`, 'success');
+            showToast(`✓ Terminal ${doorId} online & responsif via ISAPI (${time})`, 'success');
         } else {
-            showToast(`⚠ Terminal ${doorId} offline: ${res.message}`, 'warning');
+            const reason = res.diagnosis_reason || res.message || 'offline';
+            showToast(`⚠ Terminal ${doorId} offline: ${reason} (${time})`, 'warning');
         }
 
         await loadDoors();
@@ -756,6 +778,72 @@ async function checkAllDoors(btn) {
         }
     }
 }
+window.checkAllDoors = checkAllDoors;
+
+async function triggerBatchDoorSync(doorId = '', btn = null) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `⏳ Menyinkronkan...`;
+    }
+
+    try {
+        const payload = doorId ? { door_id: doorId } : {};
+        const res = await apiFetch('/admin/door-assignments/sync', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+            isBackground: false
+        });
+
+        if (res.status === 'success') {
+            const count = Number(res.dispatched_count ?? 0);
+            showToast(`Batch sync di-queue untuk ${count} hak akses (dispatched_count: ${count}). Status queued bukan konfirmasi perangkat.`, 'info');
+            await loadEmployees();
+            await loadDoors();
+        } else {
+            showToast(res.message || 'Gagal memicu sinkronisasi masal.', 'error');
+        }
+    } catch (err) {
+        showToast(`Gagal sinkronisasi: ${err.message}`, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+window.triggerBatchDoorSync = triggerBatchDoorSync;
+
+async function syncSingleEmployeeDoor(doorId, employeeId, btn = null) {
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `⏳ Sync...`;
+    }
+
+    try {
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/sync-employee/${encodeURIComponent(employeeId)}`, {
+            method: 'POST',
+            isBackground: false
+        });
+
+        if (res.status === 'success') {
+            showToast(res.message || `Profil biometrik berhasil disinkronkan ke terminal ${doorId}.`, 'success');
+            await loadEmployees();
+            await loadDoors();
+        } else {
+            showToast(res.message || 'Gagal melakukan sinkronisasi profil biometrik.', 'error');
+        }
+    } catch (err) {
+        showToast(err.message || 'Gagal sinkronisasi ke terminal.', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    }
+}
+window.syncSingleEmployeeDoor = syncSingleEmployeeDoor;
 
 // ==========================================
 // Section 2: User & Privilege Management
@@ -1832,11 +1920,12 @@ function initSidebar() {
         }
     });
 
-    // 5. Keyboard Shortcuts: Esc to close, Ctrl+B / Cmd+B to toggle
+    // 5. Keyboard Shortcuts: Esc to close, Tab to trap focus in modal, Ctrl+B / Cmd+B to toggle
     document.addEventListener('keydown', (e) => {
+        const activeModals = [...document.querySelectorAll('.modal-overlay.active')];
+        const activeModal = activeModals[activeModals.length - 1];
+
         if (e.key === 'Escape') {
-            const activeModals = [...document.querySelectorAll('.modal-overlay.active')];
-            const activeModal = activeModals[activeModals.length - 1];
             if (activeModal) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1845,6 +1934,19 @@ function initSidebar() {
             }
             if (document.body.classList.contains('sidebar-open')) {
                 toggleSidebar(false);
+            }
+        } else if (e.key === 'Tab' && activeModal) {
+            const focusables = modalFocusable(activeModal);
+            if (focusables.length > 0) {
+                const first = focusables[0];
+                const last = focusables[focusables.length - 1];
+                if (e.shiftKey && document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                } else if (!e.shiftKey && document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
             }
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
             e.preventDefault();

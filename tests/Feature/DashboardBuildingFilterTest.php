@@ -66,7 +66,7 @@ class DashboardBuildingFilterTest extends TestCase
     {
         $this->assertStringContainsString('new AbortController()', $this->script);
         $this->assertStringContainsString('metricsAbortController?.abort()', $this->script);
-        $this->assertStringContainsString('if (page >= Number(res.pagination?.total_pages || 1)) break;', $this->script);
+        $this->assertStringContainsString('if (page >= totalPages) break;', $this->script);
         $this->assertStringNotContainsString('page <= 5', $this->script);
         $this->assertStringContainsString('signal', $this->body('async function fetchEmployeesForBuilding('));
     }

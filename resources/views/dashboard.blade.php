@@ -1481,7 +1481,13 @@
         .dashboard-summary-grid strong { margin-top: .25rem; font-size: 1.35rem; }
         .dashboard-summary-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
         .dashboard-summary-actions button { flex: 1; min-width: 110px; }
-        @media (max-width: 640px) { .dashboard-summary-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }    </style>
+        @media (max-width: 640px) {
+            .dashboard-summary-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .door-actions { grid-template-columns: 1fr; }
+            .door-actions .btn-action { width: 100%; justify-content: center; }
+            .modal-card { max-width: calc(100vw - 2rem); margin: 1rem auto; padding: 1.25rem 1rem; }
+        }
+    </style>
 </head>
 <body>
 
@@ -1783,7 +1789,10 @@
                         </select>
                     </div>
                 </div>
-                <div class="toolbar-right">
+                <div class="toolbar-right" style="display:flex;align-items:center;gap:.75rem;">
+                    @if(in_array('device.manage', $permissions ?? []))
+                    <button type="button" class="btn-secondary btn-sm" id="btnBatchSyncDoor" onclick="triggerBatchDoorSync(document.getElementById('employeeDoorFilter')?.value, this)" title="Kirim trigger batch sync ke antrean worker">⚡ Batch Sync Pintu</button>
+                    @endif
                     <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText">Total: - Karyawan</span>
                 </div>
             </div>
@@ -5853,7 +5862,7 @@
         <div class="modal-header"><div><h3 class="modal-title">Facility & Door Configuration</h3><div class="section-desc">Register a building or terminal without changing existing hardware records.</div></div><button class="modal-close-btn" onclick="closeModal('facilityModal')">✖</button></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;">
             <form id="buildingConfigForm" onsubmit="submitBuildingConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New Building</h4><div class="form-row"><label>Code *</label><input id="facilityBuildingCode" required maxlength="100" placeholder="BLD-C"></div><div class="form-row"><label>Name *</label><input id="facilityBuildingName" required maxlength="255" placeholder="Gedung C"></div><div class="form-row"><label>Description</label><textarea id="facilityBuildingDescription" maxlength="1000"></textarea></div><button class="btn-secondary" type="submit">Save Building</button></form>
-            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select><small id="facilityDoorBuildingNotice" hidden></small></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
+            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select><small id="facilityDoorBuildingNotice" hidden></small></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><div style="display:flex;gap:.5rem;margin-top:.75rem;"><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button><button type="button" class="btn-secondary" id="facilityDoorCancel" onclick="closeModal('facilityModal')">Batal</button></div></form>
         </div>
     </div>
 </div>
