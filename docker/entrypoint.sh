@@ -12,17 +12,10 @@ mkdir -p /var/www/html/database \
          /var/www/html/storage/logs \
          /var/www/html/bootstrap/cache
 
-# 2. Prepare SQLite Database File
-if [ ! -f /var/www/html/database/database.sqlite ]; then
-    echo "Creating SQLite database file at /var/www/html/database/database.sqlite..."
-    touch /var/www/html/database/database.sqlite
-fi
-
-# 3. Fix Ownership and Permissions for SQLite & Storage
-echo "Setting storage & database permissions for www-data..."
-chown -R www-data:www-data /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod -R 775 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod 664 /var/www/html/database/database.sqlite
+# 2. Fix Ownership and Permissions for Storage & Cache
+echo "Setting storage permissions for www-data..."
+chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
+chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 
 # 4. Require a stable APP_KEY in production; generate only for non-production convenience
 if [ -z "$APP_KEY" ]; then

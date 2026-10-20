@@ -1,0 +1,60 @@
+name: CI Pipeline
+
+on:
+  pull_request:
+  push:
+    branches: [main, integration/*, fix/*]
+
+permissions:
+  contents: read
+
+jobs:
+  test-postgres:
+    name: PostgreSQL 16 Automated Test Suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: securegate_test
+          POSTGRES_USER: securegate
+          POSTGRES_PASSWORD: securegate
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U securegate -d securegate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2 Environment
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath,mbstring,pcntl,pdo_pgsql,zip
+          coverage: none
+
+      - name: Install Composer Dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --prefer-dist --no-interaction --no-progress
+
+      - name: Verify Secret Hygiene
+        run: |
+          test -z "$(git ls-files .env .env.testing)" || (echo "ERROR: .env or .env.testing tracked in Git!" && exit 1)
+
+      - name: Execute Full Test Suite
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate
+          DB_PASSWORD: securegate
+        run: php artisan test --colors=never

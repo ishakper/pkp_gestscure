@@ -154,7 +154,7 @@ build_verification_image:
       fi
 
 # ------------------------------------------------------------------------------
-# Stage 3: Automated Quality Test Suite (Clean Container)
+# Stage 3: Automated Quality Test Suite (PostgreSQL 16 Isolated Service)
 # ------------------------------------------------------------------------------
 test_suite:
   stage: test
@@ -165,10 +165,36 @@ test_suite:
   needs:
     - build_verification_image
   script:
-    - echo "Executing full automated feature & regression test suite in verification image..."
+    - echo "Executing full automated feature & regression test suite against PostgreSQL 16..."
     - |
-      docker run --rm --network none -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
+      CI_NET="ci-net-${CI_JOB_ID}"
+      PG_HOST="pg-service-${CI_JOB_ID}"
+      docker network create ${CI_NET}
+      docker run -d --name ${PG_HOST} --network ${CI_NET} \
+        -e POSTGRES_DB=securegate_test \
+        -e POSTGRES_USER=securegate \
+        -e POSTGRES_PASSWORD=securegate \
+        postgres:16-alpine
+      for i in $(seq 1 30); do
+        if docker run --rm --network ${CI_NET} postgres:16-alpine pg_isready -h ${PG_HOST} -U securegate -d securegate_test; then
+          echo "PostgreSQL 16 service is ready."
+          break
+        fi
+        sleep 1
+      done
+      docker run --rm --network ${CI_NET} \
+        -e APP_ENV=testing \
+        -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+        -e DB_CONNECTION=pgsql \
+        -e DB_HOST=${PG_HOST} \
+        -e DB_PORT=5432 \
+        -e DB_DATABASE=securegate_test \
+        -e DB_USERNAME=securegate \
+        -e DB_PASSWORD=securegate \
+        pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
   after_script:
+    - docker rm -f pg-service-${CI_JOB_ID} 2>/dev/null || true
+    - docker network rm ci-net-${CI_JOB_ID} 2>/dev/null || true
     - echo "Cleaning up ephemeral verification image for current commit..."
     - docker image rm -f pkp-securegate-verify:${IMAGE_TAG} 2>/dev/null || true
   artifacts:
@@ -189,8 +215,8 @@ security_hygiene:
   needs:
     - test_suite
   script:
-    - echo "Checking that .env is NOT tracked in Git..."
-    - test -z "$(git ls-files .env)"
+    - echo "Checking that .env and .env.testing are NOT tracked in Git..."
+    - test -z "$(git ls-files .env .env.testing)"
     - echo "Checking that no temporary debug/auth scripts are tracked..."
     - test -z "$(git ls-files run_auth.php public/run_auth.php scratch/* raw_*.php)"
     - echo "Verifying docker-compose.yml has no committed secret defaults..."
