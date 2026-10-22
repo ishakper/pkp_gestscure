@@ -8,6 +8,7 @@
 .env
 .env.backup
 .env.production
+.env.testing
 .phpunit.result.cache
 Homestead.json
 Homestead.yaml
@@ -40,4 +41,3 @@ release-*.tar.gz
 # Local agent metadata & planning
 .agents/
 openspec/
-

@@ -1,0 +1,151 @@
+name: PKP GateScure CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-and-test:
+    name: Safety Guard & PostgreSQL CI Pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: securegate_test
+          POSTGRES_USER: securegate_ci
+          POSTGRES_PASSWORD: securegate_ci_secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U securegate_ci -d securegate_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2 Environment
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: bcmath, mbstring, pcntl, pdo, pdo_pgsql, zip, gd
+          coverage: none
+
+      - name: Validate Composer Manifest
+        run: composer validate --strict --no-check-publish
+
+      - name: Deterministic PHP Syntax Lint (Fail-Closed)
+        run: |
+          ERRORS=0
+          for f in $(find app config database routes -type f -name "*.php"); do
+            if ! php -l "$f" > /dev/null 2>&1; then
+              echo "[FATAL] Syntax error detected in $f"
+              php -l "$f"
+              ERRORS=1
+            fi
+          done
+          if [ "$ERRORS" -ne 0 ]; then
+            echo "PHP syntax validation failed!"
+            exit 1
+          fi
+          echo "All PHP source files passed syntax linting."
+
+      - name: Install Dependencies
+        uses: ramsey/composer-install@v3
+        with:
+          composer-options: --prefer-dist --no-interaction --no-progress
+
+      - name: Secret & Tracking Hygiene
+        run: |
+          echo "Verifying sensitive environment files are NOT tracked..."
+          test -z "$(git ls-files .env .env.testing .env.production)"
+          echo "Verifying no debug or diagnostic scripts are tracked..."
+          test -z "$(git ls-files run_auth.php public/run_auth.php scratch/* raw_*.php)"
+          echo "Secret hygiene verified: 0 sensitive files tracked."
+
+      - name: Prepare Test Configuration
+        run: cp .env.example .env
+
+      - name: Handshake 1 - Verify Isolated PostgreSQL Identity
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: |
+          php artisan tinker --execute="\$r = Illuminate\Support\Facades\DB::selectOne('SELECT current_database() AS db, current_user AS usr, inet_server_addr() AS srv_ip, inet_server_port() AS srv_port'); if (empty(\$r->db) || \$r->db !== 'securegate_test') { throw new RuntimeException('HANDSHAKE 1 FAILED: Unexpected database ' . (\$r->db ?? 'empty')); } if (empty(\$r->usr) || \$r->usr !== 'securegate_ci') { throw new RuntimeException('HANDSHAKE 1 FAILED: Unexpected user role ' . (\$r->usr ?? 'empty')); } \$srvIp = (string) (\$r->srv_ip ?? ''); if (str_starts_with(\$srvIp, '10.10.8.')) { throw new RuntimeException('CRITICAL HALT: Connected to production subnet ' . \$srvIp); } echo 'HANDSHAKE 1 SUCCESS: Verified ephemeral target ' . \$r->db . ' as ' . \$r->usr . ' on ' . \$srvIp . ':' . \$r->srv_port . PHP_EOL;"
+
+      - name: Run Unit Tests & Safety Guard Policy Verification
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: php artisan test --testsuite=Unit --colors=never
+
+      - name: Handshake 2 - Re-verify Target Identity Immediately Before Migration
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: |
+          php artisan tinker --execute="\$r = Illuminate\Support\Facades\DB::selectOne('SELECT current_database() AS db, current_user AS usr, inet_server_addr() AS srv_ip, inet_server_port() AS srv_port'); if (empty(\$r->db) || \$r->db !== 'securegate_test') { throw new RuntimeException('HANDSHAKE 2 FAILED: Database target changed to ' . (\$r->db ?? 'empty')); } if (empty(\$r->usr) || \$r->usr !== 'securegate_ci') { throw new RuntimeException('HANDSHAKE 2 FAILED: User role changed to ' . (\$r->usr ?? 'empty')); } \$srvIp = (string) (\$r->srv_ip ?? ''); if (str_starts_with(\$srvIp, '10.10.8.')) { throw new RuntimeException('CRITICAL HALT: Connected to production subnet ' . \$srvIp); } echo 'HANDSHAKE 2 SUCCESS: Target re-verified immediately before migration: ' . \$r->db . PHP_EOL;"
+
+      - name: Run Database Migrations on Isolated CI Database
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: php artisan migrate:fresh --force
+
+      - name: Run Full Regression & Feature Test Suite
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: php artisan test --colors=never
+
+      - name: Run 2FA Integration & Concurrency Verification
+        env:
+          APP_ENV: testing
+          APP_KEY: base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: securegate_test
+          DB_USERNAME: securegate_ci
+          DB_PASSWORD: securegate_ci_secret
+        run: php tests/Integration/TwoFactor/runner.php
