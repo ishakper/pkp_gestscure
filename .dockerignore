@@ -21,3 +21,4 @@ docker-compose*.yml
 *.md
 setup_lan_firewall.*
 composer.phar
+securegate_test
