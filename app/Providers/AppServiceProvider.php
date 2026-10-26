@@ -5,6 +5,7 @@ namespace App\Providers;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\App;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -28,16 +29,20 @@ class AppServiceProvider extends ServiceProvider
         // Enforce Database Safety Guard for Testing Environment (Lazy connection evaluation)
         if (App::environment('testing')) {
             $this->app->resolving('db', function ($db) {
-                try {
-                    $dbName = $db->connection()->getDatabaseName();
-                    if ($dbName === 'securegate_db' || $dbName === 'forge') {
-                        throw new \RuntimeException("FATAL SAFETY VIOLATION: Test suite attempted to connect to development/production database '{$dbName}'!");
-                    }
-                } catch (\Throwable $e) {
-                    // If connection fails during early boot, let Laravel handle it normally unless it's a safety violation
-                    if (str_contains($e->getMessage(), 'FATAL SAFETY VIOLATION')) {
-                        throw $e;
-                    }
+                $connection = $db->connection();
+                $driver = $connection->getDriverName();
+                $dbName = $connection->getDatabaseName();
+
+                if ($driver !== 'pgsql') {
+                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test environment must use PostgreSQL ('pgsql') driver, but driver is '{$driver}'.");
+                }
+
+                if ($dbName === 'securegate_db' || $dbName === 'forge' || empty($dbName)) {
+                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test suite attempted to connect to prohibited or empty database '{$dbName}'!");
+                }
+
+                if ($dbName !== 'securegate_test') {
+                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test suite must connect to 'securegate_test', but connected to '{$dbName}'.");
                 }
             });
         }

@@ -12,17 +12,19 @@ mkdir -p /var/www/html/database \
          /var/www/html/storage/logs \
          /var/www/html/bootstrap/cache
 
-# 2. Prepare SQLite Database File
-if [ ! -f /var/www/html/database/database.sqlite ]; then
-    echo "Creating SQLite database file at /var/www/html/database/database.sqlite..."
-    touch /var/www/html/database/database.sqlite
-fi
+# 2. Prepare Storage Directories
+mkdir -p /var/www/html/database \
+         /var/www/html/storage/app \
+         /var/www/html/storage/framework/cache/data \
+         /var/www/html/storage/framework/sessions \
+         /var/www/html/storage/framework/views \
+         /var/www/html/storage/logs \
+         /var/www/html/bootstrap/cache
 
-# 3. Fix Ownership and Permissions for SQLite & Storage
+# 3. Fix Ownership and Permissions for Storage
 echo "Setting storage & database permissions for www-data..."
 chown -R www-data:www-data /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
-chmod 664 /var/www/html/database/database.sqlite
 
 # 4. Require a stable APP_KEY in production; generate only for non-production convenience
 if [ -z "$APP_KEY" ]; then
@@ -39,12 +41,13 @@ php artisan config:clear || true
 php artisan route:clear || true
 php artisan view:clear || true
 
-# 6. Run Database Migrations
-if [ "${SKIP_MIGRATIONS:-false}" = "true" ]; then
-    echo "SKIP_MIGRATIONS=true: Skipping database migrations on container startup."
-else
-    echo "Running database migrations..."
+# 6. Run Database Migrations only when explicitly authorized.
+# Production startup must not mutate schema by default.
+if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
+    echo "RUN_MIGRATIONS=true: Running database migrations..."
     php artisan migrate --force
+else
+    echo "RUN_MIGRATIONS is not true: Skipping database migrations on container startup."
 fi
 
 # 7. Cache Configurations, Routes, and Views for Production

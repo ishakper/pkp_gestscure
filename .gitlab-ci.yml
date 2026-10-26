@@ -49,19 +49,7 @@ fix_runner_workspace:
     - docker ps -a
     - echo "=== DOCKER IMAGES ==="
     - docker images
-    - echo "=== RULE 3 - SELECTIVE DISK RECOVERY ==="
-    - echo "Pruning stopped CI containers..."
-    - docker container prune -f
-    - echo "Pruning docker builder cache older than 1h..."
-    - docker builder prune -a -f --filter "until=1h"
-    - echo "Pruning dangling images..."
-    - docker image prune -f
-    - echo "Removing obsolete verification tags..."
-    - 'docker images --filter "reference=pkp-securegate-verify:*" -q | xargs -r docker rmi -f 2>/dev/null || true'
-    - echo "Safely removing non-running obsolete CI build tags..."
-    - 'docker images --filter "reference=pkp-securegate:*" --format "{{.Repository}}:{{.Tag}}" | grep -v ":latest" | xargs -r docker rmi 2>/dev/null || true'
-    - 'docker images --filter "reference=registry.pkp.co.id/infra/access-door-management:*" --format "{{.Repository}}:{{.Tag}}" | grep -v ":latest" | xargs -r docker rmi 2>/dev/null || true'
-    - docker image prune -f
+    - echo "=== DISK CAPACITY MONITORING (NO GLOBAL CLEANUP) ==="
     - echo "=== POST-RECOVERY DISK METRICS ==="
     - df -h /
     - |
@@ -98,7 +86,7 @@ validate_syntax:
     - if: $CI_COMMIT_BRANCH
   script:
     - echo "Checking PHP syntax across application source..."
-    - docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'find app config database routes -type f -name "*.php" -exec php -l {} + | grep -v "No syntax errors detected" || true'
+    - docker run --rm -v "$(pwd):/app" -w /app php:8.2-cli-alpine sh -c 'set -eu; find app config database routes -type f -name "*.php" -print0 | xargs -0 -n1 php -l'
 
 # ------------------------------------------------------------------------------
 # Stage 2: Container Build
@@ -162,21 +150,72 @@ test_suite:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
-  needs:
-    - build_verification_image
   script:
-    - echo "Executing full automated feature & regression test suite in verification image..."
+    - echo "Building isolated test image on the runner executing this job..."
     - |
-      docker run --rm --network none -e APP_ENV=testing -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= -e DB_CONNECTION=sqlite -e DB_DATABASE=:memory: pkp-securegate-verify:${IMAGE_TAG} artisan test --colors=never
+      set -eu
+
+      TEST_IMAGE="pkp-securegate-verify-${CI_COMMIT_SHA}-${CI_JOB_ID}"
+      docker build --target verification -t "$TEST_IMAGE" .
+
+      PG_NETWORK="securegate-test-net-${CI_JOB_ID}"
+      PG_CONTAINER="securegate-pg-${CI_JOB_ID}"
+      PG_PASSWORD="$(docker run --rm --network none --entrypoint php "$TEST_IMAGE" -r 'echo bin2hex(random_bytes(24));')"
+
+      docker network create "$PG_NETWORK"
+
+      docker run --detach \
+        --name "$PG_CONTAINER" \
+        --network "$PG_NETWORK" \
+        --network-alias pgsql \
+        --health-cmd='pg_isready -U postgres -d securegate_test' \
+        --health-interval=2s \
+        --health-timeout=3s \
+        --health-retries=30 \
+        -e POSTGRES_DB=securegate_test \
+        -e POSTGRES_USER=postgres \
+        -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+        postgres:16-alpine
+
+      attempt=0
+      until [ "$(docker inspect --format '{{.State.Health.Status}}' "$PG_CONTAINER")" = "healthy" ]; do
+        if [ "$attempt" -ge 60 ]; then
+          echo "PostgreSQL health check timed out."
+          docker logs "$PG_CONTAINER" || true
+          exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+      done
+
+      docker run --rm \
+        --network "$PG_NETWORK" \
+        -e APP_ENV=testing \
+        -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+        -e DB_CONNECTION=pgsql \
+        -e DB_HOST=pgsql \
+        -e DB_PORT=5432 \
+        -e DB_DATABASE=securegate_test \
+        -e DB_USERNAME=postgres \
+        -e DB_PASSWORD="$PG_PASSWORD" \
+        $TEST_IMAGE artisan test --colors=never
   after_script:
-    - echo "Cleaning up ephemeral verification image for current commit..."
-    - docker image rm -f pkp-securegate-verify:${IMAGE_TAG} 2>/dev/null || true
+    - |
+      TEST_IMAGE="pkp-securegate-verify-${CI_COMMIT_SHA}-${CI_JOB_ID}"
+      PG_CONTAINER="securegate-pg-${CI_JOB_ID}"
+      PG_NETWORK="securegate-test-net-${CI_JOB_ID}"
+
+      echo "Cleaning up isolated PostgreSQL resources..."
+      docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
+      docker network rm "$PG_NETWORK" >/dev/null 2>&1 || true
+
+      echo "Cleaning up verification image..."
+      docker image rm -f "$TEST_IMAGE" 2>/dev/null || true
   artifacts:
     when: on_failure
     expire_in: 3 days
     paths:
       - storage/logs/laravel.log
-
 # ------------------------------------------------------------------------------
 # Stage 4: Security & Secret Hygiene
 # ------------------------------------------------------------------------------

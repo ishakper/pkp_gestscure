@@ -71,7 +71,7 @@ services:
       - ISAPI_CONNECT_TIMEOUT=${ISAPI_CONNECT_TIMEOUT:-5}
       - ISAPI_REQUEST_TIMEOUT=${ISAPI_REQUEST_TIMEOUT:-10}
     volumes:
-      # Persistent SQLite database folder (if using SQLite)
+      # Laravel runtime directory; PostgreSQL stores application data externally.
       - securegate_database:/var/www/html/database
       # Persistent logs & uploaded storage
       - securegate_logs:/var/www/html/storage/logs
