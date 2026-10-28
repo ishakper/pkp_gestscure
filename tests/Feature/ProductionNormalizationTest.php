@@ -79,6 +79,26 @@ class ProductionNormalizationTest extends TestCase
     }
 
     /**
+     * Test assignAllEligibleToBuildingB with actual employee records and proper columns.
+     */
+    public function test_assign_all_eligible_to_building_b_uses_correct_columns(): void
+    {
+        // Ensure Building B exists
+        Building::firstOrCreate(
+            ['code' => 'BUILDING_B'],
+            ['name' => 'Building B', 'description' => 'Main Production Building']
+        );
+
+        // Run assign method with authorization true
+        $result = $this->normalization->assignAllEligibleToBuildingB(true);
+
+        $this->assertIsArray($result);
+        $this->assertTrue($result['authorized']);
+        $this->assertArrayHasKey('created_assignments', $result);
+        $this->assertEmpty($result['errors']);
+    }
+
+    /**
      * Test write operations are protected by authorization flag.
      */
     public function test_write_operations_default_deny(): void

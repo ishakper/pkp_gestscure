@@ -32,7 +32,7 @@ class ProductionNormalizationService
     public function auditReal96Normalization(): array
     {
         $all_employees = Employee::count();
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('hikvision_employee_no', self::DUMMY_PERSON_NOS)->get();
         $dummy_count = $dummy_employees->count();
         $real_count = $all_employees - $dummy_count;
 
@@ -76,7 +76,7 @@ class ProductionNormalizationService
             return ['status' => 'NOT_AUTHORIZED', 'message' => 'Requires explicit authorization'];
         }
 
-        $dummy_employees = Employee::whereIn('person_no', self::DUMMY_PERSON_NOS)->get();
+        $dummy_employees = Employee::whereIn('hikvision_employee_no', self::DUMMY_PERSON_NOS)->get();
         $dummy_ids = $dummy_employees->pluck('id')->toArray();
 
         $results = [
@@ -162,7 +162,7 @@ class ProductionNormalizationService
         }
 
         // Get all real employees
-        $eligible_employees = Employee::whereNotIn('person_no', self::DUMMY_PERSON_NOS)
+        $eligible_employees = Employee::whereNotIn('hikvision_employee_no', self::DUMMY_PERSON_NOS)
             ->where('is_active', true)
             ->get();
 
