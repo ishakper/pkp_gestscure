@@ -198,6 +198,17 @@ test_suite:
         -e DB_DATABASE=securegate_test \
         -e DB_USERNAME=postgres \
         -e DB_PASSWORD="$PG_PASSWORD" \
+        $TEST_IMAGE artisan migrate --force && \
+      docker run --rm \
+        --network "$PG_NETWORK" \
+        -e APP_ENV=testing \
+        -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+        -e DB_CONNECTION=pgsql \
+        -e DB_HOST=pgsql \
+        -e DB_PORT=5432 \
+        -e DB_DATABASE=securegate_test \
+        -e DB_USERNAME=postgres \
+        -e DB_PASSWORD="$PG_PASSWORD" \
         $TEST_IMAGE artisan test --colors=never
   after_script:
     - |
