@@ -44,7 +44,7 @@ class SyncDoorAccessDiagnosticsTest extends TestCase
         $this->assertSame(['failed', 0, null, 'INACTIVE'], [$assignment->sync_status, $assignment->sync_attempts, $assignment->failed_step, $assignment->last_sync_status_code]);
         $this->assertStringContainsString('not ACTIVE', $assignment->last_sync_error);
         $this->assertSame('INACTIVE', $assignment->employee->fresh()->employment_status);
-        $this->assertSame(1, (new SyncDoorAccessJob($assignment->id))->tries);
+        $this->assertSame(3, (new SyncDoorAccessJob($assignment->id))->tries);
     }
 
     public function test_active_employee_provisions_normally(): void
@@ -78,7 +78,12 @@ class SyncDoorAccessDiagnosticsTest extends TestCase
             'error' => "  Invalid\n employeeNo  ",
         ]);
 
-        (new SyncDoorAccessJob($assignment->id))->handle($isapi);
+        try {
+            (new SyncDoorAccessJob($assignment->id))->handle($isapi);
+            $this->fail('Expected transient provisioning failure to throw RuntimeException for queue retry.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('USER_INFO: Invalid employeeNo', $e->getMessage());
+        }
 
         $assignment->refresh();
         $this->assertSame('USER_INFO', $assignment->failed_step);
@@ -100,7 +105,12 @@ class SyncDoorAccessDiagnosticsTest extends TestCase
             'error' => 'password=device-secret Authorization: Bearer abc.def token=secret card_no=CARD-SECRET-778899 credential_secret=hidden ' . str_repeat('x', 600),
         ]);
 
-        (new SyncDoorAccessJob($assignment->id))->handle($isapi);
+        try {
+            (new SyncDoorAccessJob($assignment->id))->handle($isapi);
+            $this->fail('Expected transient provisioning failure to throw RuntimeException for queue retry.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringStartsWith("{$failedStep}: [REDACTED]", $e->getMessage());
+        }
 
         $assignment->refresh();
         $this->assertSame(['failed', $failedStep, '0x60000001'], [$assignment->sync_status, $assignment->failed_step, $assignment->last_sync_status_code]);
