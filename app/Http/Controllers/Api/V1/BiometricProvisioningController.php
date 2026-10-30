@@ -9,6 +9,7 @@ use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
+use App\Support\DbKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use OpenApi\Attributes as OA;
@@ -105,9 +106,9 @@ class BiometricProvisioningController extends Controller
             return $authError;
         }
 
-        $employee = Employee::where('id', $id)
-            ->orWhere('employee_id', $id)
+        $employee = Employee::where('employee_id', $id)
             ->orWhere('employee_id', 'USR-' . $id)
+            ->when(DbKey::isValid($id), fn ($q) => $q->orWhere('id', $id))
             ->firstOrFail();
 
         $admin = $request->user();
@@ -125,7 +126,7 @@ class BiometricProvisioningController extends Controller
         if (!empty($doorInputs)) {
             $doorArray = is_array($doorInputs) ? $doorInputs : [$doorInputs];
             $doorsQuery->where(function ($q) use ($doorArray) {
-                $q->whereIn('door_id', $doorArray)->orWhereIn('id', $doorArray);
+                $q->whereIn('door_id', $doorArray)->orWhereIn('id', DbKey::filter($doorArray));
             });
         } else {
             $assignedDoorIds = DoorAssignment::where('employee_id', $employee->id)->pluck('door_id');
@@ -280,15 +281,15 @@ class BiometricProvisioningController extends Controller
     )]
     public function syncDoorEmployee(Request $request, $door_id, $employee_id, HikvisionIsapiService $isapiService): JsonResponse
     {
-        $door = Door::where('door_id', $door_id)->orWhere('id', $door_id)->firstOrFail();
+        $door = Door::where('door_id', $door_id)->when(DbKey::isValid($door_id), fn ($q) => $q->orWhere('id', $door_id))->firstOrFail();
 
         if ($authError = $this->authorizeProvisioning($request, $door)) {
             return $authError;
         }
 
-        $employee = Employee::where('id', $employee_id)
-            ->orWhere('employee_id', $employee_id)
+        $employee = Employee::where('employee_id', $employee_id)
             ->orWhere('employee_id', 'USR-' . $employee_id)
+            ->when(DbKey::isValid($employee_id), fn ($q) => $q->orWhere('id', $employee_id))
             ->firstOrFail();
 
         $admin = $request->user();
@@ -404,9 +405,9 @@ class BiometricProvisioningController extends Controller
             ], 403);
         }
 
-        $employee = Employee::where('id', $id)
-            ->orWhere('employee_id', $id)
+        $employee = Employee::where('employee_id', $id)
             ->orWhere('employee_id', 'USR-' . $id)
+            ->when(DbKey::isValid($id), fn ($q) => $q->orWhere('id', $id))
             ->firstOrFail();
 
         if ($actor->isBuildingAdmin() && !$actor->can('view', $employee)) {

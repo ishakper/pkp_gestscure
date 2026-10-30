@@ -2,10 +2,9 @@
 
 namespace App\Providers;
 
+use App\Database\PostgresConnection;
+use Illuminate\Database\Connection;
 use Illuminate\Support\ServiceProvider;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\App;
-use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -14,6 +13,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
+        // Postgres connections use a grammar that keeps LIKE case-insensitive, as it is on SQLite.
+        Connection::resolverFor('pgsql', fn ($connection, $database, $prefix, $config) => new PostgresConnection($connection, $database, $prefix, $config));
+
         $this->app->singleton(\App\Services\DeviceHealthService::class, function ($app) {
             return new \App\Services\DeviceHealthService(
                 $app->make(\App\Services\HikvisionIsapiService::class)
@@ -26,24 +28,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Enforce Database Safety Guard for Testing Environment (Lazy connection evaluation)
-        if (App::environment('testing')) {
-            $this->app->resolving('db', function ($db) {
-                $connection = $db->connection();
-                $driver = $connection->getDriverName();
-                $dbName = $connection->getDatabaseName();
+        \App\Support\DatabaseSafetyGuard::enforce();
 
-                if ($driver !== 'pgsql') {
-                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test environment must use PostgreSQL ('pgsql') driver, but driver is '{$driver}'.");
-                }
-
-                if ($dbName === 'securegate_db' || $dbName === 'forge' || empty($dbName)) {
-                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test suite attempted to connect to prohibited or empty database '{$dbName}'!");
-                }
-
-                if ($dbName !== 'securegate_test') {
-                    throw new RuntimeException("FATAL SAFETY VIOLATION: Test suite must connect to 'securegate_test', but connected to '{$dbName}'.");
-                }
+        if ($this->app->environment('testing')) {
+            $this->app->resolving('db', function () {
+                \App\Support\DatabaseSafetyGuard::assertConnectionSafe();
             });
         }
     }

@@ -16,6 +16,8 @@ trait CreatesApplication
 
         $app->make(Kernel::class)->bootstrap();
 
+        \App\Support\DatabaseSafetyGuard::enforce();
+
         return $app;
     }
 }

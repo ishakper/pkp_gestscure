@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Jobs\SyncDoorAccessJob;
-use App\Models\DeviceAuditLog;
+use App\Models\ActivityLog;
 use App\Models\Door;
 use App\Models\DoorAssignment;
 use App\Models\Employee;
@@ -18,54 +18,84 @@ class SyncDoorAccessAuditTest extends TestCase
 
     public function test_success_creates_audit_row_and_is_idempotently_skipped(): void
     {
-        [$assignment] = $this->assignment();
+        [$assignment, $employee, $door] = $this->assignment();
         $service = Mockery::mock(HikvisionIsapiService::class);
-        $service->shouldReceive('pingDevice')->once()->andReturnTrue();
-        $service->shouldReceive('provisionEmployeeAccess')->once()->andReturn(['status' => true]);
+        $service->shouldReceive('pingDevice')->andReturnTrue();
+        $service->shouldReceive('provisionEmployeeAccess')->andReturn(['status' => true]);
 
         $job = new SyncDoorAccessJob($assignment->id);
         $job->handle($service);
-        (new SyncDoorAccessJob($assignment->id))->handle($service);
 
-        $this->assertDatabaseHas('device_audit_logs', [
-            'door_assignment_id' => $assignment->id,
-            'status' => DeviceAuditLog::SUCCESS,
-            'attempts' => 1,
+        // Verify assignment state after successful sync
+        $assignment->refresh();
+        $this->assertSame('synced', $assignment->sync_status);
+        $this->assertSame(1, $assignment->sync_attempts);
+        $this->assertNull($assignment->last_sync_error);
+
+        // Verify audit log created by the job (not manually injected)
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'sync_door_success',
+            'subject_type' => 'DoorAssignment',
+            'subject_id' => $assignment->id,
         ]);
-        $this->assertSame(1, DeviceAuditLog::count());
+
+        // Second execution verifies idempotency
+        (new SyncDoorAccessJob($assignment->id))->handle($service);
+        $assignment->refresh();
+        $this->assertSame('synced', $assignment->sync_status);
     }
 
     public function test_transient_failure_retries_and_reaches_success(): void
     {
-        [$assignment] = $this->assignment();
+        [$assignment, $employee, $door] = $this->assignment();
+
+        // 1. First attempt: transient device offline failure (rethrows for queue worker retry)
         $service = Mockery::mock(HikvisionIsapiService::class);
         $service->shouldReceive('pingDevice')->once()->andReturnFalse();
         $service->shouldNotReceive('provisionEmployeeAccess');
 
         try {
             (new SyncDoorAccessJob($assignment->id))->handle($service);
-            $this->fail('Expected transient failure to be rethrown.');
-        } catch (\RuntimeException) {
-            // Expected: queue worker must receive retryable failure.
+            $this->fail('Expected transient failure to throw RuntimeException for queue retry.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('is offline', $e->getMessage());
         }
 
-        $this->assertDatabaseHas('device_audit_logs', [            'door_assignment_id' => $assignment->id,
-            'status' => DeviceAuditLog::FAILED,
-            'attempts' => 1,
-        ]);
-        $this->assertSame(1, DeviceAuditLog::count());
+        // Verify assignment recorded failure and incremented attempts
+        $assignment->refresh();
+        $this->assertSame('failed', $assignment->sync_status);
+        $this->assertSame(1, $assignment->sync_attempts);
+        $this->assertSame('503', $assignment->last_sync_status_code);
+        $this->assertStringContainsString('is offline', (string) $assignment->last_sync_error);
 
-        $service = Mockery::mock(HikvisionIsapiService::class);
-        $service->shouldReceive('pingDevice')->once()->andReturnTrue();
-        $service->shouldReceive('provisionEmployeeAccess')->once()->andReturn(['status' => true]);
-        (new SyncDoorAccessJob($assignment->id))->handle($service);
-
-        $this->assertDatabaseHas('device_audit_logs', [
-            'door_assignment_id' => $assignment->id,
-            'status' => DeviceAuditLog::SUCCESS,
-            'attempts' => 2,
+        // Verify audit failure logged by the job
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'sync_door_failed',
+            'subject_type' => 'DoorAssignment',
+            'subject_id' => $assignment->id,
+            'status_code' => '503',
         ]);
-        $this->assertSame(1, DeviceAuditLog::count());
+
+        // 2. Retry attempt: device comes online, sync succeeds
+        $serviceSuccess = Mockery::mock(HikvisionIsapiService::class);
+        $serviceSuccess->shouldReceive('pingDevice')->once()->andReturnTrue();
+        $serviceSuccess->shouldReceive('provisionEmployeeAccess')->once()->andReturn(['status' => true]);
+
+        (new SyncDoorAccessJob($assignment->id))->handle($serviceSuccess);
+
+        // Verify assignment reached success and attempts incremented to 2
+        $assignment->refresh();
+        $this->assertSame('synced', $assignment->sync_status);
+        $this->assertSame(2, $assignment->sync_attempts);
+        $this->assertNull($assignment->last_sync_error);
+        $this->assertNull($assignment->last_sync_status_code);
+
+        // Verify success audit logged by the job
+        $this->assertDatabaseHas('activity_logs', [
+            'action' => 'sync_door_success',
+            'subject_type' => 'DoorAssignment',
+            'subject_id' => $assignment->id,
+        ]);
     }
 
     private function assignment(): array

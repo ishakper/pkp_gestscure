@@ -10,6 +10,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use App\Services\HikvisionIsapiService;
 use App\Services\PortalAccess;
+use App\Support\DbKey;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use OpenApi\Attributes as OA;
@@ -76,7 +77,7 @@ class AdminAccessLogController extends Controller
         if ($request->filled('door_id')) {
             $doorId = $request->door_id;
             $query->whereHas('door', function ($q) use ($doorId) {
-                $q->where('door_id', $doorId)->orWhere('doors.id', $doorId);
+                $q->where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('doors.id', $doorId));
             });
         }
 
@@ -218,7 +219,7 @@ class AdminAccessLogController extends Controller
         $limit = (int) $request->input('limit', 30);
 
         $doors = $doorId 
-            ? Door::where('door_id', $doorId)->orWhere('id', $doorId)->get()
+            ? Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->get()
             : Door::all();
 
         if ($doors->isEmpty()) {

@@ -4,12 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\Door;
 use App\Services\HikvisionIsapiService;
-use Illuminate\Foundation\Testing\DatabaseMigrations;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 class HikvisionDynamicDoorChannelTest extends TestCase
 {
-    use DatabaseMigrations;
+    use RefreshDatabase;
 
     private HikvisionIsapiService $service;
 

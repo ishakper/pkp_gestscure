@@ -16,7 +16,9 @@ class SyncDoorAccessJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    public int $tries = 3;
+
+    public array $backoff = [10, 30, 60];
 
     protected int $assignmentId;
 
@@ -75,7 +77,7 @@ class SyncDoorAccessJob implements ShouldQueue
             ]);
             $this->auditFailure($assignment, null, '503', $errorMsg);
 
-            return;
+            throw new \RuntimeException($errorMsg);
         }
 
         // Provision User Profile, Biometric/Card, and Access Rights
@@ -93,7 +95,7 @@ class SyncDoorAccessJob implements ShouldQueue
             ]);
             $this->auditFailure($assignment, $failedStep, $statusCode, $safeError);
 
-            return;
+            throw new \RuntimeException($errorMsg);
         }
 
         // Successfully synced

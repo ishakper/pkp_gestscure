@@ -12,6 +12,7 @@ use App\Models\Door;
 use App\Models\Employee;
 use App\Models\EmoneyCard;
 use App\Models\Internship;
+use App\Support\DbKey;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -907,7 +908,7 @@ class AccessProvisioningService
         if ($identifiers === []) {
             throw ValidationException::withMessages(['allowed_doors' => ['Minimal satu pintu wajib dipilih.']]);
         }
-        $doors = Door::whereIn('door_id', $identifiers)->orWhereIn('id', $identifiers)->get();
+        $doors = Door::whereIn('door_id', $identifiers)->orWhereIn('id', DbKey::filter($identifiers))->get();
         if ($doors->count() !== count($identifiers)) {
             throw ValidationException::withMessages(['allowed_doors' => ['Semua pintu harus valid.']]);
         }

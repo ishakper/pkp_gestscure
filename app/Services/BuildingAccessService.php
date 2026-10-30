@@ -77,8 +77,10 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereNotIn('person_no', $dummyPersonNos)
-            ->where('is_active', true)
+        return Employee::whereNotIn('employee_id', $dummyPersonNos)
+            ->where(function ($q) {
+                $q->where('employment_status', 'ACTIVE')->orWhereNull('employment_status');
+            })
             ->get();
     }
 
@@ -90,6 +92,32 @@ class BuildingAccessService
         $dummyRange = range(1001, 1012);
         $dummyPersonNos = array_map(fn($n) => "USR-{$n}", $dummyRange);
 
-        return Employee::whereIn('person_no', $dummyPersonNos)->count();
+        return Employee::whereIn('employee_id', $dummyPersonNos)->count();
+    }
+
+    /**
+     * Check if an admin can access/manage a door based on building assignment.
+     * Fail-closed: returns false if door is not found or admin has no assigned building.
+     * Exact match only: rejects substring matches.
+     */
+    public function canAdminAccessDoor($admin, $doorId): bool
+    {
+        $door = Door::with('building')->find($doorId);
+        if (!$door) {
+            return false;
+        }
+
+        $assignedBuilding = is_object($admin) ? ($admin->assigned_building ?? null) : null;
+        if (empty($assignedBuilding)) {
+            return false;
+        }
+
+        $doorBuildingName = $door->building ? $door->building->name : $door->location;
+        if (empty($doorBuildingName)) {
+            return false;
+        }
+
+        // Strict exact equality match - NEVER use substring matching (e.g. str_contains)
+        return $assignedBuilding === $doorBuildingName;
     }
 }

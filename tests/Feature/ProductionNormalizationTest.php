@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Building;
+use App\Models\Door;
 use App\Models\Employee;
 use App\Services\ProductionNormalizationService;
 use App\Services\CardSecurityService;
@@ -62,7 +63,7 @@ class ProductionNormalizationTest extends TestCase
     }
 
     /**
-     * Test Building B audit requires building to exist.
+     * Test Building B audit handles missing building.
      */
     public function test_building_b_audit_when_building_missing(): void
     {
@@ -84,10 +85,33 @@ class ProductionNormalizationTest extends TestCase
     public function test_assign_all_eligible_to_building_b_uses_correct_columns(): void
     {
         // Ensure Building B exists
-        Building::firstOrCreate(
+        $building = Building::firstOrCreate(
             ['code' => 'BUILDING_B'],
             ['name' => 'Building B', 'description' => 'Main Production Building']
         );
+
+        $door = Door::create([
+            'door_id' => 'DOOR-B-'.uniqid(),
+            'door_name' => 'Building B Test Door',
+            'location' => 'Building B',
+            'device_ip' => '10.0.1.'.rand(10, 200),
+            'building_id' => $building->id,
+        ]);
+
+        $activeEmployee = Employee::factory()->create([
+            'employee_id' => 'EMP-ACTIVE-'.uniqid(),
+            'employment_status' => 'ACTIVE',
+        ]);
+
+        $inactiveEmployee = Employee::factory()->create([
+            'employee_id' => 'EMP-INACTIVE-'.uniqid(),
+            'employment_status' => 'INACTIVE',
+        ]);
+
+        $dummyEmployee = Employee::factory()->create([
+            'employee_id' => 'USR-1005',
+            'employment_status' => 'ACTIVE',
+        ]);
 
         // Run assign method with authorization true
         $result = $this->normalization->assignAllEligibleToBuildingB(true);
@@ -96,6 +120,24 @@ class ProductionNormalizationTest extends TestCase
         $this->assertTrue($result['authorized']);
         $this->assertArrayHasKey('created_assignments', $result);
         $this->assertEmpty($result['errors']);
+        $this->assertSame(1, $result['created_assignments']);
+
+        // Verify active eligible employee was assigned
+        $this->assertDatabaseHas('door_assignments', [
+            'employee_id' => $activeEmployee->id,
+            'door_id' => $door->id,
+            'sync_status' => 'pending',
+        ]);
+
+        // Verify inactive employee was strictly excluded
+        $this->assertDatabaseMissing('door_assignments', [
+            'employee_id' => $inactiveEmployee->id,
+        ]);
+
+        // Verify dummy employee was strictly excluded
+        $this->assertDatabaseMissing('door_assignments', [
+            'employee_id' => $dummyEmployee->id,
+        ]);
     }
 
     /**

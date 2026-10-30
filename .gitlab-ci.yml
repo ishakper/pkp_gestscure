@@ -142,7 +142,7 @@ build_verification_image:
       fi
 
 # ------------------------------------------------------------------------------
-# Stage 3: Automated Quality Test Suite (Clean Container)
+# Stage 3: Automated Quality Test Suite (PostgreSQL 16 Isolated Service)
 # ------------------------------------------------------------------------------
 test_suite:
   stage: test
@@ -150,72 +150,86 @@ test_suite:
     - Sandbox
   rules:
     - if: $CI_COMMIT_BRANCH
+  needs:
+    - build_verification_image
   script:
-    - echo "Building isolated test image on the runner executing this job..."
+    - echo "Executing full automated feature & regression test suite against PostgreSQL 16..."
     - |
       set -eu
 
       TEST_IMAGE="pkp-securegate-verify-${CI_COMMIT_SHA}-${CI_JOB_ID}"
       docker build --target verification -t "$TEST_IMAGE" .
 
-      PG_NETWORK="securegate-test-net-${CI_JOB_ID}"
-      PG_CONTAINER="securegate-pg-${CI_JOB_ID}"
-      PG_PASSWORD="$(docker run --rm --network none --entrypoint php "$TEST_IMAGE" -r 'echo bin2hex(random_bytes(24));')"
-
-      docker network create "$PG_NETWORK"
-
-      docker run --detach \
-        --name "$PG_CONTAINER" \
-        --network "$PG_NETWORK" \
-        --network-alias pgsql \
-        --health-cmd='pg_isready -U postgres -d securegate_test' \
-        --health-interval=2s \
-        --health-timeout=3s \
-        --health-retries=30 \
+      CI_NET="ci-net-${CI_JOB_ID}"
+      PG_HOST="pg-service-${CI_JOB_ID}"
+      docker network create ${CI_NET}
+      docker run -d --name ${PG_HOST} --network ${CI_NET} \
         -e POSTGRES_DB=securegate_test \
-        -e POSTGRES_USER=postgres \
-        -e POSTGRES_PASSWORD="$PG_PASSWORD" \
+        -e POSTGRES_USER=securegate \
+        -e POSTGRES_PASSWORD=securegate \
         postgres:16-alpine
-
-      attempt=0
-      until [ "$(docker inspect --format '{{.State.Health.Status}}' "$PG_CONTAINER")" = "healthy" ]; do
-        if [ "$attempt" -ge 60 ]; then
-          echo "PostgreSQL health check timed out."
-          docker logs "$PG_CONTAINER" || true
-          exit 1
+      PG_READY=0
+      for i in $(seq 1 30); do
+        if docker run --rm --network ${CI_NET} postgres:16-alpine pg_isready -h ${PG_HOST} -U securegate -d securegate_test; then
+          echo "PostgreSQL 16 service is ready."
+          PG_READY=1
+          break
         fi
-        attempt=$((attempt + 1))
-        sleep 2
+        sleep 1
       done
-
-      docker run --rm \
-        --network "$PG_NETWORK" \
+      if [ "$PG_READY" -ne 1 ]; then
+        echo "ERROR: PostgreSQL 16 service failed to reach ready state within 30 seconds."
+        exit 1
+      fi
+      echo "Performing rigorous fail-closed database preflight check..."
+      docker run --rm --network ${CI_NET} \
         -e APP_ENV=testing \
         -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
         -e DB_CONNECTION=pgsql \
-        -e DB_HOST=pgsql \
+        -e DB_HOST=${PG_HOST} \
         -e DB_PORT=5432 \
         -e DB_DATABASE=securegate_test \
-        -e DB_USERNAME=postgres \
-        -e DB_PASSWORD="$PG_PASSWORD" \
-        $TEST_IMAGE artisan test --colors=never
+        -e DB_USERNAME=securegate \
+        -e DB_PASSWORD=securegate \
+        "$TEST_IMAGE" php -r '
+          require __DIR__ . "/vendor/autoload.php";
+          $app = require_once __DIR__ . "/bootstrap/app.php";
+          $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+          $kernel->bootstrap();
+          \App\Support\DatabaseSafetyGuard::assertConnectionSafe();
+          $r = Illuminate\Support\Facades\DB::selectOne("SELECT current_database() AS db, current_user AS usr, version() AS ver");
+          if (!$r || $r->db !== "securegate_test") {
+              fwrite(STDERR, "FATAL: Preflight DB target check failed: " . ($r ? $r->db : "null") . PHP_EOL);
+              exit(1);
+          }
+          echo "LIVE_PREFLIGHT_VERIFIED: Connected to " . $r->db . " as " . $r->usr . " on " . $r->ver . PHP_EOL;
+        '
+      echo "Executing test suite..."
+      docker run --rm --network ${CI_NET} \
+        -e APP_ENV=testing \
+        -e APP_KEY=base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \
+        -e DB_CONNECTION=pgsql \
+        -e DB_HOST=${PG_HOST} \
+        -e DB_PORT=5432 \
+        -e DB_DATABASE=securegate_test \
+        -e DB_USERNAME=securegate \
+        -e DB_PASSWORD=securegate \
+        "$TEST_IMAGE" artisan test --colors=never
   after_script:
     - |
+      PG_HOST="pg-service-${CI_JOB_ID}"
+      CI_NET="ci-net-${CI_JOB_ID}"
       TEST_IMAGE="pkp-securegate-verify-${CI_COMMIT_SHA}-${CI_JOB_ID}"
-      PG_CONTAINER="securegate-pg-${CI_JOB_ID}"
-      PG_NETWORK="securegate-test-net-${CI_JOB_ID}"
-
-      echo "Cleaning up isolated PostgreSQL resources..."
-      docker rm -f "$PG_CONTAINER" >/dev/null 2>&1 || true
-      docker network rm "$PG_NETWORK" >/dev/null 2>&1 || true
-
-      echo "Cleaning up verification image..."
-      docker image rm -f "$TEST_IMAGE" 2>/dev/null || true
+      echo "Cleaning up job-scoped test resources (${PG_HOST}, ${CI_NET}, ${TEST_IMAGE})..."
+      docker rm -f "${PG_HOST}" 2>/dev/null || true
+      docker network rm "${CI_NET}" 2>/dev/null || true
+      docker image rm -f "${TEST_IMAGE}" 2>/dev/null || true
   artifacts:
     when: on_failure
     expire_in: 3 days
     paths:
       - storage/logs/laravel.log
+
 # ------------------------------------------------------------------------------
 # Stage 4: Security & Secret Hygiene
 # ------------------------------------------------------------------------------
@@ -228,8 +242,9 @@ security_hygiene:
   needs:
     - test_suite
   script:
-    - echo "Checking that .env is NOT tracked in Git..."
-    - test -z "$(git ls-files .env)"
+    - echo "Checking that .env and .env.testing are NOT tracked in Git..."
+    - test -z "$(git ls-files .env .env.testing)"
+    - echo "ENV_TESTING_TRACKING_CHECK=PASS"
     - echo "Checking that no temporary debug/auth scripts are tracked..."
     - test -z "$(git ls-files run_auth.php public/run_auth.php scratch/* raw_*.php)"
     - echo "Verifying docker-compose.yml has no committed secret defaults..."

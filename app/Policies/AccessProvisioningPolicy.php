@@ -36,7 +36,8 @@ class AccessProvisioningPolicy
         }
 
         if (in_array(strtolower((string)$admin->role), ['employee', 'intern'], true)) {
-            return ($request->employee_id && $request->employee_id === $admin->id) ||
+            $empId = $admin->employee_id ?? $admin->id;
+            return ($request->employee_id && ($request->employee_id === $empId || $request->employee_id === $admin->id)) ||
                    ($request->requested_by && $request->requested_by === $admin->id);
         }
 

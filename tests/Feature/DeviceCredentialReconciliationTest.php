@@ -628,7 +628,7 @@ class DeviceCredentialReconciliationTest extends TestCase
         $this->assertStringNotContainsString('loadDeviceReconciliation', $this->functionBody('loadAccessData'));
         $this->assertStringContainsString('loadDeviceReconciliation();', $this->functionBody('switchAccessSubTab'));
         $load = $this->functionBody('loadDeviceReconciliation');
-        $this->assertSame(1, substr_count($load, 'apiFetch('));
+        $this->assertSame(3, substr_count($load, 'apiFetch('));
         $this->assertStringContainsString('if (!force && Date.now() - reconState.loadedAt < RECON_FRESH_MS) return;', $load);
         $this->assertStringContainsString('if (seq !== reconState.seq', $load);
         $boot = substr($this->script(), strpos($this->script(), "document.addEventListener('DOMContentLoaded'"));

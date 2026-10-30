@@ -105,7 +105,7 @@ class SecuregateMetricsService
             DB::statement(
                 'INSERT INTO securegate_metrics (metric_key, name, labels_json, value, created_at, updated_at) ' .
                 'VALUES (?, ?, ?, ?, ?, ?) ' .
-                'ON CONFLICT(metric_key) DO UPDATE SET value = value + excluded.value, updated_at = excluded.updated_at',
+                'ON CONFLICT(metric_key) DO UPDATE SET value = securegate_metrics.value + excluded.value, updated_at = excluded.updated_at',
                 [$key, $metricName, $labelsJson, $step, $now, $now]
             );
         } catch (\Throwable $e) {

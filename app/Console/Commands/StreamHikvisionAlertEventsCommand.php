@@ -6,6 +6,7 @@ use App\Models\Door;
 use App\Services\HikvisionAlertStreamClient;
 use App\Services\HikvisionEventIngestionService;
 use App\Services\HikvisionStreamLeaseManager;
+use App\Support\DbKey;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -41,7 +42,7 @@ class StreamHikvisionAlertEventsCommand extends Command
         HikvisionStreamLeaseManager $leaseManager
     ): int {
         $doorId = (string) $this->argument('door_id');
-        $door = Door::where('door_id', $doorId)->orWhere('id', $doorId)->first();
+        $door = Door::where('door_id', $doorId)->when(DbKey::isValid($doorId), fn ($q) => $q->orWhere('id', $doorId))->first();
 
         if (!$door) {
             $this->error("Pintu [{$doorId}] tidak ditemukan dalam sistem database.");
