@@ -9,7 +9,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-    
+
     <!-- Anime.js CDN -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <!-- Offline Fallback for Local LAN Server -->
@@ -46,7 +46,7 @@
             padding: 1.5rem;
             position: relative;
             overflow-x: hidden;
-            background-image: 
+            background-image:
                 linear-gradient(rgba(56, 189, 248, 0.04) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(56, 189, 248, 0.04) 1px, transparent 1px),
                 radial-gradient(ellipse at 50% 30%, rgba(56, 189, 248, 0.12) 0%, transparent 65%);
@@ -134,7 +134,7 @@
             max-width: 440px;
             position: relative;
             z-index: 10;
-            box-shadow: 
+            box-shadow:
                 0 0 35px rgba(56, 189, 248, 0.14),
                 0 25px 60px -12px rgba(0, 0, 0, 0.85),
                 inset 0 0 25px rgba(56, 189, 248, 0.04);
@@ -409,78 +409,12 @@
             transform: translateX(3px);
         }
 
-        /* Demo Accounts (Quick Login) Section */
-        .demo-accounts {
-            margin-top: 2rem;
-            padding-top: 1.35rem;
-            border-top: 1px dashed rgba(255, 255, 255, 0.1);
-        }
-
-        .demo-title {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.7rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-dim);
-            margin-bottom: 0.85rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-
-        .demo-buttons {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.75rem;
-        }
-
-        .btn-demo {
-            background: rgba(255, 255, 255, 0.03);
-            border: 1px solid rgba(56, 189, 248, 0.18);
-            border-radius: 0.65rem;
-            padding: 0.65rem 0.85rem;
-            color: var(--text-muted);
-            font-size: 0.75rem;
-            cursor: pointer;
-            text-align: left;
-            transition: all 0.25s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .btn-demo:hover {
-            background: rgba(56, 189, 248, 0.1);
-            border-color: var(--primary-cyan);
-            color: #ffffff;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25);
-        }
-
-        .btn-demo strong {
-            display: block;
-            color: #ffffff;
-            font-size: 0.8rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-weight: 700;
-            margin-bottom: 2px;
-        }
-
-        .btn-demo span {
-            font-size: 0.7rem;
-            color: var(--primary-cyan);
-            display: block;
-        }
-
         @media (max-width: 480px) {
             .cyber-card {
                 padding: 2rem 1.5rem;
             }
             .brand-title {
                 font-size: 1.45rem;
-            }
-            .demo-buttons {
-                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -562,7 +496,7 @@
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                     <circle cx="12" cy="7" r="4"></circle>
                 </svg>
-                <input type="email" name="email" id="emailInput" class="cyber-input" placeholder="admin@accesscontrol.local" required value="admin@accesscontrol.local" autocomplete="email">
+                <input type="email" name="email" id="emailInput" class="cyber-input" placeholder="admin@accesscontrol.local" required autocomplete="email">
                 <div class="cyber-underline-glow"></div>
             </div>
         </div>
@@ -575,7 +509,7 @@
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
                     <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
                 </svg>
-                <input type="password" name="password" id="passwordInput" class="cyber-input" placeholder="••••••••" required value="password" autocomplete="current-password">
+                <input type="password" name="password" id="passwordInput" class="cyber-input" placeholder="••••••••" required autocomplete="current-password">
                 <div class="cyber-underline-glow"></div>
             </div>
         </div>
@@ -587,44 +521,7 @@
                 <polyline points="9 18 15 12 9 6"></polyline>
             </svg>
         </button>
-    </form>
-
-    <!-- Demo Quick Login Accounts -->
-    <div class="demo-accounts">
-        <div class="demo-title">
-            <span>// QUICK_ACCESS_CREDENTIALS</span>
-            <span style="color: var(--primary-cyan); font-size: 0.65rem;">DEMO_KEYS</span>
-        </div>
-        <div class="demo-buttons">
-            <button type="button" class="btn-demo" onclick="fillCreds('admin@accesscontrol.local', 'password')">
-                <strong>SUPER ADMIN</strong>
-                <span>Clearance: Level 0 (Global)</span>
-            </button>
-            <button type="button" class="btn-demo" onclick="fillCreds('admin.gedunga@accesscontrol.local', 'password')">
-                <strong>BUILDING ADMIN</strong>
-                <span>Clearance: Gedung A Only</span>
-            </button>
-        </div>
-    </div>
-</div>
-
-<script>
-    // Quick Credential Fill with cyber flash feedback
-    function fillCreds(email, pass) {
-        const emailInput = document.getElementById('emailInput');
-        const passInput = document.getElementById('passwordInput');
-        emailInput.value = email;
-        passInput.value = pass;
-
-        if (window.anime) {
-            anime({
-                targets: [emailInput, passInput],
-                backgroundColor: ['rgba(56, 189, 248, 0.25)', 'rgba(15, 23, 42, 0.4)'],
-                duration: 600,
-                easing: 'easeOutQuad'
-            });
-        }
-    }
+    </form></div><script>
 
     // Decoding Text Animation (Cyberpunk Security System Entry)
     function startDecodingAnimation() {
@@ -684,7 +581,6 @@
                     '.cyber-status-bar',
                     '.cyber-input-wrap',
                     '.btn-cyber-submit',
-                    '.demo-accounts'
                 ],
                 opacity: [0, 1],
                 translateY: [35, 0],
