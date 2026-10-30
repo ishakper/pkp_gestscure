@@ -191,7 +191,7 @@ test_suite:
         -e DB_DATABASE=securegate_test \
         -e DB_USERNAME=securegate \
         -e DB_PASSWORD=securegate \
-        "$TEST_IMAGE" php -r '
+        "$TEST_IMAGE" -r '
           require __DIR__ . "/vendor/autoload.php";
           $app = require_once __DIR__ . "/bootstrap/app.php";
           $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
