@@ -11,11 +11,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     @php
-        $cardAccessMode = config('services.card_access.ui', 'off');
-        $cardAccessEnabled = in_array($cardAccessMode, ['api', 'preview'], true) && in_array('credential.view', $permissions ?? [], true) && ($cardAccessMode !== 'preview' || app()->environment(['local', 'testing']));
+        $cardAccessMode = config('services.card_access.ui') ?: (app()->environment('local', 'testing') ? 'preview' : 'off');
+        if (! in_array($cardAccessMode, ['api', 'preview'], true) || ($cardAccessMode === 'preview' && ! app()->environment('local', 'testing'))) {
+            $cardAccessMode = 'off';
+        }
+        $cardAccessEnabled = $cardAccessMode !== 'off' && in_array('credential.view', $permissions ?? [], true);
     @endphp
     @if($cardAccessEnabled)
-    <link rel="stylesheet" href="{{ asset('css/card-access.css') }}?v={{ filemtime(public_path('css/card-access.css')) }}">
+    <link rel="stylesheet" href="/css/card-access.css?v={{ @filemtime(public_path('css/card-access.css')) ?: '1' }}">
     @endif
     <script>
         (function() {
@@ -124,9 +127,9 @@
             pointer-events: auto;
         }
 
-        /* ==========================================
+        /* ------------------------------------------
            Floating Logo Architecture
-           ========================================== */
+           ------------------------------------------ */
         .cursor-pointer {
             cursor: pointer;
         }
@@ -178,6 +181,11 @@
 
         .floating-logo:active {
             transform: scale(0.88);
+        }
+
+        .floating-logo:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 4px;
         }
 
         /* Sidebar Open State: Logo glides smoothly into the Sidebar header */
@@ -1022,6 +1030,8 @@
             box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
         }
         .ats-sub-content { display: none; }
+        .org-sub-content { display: none; }
+        .org-sub-content.active { display: block; }
         .ats-sub-content.active { display: block; animation: fadeIn 0.25s ease-out; }
         .stage-badge {
             display: inline-block;
@@ -1194,8 +1204,6 @@
         .unknown-user { color: #fca5a5; font-style: italic; font-size: 0.8rem; }
 
         /* Modals */
-        body.modal-open { overflow: hidden; }
-
         .modal-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -1222,7 +1230,6 @@
             padding: 1.75rem;
             max-height: 90vh;
             overflow-y: auto;
-            overscroll-behavior: contain;
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
         }
 
@@ -1412,6 +1419,78 @@
         .stat-title, .stat-desc { color: var(--text-muted); font-size: 0.8rem; overflow-wrap: anywhere; }
         .stat-value { color: var(--text-main); font-size: 1.35rem; overflow-wrap: anywhere; }
 
+        .table-container:has(> .employee-pagination) {
+            min-height: 680px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .table-container:has(> .employee-pagination) > table {
+            flex: 1 0 auto;
+            transition: opacity 180ms ease;
+        }
+
+        .table-container.employee-table-loading > table {
+            opacity: 0.55;
+        }
+
+        .employee-pagination {
+            position: sticky;
+            bottom: 0;
+            z-index: 3;
+            margin-top: auto;
+            border-top: 1px solid var(--border-color);
+            background: rgba(15, 23, 42, 0.98);
+        }
+
+        .badge-fingerprint-expected {
+            background: rgba(139, 92, 246, 0.18);
+            color: #c4b5fd;
+            border: 1px solid rgba(139, 92, 246, 0.35);
+        }
+
+        /* === PAGINATION RESPONSIVE & ACCESSIBILITY === */
+        .pagination-container {
+            display: block;
+            padding: 1rem;
+        }
+
+        .pagination-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            max-width: 100%;
+        }
+
+        .pagination-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 0.5rem 0.75rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .pagination-btn:disabled {
+            pointer-events: none;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .pagination-btn:focus-visible {
+            outline: 2px solid #38bdf8;
+            outline-offset: 2px;
+        }
+
+        .pagination-status {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            padding: 0.5rem 0.25rem;
+            min-width: 120px;
+            text-align: center;
+        }
+
         /* Responsive Breakpoints (< 768px Mobile & Tablet) */
         @media (max-width: 768px) {
             .table-container { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1438,6 +1517,7 @@
                 max-width: 100vw !important;
                 width: 100% !important;
                 padding: 1.25rem 1rem !important;
+                padding-bottom: calc(1.25rem + env(safe-area-inset-bottom)) !important;
             }
 
             body.sidebar-open .main-content,
@@ -1468,24 +1548,39 @@
             .table-container {
                 overflow-x: auto;
             }
+
+            .pagination-wrapper {
+                flex-direction: column;
+                gap: 0.5rem;
+            }
+
+            .pagination-status {
+                order: -1;
+                width: 100%;
+                margin-bottom: 0.5rem;
+            }
+
+            .pagination-btn {
+                flex: 1;
+                min-width: 120px;
+            }
         }
-        .dashboard-summary-panel { display: grid; gap: 1rem; margin-bottom: 1.5rem; }
-        .dashboard-summary-block { padding: 1rem; border: 1px solid var(--border-color); border-radius: .75rem; background: rgba(15,23,42,.32); }
-        .dashboard-summary-block h3 { margin: 0 0 .75rem; font-size: 1rem; }
-        .dashboard-summary-grid { display: grid; gap: .75rem; }
-        .dashboard-summary-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .dashboard-summary-grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-        .dashboard-summary-grid div { padding: .75rem; background: rgba(56,189,248,.08); }
-        .dashboard-summary-grid span, .dashboard-summary-grid strong { display: block; }
-        .dashboard-summary-grid span { color: var(--text-muted); font-size: .75rem; }
-        .dashboard-summary-grid strong { margin-top: .25rem; font-size: 1.35rem; }
-        .dashboard-summary-actions { display: flex; gap: .75rem; flex-wrap: wrap; }
-        .dashboard-summary-actions button { flex: 1; min-width: 110px; }
-        @media (max-width: 640px) {
-            .dashboard-summary-grid--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .door-actions { grid-template-columns: 1fr; }
-            .door-actions .btn-action { width: 100%; justify-content: center; }
-            .modal-card { max-width: calc(100vw - 2rem); margin: 1rem auto; padding: 1.25rem 1rem; }
+
+        /* Extra small screens (< 400px) */
+        @media (max-width: 400px) {
+            .pagination-wrapper {
+                gap: 0.5rem;
+            }
+
+            .pagination-btn {
+                font-size: 0.85rem;
+                padding: 0.5rem 0.5rem;
+                min-width: 100px;
+            }
+
+            .pagination-status {
+                font-size: 0.75rem;
+            }
         }
     </style>
 </head>
@@ -1647,7 +1742,7 @@
         <div class="metric-card">
             <div class="metric-icon-box icon-indigo">💳</div>
             <div>
-                <div class="metric-label">Terdaftar</div>
+                <div class="metric-label">Terdaftar di Perangkat</div>
                 <div class="metric-value" id="metricRegisteredCredentials">-</div>
             </div>
         </div>
@@ -1674,12 +1769,11 @@
 
     <!-- TAB 1: OVERVIEW (UNIFIED DASHBOARD) -->
     <section id="overviewTab" class="tab-content active">
-        <div class="glass-panel dashboard-summary-panel" aria-label="Ringkasan dashboard">
-            <div class="dashboard-summary-block"><h3>Perlu Perhatian</h3><div class="dashboard-summary-grid dashboard-summary-grid--two"><div><span>Offline</span><strong id="dashboardAlertOffline">-</strong></div><div><span>Denied 24h</span><strong id="dashboardAlertDenied">-</strong></div></div></div>
-            <div class="dashboard-summary-block"><h3>Quick Actions</h3><div class="dashboard-summary-actions"><button class="btn-secondary" type="button" onclick="syncHardwareLogs(this)">Sync Logs</button><button class="btn-secondary" type="button" onclick="scheduleMetricCardsUpdate(true)">Metrics</button><button class="btn-secondary" type="button" onclick="switchTab('buildingSetupTab', document.querySelector('[onclick*=\"buildingSetupTab\"]'))">Buildings</button></div></div>
-            <div class="dashboard-summary-block"><h3>Device Status</h3><div class="dashboard-summary-grid dashboard-summary-grid--four"><div><span>Online</span><strong id="dashboardDeviceOnline">-</strong></div><div><span>Offline</span><strong id="dashboardDeviceOffline">-</strong></div><div><span>Maint</span><strong id="dashboardDeviceMaint">-</strong></div><div><span>Total</span><strong id="dashboardDeviceTotal">-</strong></div></div></div>
-            <div class="dashboard-summary-block"><h3>User &amp; Credentials</h3><div class="dashboard-summary-grid dashboard-summary-grid--two"><div><span>Active</span><strong id="dashboardUserActive">-</strong></div><div><span>Registered</span><strong id="dashboardUserRegistered">-</strong></div></div></div>
-        </div>
+        <div class="glass-panel" style="padding: 1.25rem; margin-bottom: 1.5rem;"><h3 style="margin: 0 0 1rem 0; font-size: 1rem;">Perlu Perhatian</h3><div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;"><div style="padding: 0.75rem; background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444;"><div style="font-size: 0.8rem; color: #fca5a5; font-weight: 500;">Offline</div><div style="font-size: 1.5rem; font-weight: 700; color: #fca5a5;" id="compactAlertOffline" aria-busy="true">…</div></div><div style="padding: 0.75rem; background: rgba(239, 68, 68, 0.1); border-left: 3px solid #ef4444;"><div style="font-size: 0.8rem; color: #fca5a5; font-weight: 500;">Ditolak Hari Ini</div><div style="font-size: 1.5rem; font-weight: 700; color: #fca5a5;" id="compactAlertDenied" aria-busy="true">…</div></div></div></div>
+        <div class="glass-panel" style="padding: 1.25rem; margin-bottom: 1.5rem;"><h3 style="margin: 0 0 1rem 0; font-size: 1rem;">Quick Actions</h3><div style="display: flex; gap: 0.75rem; flex-wrap: wrap;"><button class="btn-secondary" onclick="syncHardwareLogs(this)" style="flex: 1; min-width: 110px;">Sync Logs</button><button class="btn-secondary" onclick="scheduleMetricCardsUpdate(true)" style="flex: 1; min-width: 110px;">Metrics</button><button class="btn-secondary" onclick="loadDashboardBuildings()" style="flex: 1; min-width: 110px;">Buildings</button></div></div>
+        <div class="glass-panel" style="padding: 1.25rem; margin-bottom: 1.5rem;"><h3 style="margin: 0 0 1rem 0; font-size: 1rem;">Device Status</h3><div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;"><div style="padding: 0.75rem; text-align: center; background: rgba(16, 185, 129, 0.1);"><div style="font-size: 0.75rem; color: #86efac; font-weight: 500;">Online</div><div style="font-size: 1.5rem; font-weight: 700; color: #86efac;" id="compactDevOnline" aria-busy="true">…</div></div><div style="padding: 0.75rem; text-align: center; background: rgba(239, 68, 68, 0.1);"><div style="font-size: 0.75rem; color: #fca5a5; font-weight: 500;">Offline</div><div style="font-size: 1.5rem; font-weight: 700; color: #fca5a5;" id="compactDevOffline" aria-busy="true">…</div></div><div style="padding: 0.75rem; text-align: center; background: rgba(245, 158, 11, 0.1);"><div style="font-size: 0.75rem; color: #fde047; font-weight: 500;">Maint</div><div style="font-size: 1.5rem; font-weight: 700; color: #fde047;" id="compactDevMaint" aria-busy="true">…</div></div><div style="padding: 0.75rem; text-align: center; background: rgba(99, 102, 241, 0.1);"><div style="font-size: 0.75rem; color: #a5b4fc; font-weight: 500;">Total</div><div style="font-size: 1.5rem; font-weight: 700; color: #a5b4fc;" id="compactDevTotal" aria-busy="true">…</div></div></div></div>
+        <div class="glass-panel" style="padding: 1.25rem; margin-bottom: 1.5rem;"><h3 style="margin: 0 0 1rem 0; font-size: 1rem;">User & Credentials</h3><div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem;"><div style="padding: 0.75rem; text-align: center; background: rgba(56, 189, 248, 0.1);"><div style="font-size: 0.75rem; color: #7dd3fc; font-weight: 500;">Active</div><div style="font-size: 1.5rem; font-weight: 700; color: #7dd3fc;" id="compactUserActive" aria-busy="true">…</div></div><div style="padding: 0.75rem; text-align: center; background: rgba(99, 102, 241, 0.1);"><div style="font-size: 0.75rem; color: #a5b4fc; font-weight: 500;">Registered</div><div style="font-size: 1.5rem; font-weight: 700; color: #a5b4fc;" id="compactUserRegistered" aria-busy="true">…</div></div></div></div>
+
 
         <!-- SECTION 1: AKTIVITAS TERAKHIR (REUSE SECURITY ACCESS LOGS) -->
         <div class="section-header">
@@ -1789,11 +1883,8 @@
                         </select>
                     </div>
                 </div>
-                <div class="toolbar-right" style="display:flex;align-items:center;gap:.75rem;">
-                    @if(in_array('device.manage', $permissions ?? []))
-                    <button type="button" class="btn-secondary btn-sm" id="btnBatchSyncDoor" onclick="triggerBatchDoorSync(document.getElementById('employeeDoorFilter')?.value, this)" title="Kirim trigger batch sync ke antrean worker">⚡ Batch Sync Pintu</button>
-                    @endif
-                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText">Total: - Karyawan</span>
+                <div class="toolbar-right">
+                    <span style="font-size: 0.85rem; color: var(--text-muted);" id="employeeCountText" aria-live="polite">Menampilkan - pengguna</span>
                 </div>
             </div>
             <table>
@@ -1803,8 +1894,8 @@
                         <th>Nama Pengguna</th>
                         <th>Departemen</th>
                         <th>Jabatan &amp; Status</th>
-                        <th>Status Biometrik</th>
-                        <th>Akses Pintu (Sync Status)</th>
+                        <th>Status Perangkat &amp; Catatan Aplikasi</th>
+                        <th>Hak Akses Pintu</th>
                         <th style="text-align: right;">Aksi</th>
                     </tr>
                 </thead>
@@ -1841,6 +1932,7 @@
             <div>
                 <h2 class="section-title">👥 Manajemen Pengguna</h2>
                 <p class="section-desc">Daftar lengkap pengguna terdaftar, status biometrik, dan distribusi izin pintu</p>
+                <span style="display: block; margin-top: 0.75rem; font-size: 0.95rem; font-weight: 500;" id="employeeTotalSummary" aria-live="polite">Total Pengguna: <strong>—</strong></span>
             </div>
             <button class="btn-primary" onclick="openAddEmployeeModal()">+ Tambah Pengguna</button>
         </div>
@@ -1852,8 +1944,8 @@
                         <th>Nama Pengguna</th>
                         <th>Departemen</th>
                         <th>Jabatan &amp; Status</th>
-                        <th>Status Biometrik</th>
-                        <th>Akses Pintu (Sync Status)</th>
+                        <th>Status Perangkat &amp; Catatan Aplikasi</th>
+                        <th>Hak Akses Pintu</th>
                         <th style="text-align: right;">Aksi</th>
                     </tr>
                 </thead>
@@ -2123,6 +2215,13 @@
             </div>
         </div>
 
+        <div class="ats-subnav" style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.75rem; overflow-x: auto;">
+            <button class="subnav-btn active" onclick="switchOrganizationSubTab('hierarchy', this)">🏢 Gedung &amp; Zona</button>
+            <button class="subnav-btn" onclick="switchOrganizationSubTab('divisions', this)">🗂️ Divisi</button>
+            <button class="subnav-btn" onclick="switchOrganizationSubTab('positions', this)">🪪 Posisi</button>
+        </div>
+
+        <div id="orgSubHierarchy" class="org-sub-content active">
         <!-- Schema Status & Blueprint Callout -->
         <div style="margin-bottom: 1.5rem; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25); border-radius: 0.75rem; padding: 1rem 1.25rem; display: flex; align-items: flex-start; gap: 0.75rem;">
             <span style="font-size: 1.25rem;">ℹ️</span>
@@ -2136,6 +2235,46 @@
         <div id="buildingHierarchyContainer">
             <div class="table-container" style="padding: 2.5rem; text-align: center;">
                 <div class="spinner"></div> Memuat hierarki gedung dan perangkat pintu...
+            </div>
+        </div>
+        </div>
+
+        <!-- Master organisasi: Gedung -> Divisi -> Posisi -->
+        <div id="orgSubDivisions" class="org-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <h3 style="margin:0;color:#fff;">Master Divisi</h3>
+                        <div class="section-desc">Divisi milik satu gedung. Dipakai pada form Tambah/Edit Pengguna.</div>
+                    </div>
+                    <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
+                        <select id="divisionBuildingFilter" class="form-control" onchange="renderOrganizationMaster()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
+                        @if($admin?->isSuperAdmin())
+                        <button class="btn-primary" onclick="openOrganizationMasterModal('divisions')">+ Tambah Divisi</button>
+                        @endif
+                    </div>
+                </div>
+                <div style="overflow:auto;"><table class="data-table"><thead><tr><th>Kode</th><th>Nama Divisi</th><th>Gedung</th><th>Posisi</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead>
+                    <tbody id="divisionsTableBody"><tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat divisi...</td></tr></tbody></table></div>
+            </div>
+        </div>
+
+        <div id="orgSubPositions" class="org-sub-content">
+            <div class="table-container">
+                <div class="table-toolbar">
+                    <div class="toolbar-left">
+                        <h3 style="margin:0;color:#fff;">Master Posisi</h3>
+                        <div class="section-desc">Posisi milik satu divisi. Dipakai pada form Tambah/Edit Pengguna.</div>
+                    </div>
+                    <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
+                        <select id="positionDivisionFilter" class="form-control" onchange="renderOrganizationMaster()" aria-label="Filter divisi"><option value="">Semua Divisi</option></select>
+                        @if($admin?->isSuperAdmin())
+                        <button class="btn-primary" onclick="openOrganizationMasterModal('positions')">+ Tambah Posisi</button>
+                        @endif
+                    </div>
+                </div>
+                <div style="overflow:auto;"><table class="data-table"><thead><tr><th>Kode</th><th>Nama Posisi</th><th>Divisi</th><th>Gedung</th><th>Status</th><th style="text-align:right;">Aksi</th></tr></thead>
+                    <tbody id="positionsTableBody"><tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat posisi...</td></tr></tbody></table></div>
             </div>
         </div>
     </section>
@@ -2823,6 +2962,7 @@
         <div id="cardAccessRoot"></div>
     </section>
     @endif
+
     <section class="tab-content" id="accessTab">
         <!-- Header & Action -->
         <div class="table-toolbar" style="margin-bottom: 1.5rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 1rem; padding: 1.25rem 1.5rem;">
@@ -2955,6 +3095,60 @@
 
         <!-- SUB-TAB 3: CREDENTIAL CENTER -->
         <div id="accessSubCredentials" class="ats-sub-content" style="display: none;">
+            <!-- Reconciliation Center: device vs app, read-only towards devices (super_admin) -->
+            <div id="deviceReconciliationSection" class="table-container" style="display: none; margin-bottom: 1.25rem;">
+                <div class="table-toolbar">
+                    <div class="toolbar-left" style="display:flex;flex-direction:column;gap:0.2rem;">
+                        <strong style="color:#fff;">Rekonsiliasi Perangkat</strong>
+                        <small id="reconLastRun" style="color:#94a3b8;">Belum pernah membaca perangkat.</small>
+                    </div>
+                    <div class="toolbar-right">
+                        <button type="button" class="btn-primary" id="reconRunAllBtn" onclick="runDeviceReconciliation(null, this)" title="Membaca data pengguna/kartu/sidik jari dari perangkat. Tidak ada data yang ditulis ke perangkat.">⟳ Refresh dari Perangkat</button>
+                    </div>
+                </div>
+                <style>.recon-device-grid > .recon-device-card { flex: 0 0 calc((100% - 36px) / 4); min-width: 300px; scroll-snap-align: start; } @media (max-width: 1200px) { .recon-device-grid > .recon-device-card { flex-basis: 360px; } } @media (max-width: 768px) { .recon-device-grid > .recon-device-card { flex-basis: 88vw; min-width: 280px; } }</style><div id="reconDeviceSummary" class="recon-device-grid" style="display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x proximity;padding:0 1rem 1rem;scrollbar-gutter:stable;"></div>
+
+                <div style="padding:0 1rem 1rem;">
+                    <strong style="color:#fff;">Data Perangkat Belum Terhubung</strong>
+                    <table style="margin-top:0.5rem;">
+                        <thead>
+                            <tr>
+                                <th>Person Number</th><th>Nama di Perangkat</th><th>Kartu</th><th>Jumlah FP</th><th>Perangkat</th><th>Kandidat</th><th>Keyakinan</th><th>Status</th><th style="text-align:right;">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reconUnlinkedBody">
+                            <tr><td colspan="9" class="empty-td">Belum ada data perangkat.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="table-toolbar">
+                    <div class="toolbar-left" id="reconTabs" style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                        <button type="button" class="subnav-btn active" data-recon-tab="all" onclick="setReconciliationTab('all')">Semua</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="synced" onclick="setReconciliationTab('synced')">Tersinkron</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="partial" onclick="setReconciliationTab('partial')">Partial</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="app_only" onclick="setReconciliationTab('app_only')">Hanya Aplikasi</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="device_only" onclick="setReconciliationTab('device_only')">Hanya Perangkat</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="conflict" onclick="setReconciliationTab('conflict')">Konflik</button>
+                        <button type="button" class="subnav-btn" data-recon-tab="review" onclick="setReconciliationTab('review')">Perlu Verifikasi</button>
+                    </div>
+                    <div class="toolbar-right">
+                        <input type="text" id="reconSearch" placeholder="Cari nama / NIK / person number..." oninput="debounceReconciliationSearch()" style="width: 240px;">
+                    </div>
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Identitas</th><th>NIK / Person Number</th><th>Credential</th><th>Card</th><th>Fingerprint</th><th>Device</th><th>Identity Status</th><th>Device Link</th><th>Sync Status</th><th>Last Verified</th><th style="text-align:right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reconTableBody">
+                        <tr><td colspan="11" class="empty-td">Memuat rekonsiliasi...</td></tr>
+                    </tbody>
+                </table>
+                <div id="reconPagination" style="display:flex;justify-content:flex-end;gap:0.5rem;align-items:center;padding:0.75rem 1rem;"></div>
+            </div>
+
             <div class="table-container">
                 <div class="table-toolbar">
                     <div class="toolbar-left" style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
@@ -3318,7 +3512,7 @@
                 </div>
             </div>
             <div class="toolbar-right" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-                <button class="btn-secondary" onclick="loadAttendanceData(); showToast('Data Kehadiran disinkronkan', 'info');">
+                <button class="btn-secondary" onclick="loadAttendanceData(true); showToast('Data Kehadiran disinkronkan', 'info');">
                     🔄 Refresh
                 </button>
             </div>
@@ -3332,8 +3526,8 @@
             <div class="table-toolbar" style="margin-bottom:1rem;">
                 <div class="toolbar-left"><h3 style="margin:0;color:#fff;">Laporan Kehadiran Bulanan</h3><div class="section-desc">Ringkasan hadir, terlambat, dan absen per karyawan serta gedung.</div></div>
                 <div class="toolbar-right" style="display:flex;gap:.65rem;flex-wrap:wrap;">
-                    <input type="month" id="attendanceReportMonth" class="form-control" onchange="loadAttendanceReport()" aria-label="Bulan laporan">
-                    <select id="attendanceReportBuilding" class="form-control" onchange="loadAttendanceReport()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
+                    <input type="month" id="attendanceReportMonth" class="form-control" onchange="onAttendanceFilterChange()" aria-label="Bulan laporan">
+                    <select id="attendanceReportBuilding" class="form-control" onchange="onAttendanceFilterChange()" aria-label="Filter gedung"><option value="">Semua Gedung</option></select>
                     <button class="btn-secondary" onclick="exportAttendanceReport(this)">⬇ Export CSV</button>
                     <button class="btn-secondary" onclick="printAttendanceReport()" title="Buka dialog cetak, lalu pilih 'Simpan sebagai PDF'">🖨 Cetak / PDF</button>
                 </div>
@@ -3486,9 +3680,9 @@
         </div>
     </section>
 
-    <!-- ===================================================================== -->
+    <!-- -------------------------------------------------------------------------  -->
     <!-- SPRINT 11: WFH + LEAVE + PERMISSION + SICK (ATTENDANCE REQUESTS) -->
-    <!-- ===================================================================== -->
+    <!-- -------------------------------------------------------------------------  -->
     <section class="tab-content" id="attendanceRequestsTab">
         <div class="content-header">
             <div>
@@ -3672,9 +3866,9 @@
         </div>
     </div>
 
-    <!-- =========================================================================
+    <!-- --------------------------------------------------------------------------
          SPRINT 12: KOREKSI PRESENSI (ATTENDANCE CORRECTION)
-         ========================================================================= -->
+         -------------------------------------------------------------------------- -->
     <section class="tab-content" id="attendanceCorrectionsTab">
         <div class="content-header">
             <div>
@@ -3862,9 +4056,9 @@
         </div>
     </div>
 
-    <!-- =========================================================================
+    <!-- --------------------------------------------------------------------------
          SPRINT 12: PENGAJUAN LEMBUR (OVERTIME REQUEST)
-         ========================================================================= -->
+         -------------------------------------------------------------------------- -->
     <section class="tab-content" id="overtimeRequestsTab">
         <div class="content-header">
             <div>
@@ -4097,7 +4291,7 @@
 
         <form id="doorAssignForm" onsubmit="submitDoorAssignment(event)">
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
-                Pilih terminal pintu yang diizinkan untuk diakses oleh karyawan ini. Perubahan akan langsung disinkronkan ke hardware melalui ISAPI job queue.
+                Pilih terminal pintu yang diizinkan untuk diakses oleh karyawan ini. Menyimpan di sini menjadwalkan sinkronisasi ke perangkat; status baru menjadi <strong>Aktif di perangkat</strong> setelah perangkat mengonfirmasi.
             </p>
 
             <div class="door-checkboxes-grid" id="doorCheckboxesContainer">
@@ -4126,9 +4320,11 @@
             <h3 class="modal-title" id="employeeModalTitle">Tambah Karyawan Baru</h3>
             <button class="modal-close-btn" onclick="closeModal('employeeModal')">✖</button>
         </div>
-        <div id="employeeLookupNotice" class="error-message" role="status" hidden></div>
-        <form id="employeeForm">
+        <form id="employeeForm" onsubmit="saveEmployee(event)">
             <input type="hidden" id="empDbId">
+            <div id="empAppOnlyNotice" role="note" style="border:1px solid rgba(56,189,248,.35);background:rgba(56,189,248,.08);color:#e0f2fe;border-radius:.6rem;padding:.6rem .75rem;font-size:.82rem;margin-bottom:.9rem;">
+                ℹ️ Perubahan ini hanya memperbarui data aplikasi. Sinkronisasi akses/perangkat dilakukan melalui <strong>Kelola Akses</strong>.
+            </div>
             <div class="form-row">
                 <label>User ID (Kode Identitas)</label>
                 <input type="text" id="empUserId" placeholder="USR-1001" required>
@@ -4145,8 +4341,17 @@
                 <label>Nomor Kartu RFID</label>
                 <input type="text" id="empCardNo" placeholder="CARD-1001">
             </div>
+            <!-- Organization structure (master data from Setup Gedung) -->
+            <div class="form-section-title" style="margin:1rem 0 0.35rem;font-weight:700;color:#e2e8f0;">Struktur Organisasi</div>
+            <small style="display:block;margin-bottom:0.5rem;color:#94a3b8;">Gedung → Divisi → Posisi dari data master Setup Gedung. Ini yang dipakai untuk filter gedung dan laporan.</small>
+            <div class="form-row"><label>Gedung</label><select id="empBuilding" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Gedung</option></select></div>
+            <div class="form-row"><label>Divisi</label><select id="empDivision" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Divisi</option></select></div>
+            <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
+            <!-- Legacy free-text fields kept for existing records; not part of the structure above -->
+            <div class="form-section-title" style="margin:1rem 0 0.35rem;font-weight:700;color:#e2e8f0;">Data Lama (sebelum struktur organisasi)</div>
+            <small style="display:block;margin-bottom:0.5rem;color:#94a3b8;">Kolom lama Departemen dan Jabatan, tetap disimpan untuk kompatibilitas. Tidak menentukan Gedung/Divisi/Posisi.</small>
             <div class="form-row">
-                <label>Departemen</label>
+                <label>Departemen (data lama)</label>
                 <select id="empDept">
                     <option value="IT Support">IT Support</option>
                     <option value="Produksi">Produksi</option>
@@ -4156,25 +4361,23 @@
                 </select>
             </div>
             <div class="form-row">
-                <label>Jabatan</label>
+                <label>Jabatan (teks bebas)</label>
                 <input type="text" id="empRole" placeholder="Staff / Operator / Supervisor" required>
             </div>
             <div class="form-row"><label>Email</label><input type="email" id="empEmail" placeholder="name@company.com"></div>
             <div class="form-row"><label>Telepon</label><input type="text" id="empPhone" placeholder="08..."></div>
-            <div class="form-row"><label>Gedung</label><select id="empBuilding" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Gedung</option></select></div>
-            <div class="form-row"><label>Divisi</label><select id="empDivision" onchange="onEmployeeOrganizationChange()"><option value="">Pilih Divisi</option></select></div>
-            <div class="form-row"><label>Posisi</label><select id="empPosition"><option value="">Pilih Posisi</option></select></div>
             <div class="form-row"><label>Tipe / Status Kerja</label><div style="display:flex;gap:.5rem"><select id="empEmploymentType"><option value="">Pilih Tipe</option><option>PERMANENT</option><option>CONTRACT</option><option>OUTSOURCE</option></select><select id="empEmploymentStatus"><option value="ACTIVE">ACTIVE</option><option value="INACTIVE">INACTIVE</option></select></div></div>
             <div class="form-row"><label>Tanggal Masuk</label><input type="date" id="empHireDate"></div>            <div class="form-row">
-                <label>Enrollment Biometrik</label>
+                <label>Credential tercatat di aplikasi</label>
                 <div style="display: flex; gap: 1.5rem; margin-top: 0.35rem;">
                     <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; color: #ffffff;">
-                        <input type="checkbox" id="empFp" checked> Fingerprint Enrolled
+                        <input type="checkbox" id="empFp"> Fingerprint tercatat di aplikasi
                     </label>
                     <label style="cursor: pointer; display: flex; align-items: center; gap: 0.4rem; color: #ffffff;">
-                        <input type="checkbox" id="empCard" checked> Card Enrolled
+                        <input type="checkbox" id="empCard"> Card tercatat di aplikasi
                     </label>
                 </div>
+                <small id="empCredentialHint" style="display:block;margin-top:0.35rem;color:#94a3b8;">Centang ini hanya catatan aplikasi. Status "terverifikasi di perangkat" berasal dari Rekonsiliasi Perangkat (read-only).</small>
             </div>
             <div style="display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem;">
                 <button type="button" class="btn-secondary" onclick="closeModal('employeeModal')">Batal</button>
@@ -4544,9 +4747,9 @@
     </div>
 </div>
 
-<!-- ========================================== -->
+<!-- ------------------------------------------ -->
 <!-- INTERNSHIP MANAGEMENT MODALS (SPRINT 4)   -->
-<!-- ========================================== -->
+<!-- ------------------------------------------ -->
 
 <!-- INTERNSHIP MODAL 1: TAMBAH PEMAGANG BARU -->
 <div class="modal-overlay" id="modalAddInternship">
@@ -5230,6 +5433,8 @@
             </div>
         </form>
     </div>
+</div>
+
 <!-- SPRINT 6 MODALS: ACCESS PROVISIONING, CREDENTIAL CENTER & E-MONEY -->
 
 <!-- MODAL: AJUKAN PERMINTAAN HAK AKSES -->
@@ -5248,7 +5453,7 @@
             </div>
             <div class="form-row">
                 <label>Profil Hak Akses Reusable</label>
-                <select id="accessReqProfileId" onchange="onAccessProfileSelected()" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
+                <select id="accessReqProfileId" style="width: 100%; background: var(--card-bg); border: 1px solid var(--border-color); color: #fff; padding: 0.65rem; border-radius: 0.6rem;">
                     <option value="">-- Pilih Profil Akses (Opsional) --</option>
                 </select>
             </div>
@@ -5430,6 +5635,33 @@
                 <button type="submit" class="btn-primary" style="background: #ef4444; border-color: #dc2626;">Cabut Kredensial</button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- MODAL: DETAIL PERBANDINGAN REKONSILIASI -->
+<div class="modal-overlay" id="modalReconDetail">
+    <div class="modal-card" style="max-width: 760px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Detail Perbandingan Aplikasi ↔ Perangkat</h3>
+            <button class="modal-close-btn" onclick="closeModal('modalReconDetail')">✖</button>
+        </div>
+        <div id="reconDetailBody" style="font-size:0.85rem;color:var(--text-muted);">Memuat...</div>
+        <div id="reconDecisionPanel" style="display:none;margin-top:1rem;border-top:1px solid var(--border-color);padding-top:1rem;">
+            <input type="hidden" id="reconDecisionStateId">
+            <div class="form-row">
+                <label>Hubungkan ke Pengguna (hanya membuat tautan, tidak membuat karyawan baru)</label>
+                <select id="reconLinkEmployee"><option value="">-- Pilih Karyawan --</option></select>
+            </div>
+            <div class="form-row">
+                <label>Catatan</label>
+                <input type="text" id="reconDecisionNote" maxlength="500" placeholder="Alasan keputusan (opsional)">
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:0.5rem;flex-wrap:wrap;">
+                <button type="button" class="btn-secondary" onclick="submitReconciliationDecision('IGNORED', this)">Abaikan</button>
+                <button type="button" class="btn-secondary" onclick="submitReconciliationDecision('REVIEW', this)">Tandai Perlu Verifikasi</button>
+                <button type="button" class="btn-primary" onclick="submitReconciliationDecision('LINKED', this)">Hubungkan ke Pengguna</button>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -5862,7 +6094,44 @@
         <div class="modal-header"><div><h3 class="modal-title">Facility & Door Configuration</h3><div class="section-desc">Register a building or terminal without changing existing hardware records.</div></div><button class="modal-close-btn" onclick="closeModal('facilityModal')">✖</button></div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1.25rem;">
             <form id="buildingConfigForm" onsubmit="submitBuildingConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New Building</h4><div class="form-row"><label>Code *</label><input id="facilityBuildingCode" required maxlength="100" placeholder="BLD-C"></div><div class="form-row"><label>Name *</label><input id="facilityBuildingName" required maxlength="255" placeholder="Gedung C"></div><div class="form-row"><label>Description</label><textarea id="facilityBuildingDescription" maxlength="1000"></textarea></div><button class="btn-secondary" type="submit">Save Building</button></form>
-            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select><small id="facilityDoorBuildingNotice" hidden></small></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div><div style="display:flex;gap:.5rem;margin-top:.75rem;"><button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button><button type="button" class="btn-secondary" id="facilityDoorCancel" onclick="closeModal('facilityModal')">Batal</button></div></form>
+            <form id="doorConfigForm" onsubmit="submitDoorConfig(event)"><h4 style="color:#fff;margin:0 0 1rem;">New / Edit Door Terminal</h4><input type="hidden" id="facilityOriginalDoorId"><div class="form-row"><label>Door ID *</label><input id="facilityDoorId" required maxlength="50" placeholder="DOOR-C"></div><div class="form-row"><label>Door Name *</label><input id="facilityDoorName" required maxlength="120" placeholder="Main Lobby"></div><div class="form-row"><label>Building *</label><select id="facilityDoorBuilding" required></select></div><div class="form-row"><label>Device IP *</label><input id="facilityDoorIp" required placeholder="192.168.90.13"></div><div class="form-row"><label>Gateway</label><input id="facilityDoorGateway" placeholder="192.168.90.1"></div><div class="form-row"><label>Device Model *</label><input id="facilityDoorModel" required value="DS-K1T804AMF"></div>
+<!-- MANUAL CONNECTION CONFIGURATION -->
+<div style="border-top:1px solid var(--border-color);padding-top:1rem;margin-top:1rem;">
+<h5 style="color:#fff;margin:0 0 0.75rem;font-size:0.9rem;">Connection Mode</h5>
+<div style="display:flex;gap:1rem;margin-bottom:1rem;">
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+<input type="radio" name="connection_mode" value="auto" id="mode_auto" checked onchange="toggleManualFields()">
+<span style="font-size:0.85rem;">Automatic (Global Config)</span>
+</label>
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+<input type="radio" name="connection_mode" value="manual" id="mode_manual" onchange="toggleManualFields()">
+<span style="font-size:0.85rem;">Manual (Per-Device)</span>
+</label>
+</div>
+<div id="manualFieldsContainer" style="display:none;padding:0.75rem;background:rgba(56,189,248,0.05);border:1px solid var(--border-focus);border-radius:0.5rem;">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">Protocol</label><select id="connection_scheme" name="connection_scheme" style="padding:0.4rem;"><option value="http">HTTP</option><option value="https">HTTPS</option></select></div>
+<div class="form-row"><label style="font-size:0.8rem;">Port</label><input type="number" id="device_port" name="device_port" value="8200" min="1" max="65535" style="padding:0.4rem;"></div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">Connect Timeout (sec)</label><input type="number" id="connect_timeout" name="connect_timeout" value="10" min="1" max="30" style="padding:0.4rem;"></div>
+<div class="form-row"><label style="font-size:0.8rem;">Read Timeout (sec)</label><input type="number" id="read_timeout" name="read_timeout" value="10" min="1" max="30" style="padding:0.4rem;"></div>
+</div>
+<div style="margin-bottom:0.75rem;">
+<label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;font-size:0.8rem;">
+<input type="checkbox" id="verify_tls" name="verify_tls" value="1" checked>
+<span>Verify TLS Certificate</span>
+</label>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+<div class="form-row"><label style="font-size:0.8rem;">ISAPI Username</label><input type="text" id="isapi_username" name="isapi_username" placeholder="admin" style="padding:0.4rem;"></div>
+<div class="form-row"><label style="font-size:0.8rem;">ISAPI Password</label><input type="password" id="isapi_password" name="isapi_password" placeholder="(leave empty to keep)" style="padding:0.4rem;"></div>
+</div>
+<button type="button" id="testConnectionBtn" onclick="testManualConnection()" style="width:100%;padding:0.5rem;background:var(--accent);color:#fff;border:none;border-radius:0.4rem;cursor:pointer;font-size:0.8rem;font-weight:500;margin-bottom:0.75rem;">Test Connection</button>
+<div id="testResultContainer" style="display:none;padding:0.5rem;border-radius:0.3rem;font-size:0.75rem;" aria-live="polite" role="status"><span id="testResultIcon"></span> <span id="testResultText"></span></div>
+</div>
+</div>
+<button class="btn-primary" id="facilityDoorSubmit" type="submit">Register Door</button></form>
         </div>
     </div>
 </div>
@@ -5925,6 +6194,39 @@
     </div>
 </div>
 
+<div class="modal-overlay" id="orgMasterModal" role="dialog" aria-modal="true" aria-labelledby="orgMasterModalTitle">
+    <div class="modal-card" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 class="modal-title" id="orgMasterModalTitle">Tambah Divisi</h3>
+            <button class="modal-close-btn" onclick="closeModal('orgMasterModal')">✖</button>
+        </div>
+        <form id="orgMasterForm" onsubmit="submitOrganizationMaster(event)" novalidate>
+            <input type="hidden" id="orgMasterType">
+            <input type="hidden" id="orgMasterId">
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label id="orgMasterParentLabel" for="orgMasterParent" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Gedung *</label>
+                <select id="orgMasterParent" class="form-control"></select>
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label for="orgMasterCode" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Kode *</label>
+                <input type="text" id="orgMasterCode" class="form-control" maxlength="100" placeholder="DIV-IT">
+            </div>
+            <div class="form-row" style="margin-bottom: 1rem;">
+                <label for="orgMasterName" style="display: block; font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.35rem;">Nama *</label>
+                <input type="text" id="orgMasterName" class="form-control" maxlength="255" placeholder="IT Support">
+            </div>
+            <div class="form-row" id="orgMasterActiveRow" style="margin-bottom: 1rem;">
+                <label style="display: flex; gap: .5rem; align-items: center; font-size: 0.85rem; color: var(--text-muted);"><input type="checkbox" id="orgMasterActive"> Aktif (muncul di form Pengguna)</label>
+            </div>
+            <div id="orgMasterError" class="error-placeholder" role="alert" hidden style="margin-bottom: 1rem;"></div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button type="button" class="btn-secondary" onclick="closeModal('orgMasterModal')">Batal</button>
+                <button type="submit" class="btn-primary" id="orgMasterSubmit">Simpan</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <!-- Configuration & Global Variables -->
 <script>
     window.APP_CONFIG = {
@@ -5939,9 +6241,9 @@
         }
     };
 </script>
-<script src="{{ asset('js/dashboard.js') }}?v={{ filemtime(public_path('js/dashboard.js')) }}"></script>
+<script src="/js/dashboard.js?v={{ @filemtime(public_path('js/dashboard.js')) ?: '1' }}"></script>
 @if($cardAccessEnabled)
-<script src="{{ asset('js/card-access.js') }}?v={{ filemtime(public_path('js/card-access.js')) }}"></script>
+<script src="/js/card-access.js?v={{ @filemtime(public_path('js/card-access.js')) ?: '1' }}"></script>
 @endif
 
 </body>

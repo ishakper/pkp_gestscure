@@ -35,7 +35,6 @@ let state = {
     selectedEmployeeForAssign: null,
     searchDebounceTimer: null,
     organization: { buildings: [], divisions: [], positions: [] },
-    organizationLookupError: '',
     onboarding: {
         metrics: {},
         cases: [],
@@ -237,18 +236,23 @@ async function apiFetch(endpoint, options = {}) {
         if (!response.ok) {
             const error = new Error(data.message || `Request failed with status ${response.status}`);
             error.status = response.status;
+            if (data.errors) error.errors = data.errors; // 422 field messages for form feedback
             error.details = data.errors || null;
             throw error;
         }
 
         return data;
     } catch (err) {
-        if (err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && !err.suppressed) {
+        // AbortError = a newer request superseded this one on purpose (AbortController); callers handle it.
+        // 422 = validation feedback, shown in the submitting form rather than logged as a fault.
+        if (err.name !== 'AbortError' && err.message !== 'Unauthorized' && err.status !== 403 && err.status !== 429 && err.status !== 422 && !err.suppressed) {
             console.error(`API Error [${endpoint}]:`, err);
         }
         throw err;
     }
 }
+
+window.apiFetch = apiFetch;
 
 async function apiFetchForm(endpoint, formData) {
     return apiFetch(endpoint, {
@@ -263,13 +267,15 @@ async function apiFetchForm(endpoint, formData) {
 // ==========================================
 let metricsDebounceTimer = null;
 let lastMetricsFetchTime = 0;
-let metricsAbortController = null;
-let metricsForceRefreshPending = false;
-let employeesRequestVersion = 0;
+
+let metricsForcedPending = false;
 
 function scheduleMetricCardsUpdate(force = false) {
     if (document.hidden || isRedirectingToLogin) return;
-    if (!force && metricsForceRefreshPending) return;
+    // A queued forced update (building change, maintenance toggle, Refresh) must not be
+    // pushed back to the cooldown by an ordinary call landing right after it, e.g. from
+    // loadEmployees(); otherwise the KPIs keep the previous scope's numbers for ~15 s.
+    if (metricsForcedPending && !force) return;
     clearTimeout(metricsDebounceTimer);
 
     const now = Date.now();
@@ -277,9 +283,9 @@ function scheduleMetricCardsUpdate(force = false) {
     const cooldown = 15000; // minimum 15 seconds between metrics updates
 
     if (force || elapsed >= cooldown) {
-        metricsForceRefreshPending = force;
+        metricsForcedPending = force;
         metricsDebounceTimer = setTimeout(() => {
-            metricsForceRefreshPending = false;
+            metricsForcedPending = false;
             updateMetricCards();
         }, 100);
     } else {
@@ -287,51 +293,70 @@ function scheduleMetricCardsUpdate(force = false) {
     }
 }
 
+// /attendance/metrics feeds both the dashboard KPI strip and the Rekap Kehadiran cards.
+// Every caller goes through here: one in-flight request is shared, and a result younger
+// than the metric cooldown is reused, so the two panels never fetch it independently.
+const ATTENDANCE_METRICS_TTL_MS = 15000;
+const attendanceMetricsCache = { at: 0, data: null, inflight: null };
+
+function fetchAttendanceMetrics({ force = false } = {}) {
+    if (attendanceMetricsCache.inflight) return attendanceMetricsCache.inflight;
+    if (!force && attendanceMetricsCache.data && Date.now() - attendanceMetricsCache.at < ATTENDANCE_METRICS_TTL_MS) {
+        return Promise.resolve(attendanceMetricsCache.data);
+    }
+    attendanceMetricsCache.inflight = apiFetch('/attendance/metrics', { isBackground: true })
+        .then(res => {
+            attendanceMetricsCache.data = res;
+            attendanceMetricsCache.at = Date.now();
+            return res;
+        })
+        .finally(() => { attendanceMetricsCache.inflight = null; });
+    return attendanceMetricsCache.inflight;
+}
+
 async function updateMetricCards() {
     if (document.hidden || isRedirectingToLogin) return;
-    metricsAbortController?.abort();
-    metricsAbortController = new AbortController();
-    const requestSignal = metricsAbortController.signal;
     lastMetricsFetchTime = Date.now();
 
     try {
         const canViewAttendance = hasCapability('attendance.view');
         const scope = state.buildingFilter;
-        const metricsRequest = scope
-            ? buildingMetrics(scope, requestSignal).then(data => ({ status: 'success', data })).catch(error => ({ status: 'error', error }))
-            : apiFetch('/admin/dashboard-metrics', { isBackground: true, signal: requestSignal }).then(data => ({ status: 'success', data })).catch(error => ({ status: 'error', error }));
-        const [res, attendance] = await Promise.all([
+        // Global and building-scoped KPIs share one backend contract (AdminDoorController::metrics):
+        // the same active/registered definitions, narrowed by employees.building_id / doors.building_id.
+        const metricsRequest = apiFetch(
+            scope ? `/admin/dashboard-metrics?building_id=${encodeURIComponent(scope)}` : '/admin/dashboard-metrics',
+            { isBackground: true },
+        ).catch(() => null);
+        const [res, deniedToday, attendance] = await Promise.all([
             metricsRequest,
-            canViewAttendance ? apiFetch('/attendance/metrics', { isBackground: true, signal: requestSignal }).catch(() => null) : Promise.resolve(null),
+            deniedTodayCount(scope).catch(() => null),
+            canViewAttendance ? fetchAttendanceMetrics().catch(() => null) : Promise.resolve(null),
         ]);
         if (scope !== state.buildingFilter) return; // the building changed while this was loading; a newer update is queued
 
-        if (!res || res.status !== 'success') {
-            if (!res?.error?.name || res.error.name !== 'AbortError') showToast('Metrik tidak lengkap. Muat ulang untuk mencoba lagi.', 'error');
-            ['metricActiveEmployees', 'metricTotalUsers', 'metricRegisteredCredentials', 'metricDeniedLogs'].forEach(id => { const element = document.getElementById(id); if (element) element.innerText = '—'; });
-            return;
-        }
-
-        if (res.status === 'success') {
+        if (res && res.status === 'success') {
             const data = res.data;
-            const metricValue = (key) => Object.prototype.hasOwnProperty.call(data, key) && data[key] !== null ? data[key] : '—';
             const activeUserMetric = document.getElementById('metricActiveEmployees');
-            if (activeUserMetric) activeUserMetric.innerText = metricValue('activeEmployees');
+            if (activeUserMetric) activeUserMetric.innerText = data.activeEmployees ?? data.totalUsers ?? 0;
             const userMetric = document.getElementById('metricTotalUsers');
-            if (userMetric) userMetric.innerText = metricValue('totalUsers');
+            if (userMetric) userMetric.innerText = data.totalUsers ?? 0;
 
             const regCredMetric = document.getElementById('metricRegisteredCredentials');
-            if (regCredMetric) regCredMetric.innerText = metricValue('registeredCredentials');
+            if (regCredMetric) regCredMetric.innerText = data.registeredCredentials ?? 0;
 
             const doorMetric = document.getElementById('metricActiveDoors');
-            if (doorMetric) doorMetric.innerText = `${metricValue('activeDoors')} / ${metricValue('totalDoors')}`;
+            if (doorMetric) doorMetric.innerText = `${data.activeDoors ?? 0} / ${data.totalDoors ?? 0}`;
 
             const deniedMetric = document.getElementById('metricDeniedLogs');
-            if (deniedMetric) deniedMetric.innerText = metricValue('deniedLogs');
-            const summary = { dashboardUserActive: metricValue('activeEmployees'), dashboardUserRegistered: metricValue('registeredCredentials'), dashboardDeviceOnline: metricValue('activeDoors'), dashboardDeviceTotal: metricValue('totalDoors'), dashboardDeviceOffline: metricValue('offlineDoors'), dashboardDeviceMaint: metricValue('maintenanceDoors'), dashboardAlertDenied: metricValue('deniedLogs24h'), dashboardAlertOffline: metricValue('offlineDoors') };
-            Object.entries(summary).forEach(([id, value]) => { const element = document.getElementById(id); if (element) element.innerText = value; });
+            if (deniedMetric) deniedMetric.innerText = data.deniedLogs ?? 0;
         }
+        setOverviewValue('compactUserActive', res?.status === 'success' ? res.data.activeEmployees : null);
+        setOverviewValue('compactUserRegistered', res?.status === 'success' ? res.data.registeredCredentials : null);
+        setOverviewValue('compactAlertDenied', deniedToday);
 
+        if (attendance && attendance.success && state.activeTab === 'attendanceTab') {
+            renderAttendanceMetricsPanel(attendance); // live refresh of the Rekap Kehadiran cards, same response
+        }
         if (attendance && attendance.success) {
             const today = attendance.data?.today || {};
             const values = {
@@ -353,14 +378,51 @@ async function updateMetricCards() {
 // ==========================================
 // Section 1: Doors Monitoring & Control
 // ==========================================
+// Background refreshes (live taps, tab navigation) go through scheduleBackgroundRefresh().
+// Loaders record when they last ran; a background call inside the cooldown is skipped
+// (navigation) or folded into a single trailing run (live taps). Reloads after a user
+// action (save, maintenance toggle, filter change, Refresh button) call the loaders
+// directly and are never delayed.
+const backgroundRefresh = {};
+
+function noteRefreshed(key) {
+    (backgroundRefresh[key] ||= { lastAt: 0, timer: null }).lastAt = Date.now();
+}
+
+function scheduleBackgroundRefresh(key, loader, cooldownMs, { trailing = false } = {}) {
+    const entry = backgroundRefresh[key] ||= { lastAt: 0, timer: null };
+    if (entry.timer) return; // a trailing run is already queued
+    const wait = Math.max(0, cooldownMs - (Date.now() - entry.lastAt));
+    if (wait === 0) {
+        loader();
+        return;
+    }
+    if (!trailing) return; // still fresh: navigation needs no reload
+    entry.timer = setTimeout(() => {
+        entry.timer = null;
+        if (!document.hidden) loader();
+    }, wait);
+}
+
+// Live taps cannot change terminal health (that comes from doors:ping), so door cards
+// refresh at most every 30 s from taps; the access log feed at most every 10 s.
+const LIVE_DOORS_COOLDOWN_MS = 30000;
+const LIVE_ACCESS_LOGS_COOLDOWN_MS = 10000;
+// Returning to a tab within this window reuses what is already on screen.
+const NAVIGATION_FRESH_MS = 15000;
+
 async function loadDoors() {
+    noteRefreshed('doors');
     const grid = document.getElementById('doorsGrid');
     const overviewGrid = document.getElementById('overviewDoorsGrid');
     if (!grid && !overviewGrid) return;
 
-    [grid, overviewGrid].filter(Boolean).forEach(target => {
-        target.innerHTML = '<div class="loading-td"><div class="spinner"></div> CHECKING terminal Gedung B...</div>';
-    });
+    // Keep the cards already on screen while refreshing; only show the spinner on first load.
+    if (!state.allDoors.length) {
+        [grid, overviewGrid].filter(Boolean).forEach(target => {
+            target.innerHTML = '<div class="loading-td"><div class="spinner"></div> Memeriksa status terminal...</div>';
+        });
+    }
 
     try {
         const res = await apiFetch('/admin/doors');
@@ -368,12 +430,14 @@ async function loadDoors() {
             state.allDoors = res.data;
             state.doors = doorsInBuildingScope(state.allDoors);
             renderDoorCards(state.doors);
+            renderDeviceStatusPanel();
             refreshDoorFilters(state.doors);
             scheduleMetricCardsUpdate();
         }
     } catch (err) {
         if (grid) grid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
         if (overviewGrid) overviewGrid.innerHTML = `<div class="error-placeholder">Gagal memuat status pintu: ${err.message}</div>`;
+        setOverviewValues(['compactDevOnline', 'compactDevOffline', 'compactDevMaint', 'compactDevTotal', 'compactAlertOffline'], null);
     }
 }
 
@@ -389,6 +453,13 @@ function restoreBuildingFilter() {
     try { state.buildingFilter = localStorage.getItem(BUILDING_FILTER_KEY) || ''; } catch (_) { state.buildingFilter = ''; }
 }
 
+// Name of the building selected in the global filter, without the dropdown's icon prefix.
+function dashboardBuildingLabel() {
+    const select = document.getElementById('dashboardBuildingFilter');
+    const option = select?.selectedOptions?.[0];
+    return option && option.value ? option.textContent.replace(/^[^\p{L}\p{N}]+/u, '').trim() : '';
+}
+
 function doorsInBuildingScope(doors) {
     if (!state.buildingFilter) return doors;
     return (doors || []).filter(door => String(door.building_id) === String(state.buildingFilter));
@@ -398,8 +469,8 @@ async function loadDashboardBuildings() {
     const select = document.getElementById('dashboardBuildingFilter');
     if (!select) return;
     try {
-        const res = await apiFetch('/user-management/organization/lookup');
-        const buildings = res.data?.buildings || [];
+        const lookup = await ensureOrganizationLookup(); // shared with the employee form and Setup Gedung
+        const buildings = lookup.buildings || [];
         if (buildings.length <= 1) {
             // A building admin: the backend already limits every endpoint to their building.
             select.innerHTML = `<option value="">🏢 ${escapeHtml(buildings[0]?.name || 'Gedung Anda')}</option>`;
@@ -427,52 +498,69 @@ function onDashboardBuildingChange(value) {
 }
 
 function refreshDashboardScope() {
+    // The KPI numbers on screen belong to the previous scope; show "…" until the new
+    // scope's metrics arrive instead of presenting them as the selected building's.
+    ['metricActiveEmployees', 'metricRegisteredCredentials', 'metricDeniedLogs'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = '…';
+    });
+    ['compactUserActive', 'compactUserRegistered', 'compactAlertDenied'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) { el.textContent = '…'; el.setAttribute('aria-busy', 'true'); }
+    });
     state.doors = doorsInBuildingScope(state.allDoors);
     renderDoorCards(state.doors);
+    renderDeviceStatusPanel();
     refreshDoorFilters(state.doors);
     loadEmployees(1);
     loadAccessLogs();
     scheduleMetricCardsUpdate(true);
 }
 
-async function fetchTotalRecords(url, signal) {
-    const res = await apiFetch(url, { isBackground: true, signal });
+async function fetchTotalRecords(url) {
+    const res = await apiFetch(url, { isBackground: true });
     return Number(res.pagination?.total_records ?? 0);
 }
 
-// KPI numbers for one building, mirroring AdminDoorController::metrics() with the existing filters.
-async function buildingMetrics(buildingId, signal) {
-    const doors = doorsInBuildingScope(state.allDoors);
-    const base = `/user-management/employees?building_id=${encodeURIComponent(buildingId)}`;
-    const [totalUsers, activeUsers, deniedPerDoor, employees] = await Promise.all([
-        fetchTotalRecords(`${base}&per_page=1`, signal),
-        fetchTotalRecords(`${base}&employment_status=ACTIVE&per_page=1`, signal),
-        Promise.all(doors.map(door => fetchTotalRecords(`/admin/access-logs?door_id=${encodeURIComponent(door.door_id)}&status=Denied&per_page=1`, signal))),
-        fetchEmployeesForBuilding(buildingId, signal),
-    ]);
-    const registered = employees.filter(emp =>
-        emp.biometric_status?.fingerprint_enrolled || emp.biometric_status?.has_fingerprint
-        || emp.biometric_status?.card_enrolled || emp.card_registered === 'YES').length;
-    return {
-        totalUsers,
-        activeEmployees: activeUsers,
-        registeredCredentials: registered,
-        activeDoors: doors.filter(door => door.connection_status === 'online').length,
-        totalDoors: doors.length,
-        deniedLogs: deniedPerDoor.reduce((sum, count) => sum + count, 0),
-    };
+// Compact overview panels (Perlu Perhatian / Device Status / User & Credentials).
+// Each value is "…" while loading, a number once known, and "!" when its source failed.
+function setOverviewValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const failed = value === null || value === undefined || Number.isNaN(Number(value));
+    el.textContent = failed ? '!' : String(Number(value));
+    el.title = failed ? 'Data gagal dimuat, coba Refresh Live Data' : '';
+    el.removeAttribute('aria-busy');
 }
 
-async function fetchEmployeesForBuilding(buildingId, signal) {
-    const all = [];
-    for (let page = 1; ; page++) {
-        const res = await apiFetch(`/user-management/employees?building_id=${encodeURIComponent(buildingId)}&per_page=100&page=${page}`, { isBackground: true, signal });
-        const totalPages = Number(res.pagination?.total_pages);
-        if (!Number.isInteger(totalPages) || totalPages < 1) throw new Error('Invalid pagination metadata');
-        all.push(...(res.data || []));
-        if (page >= totalPages) break;
-    }
-    return all;
+function setOverviewValues(ids, value) {
+    ids.forEach(id => setOverviewValue(id, value));
+}
+
+// Device Status is derived from the canonical door list, with the same
+// maintenance/online rules renderDoorCards uses for the badges.
+function renderDeviceStatusPanel() {
+    const doors = state.doors || [];
+    const maintenance = doors.filter(door => Boolean(door.is_manual_override)).length;
+    const online = doors.filter(door => !door.is_manual_override
+        && (door.health_status || (door.connection_status === 'online' ? 'online' : 'offline')) === 'online').length;
+    const offline = doors.length - maintenance - online;
+    setOverviewValue('compactDevOnline', online);
+    setOverviewValue('compactDevOffline', offline);
+    setOverviewValue('compactDevMaint', maintenance);
+    setOverviewValue('compactDevTotal', doors.length);
+    setOverviewValue('compactAlertOffline', offline);
+}
+
+// Denied taps since 00:00 WIB today. The access-log date filter is day-based and
+// the app stores timestamps in Asia/Jakarta, so "today" is computed in that zone.
+async function deniedTodayCount(buildingId) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date());
+    const base = `/admin/access-logs?status=Denied&start_date=${today}&end_date=${today}&per_page=1`;
+    if (!buildingId) return fetchTotalRecords(base);
+    const counts = await Promise.all(doorsInBuildingScope(state.allDoors)
+        .map(door => fetchTotalRecords(`${base}&door_id=${encodeURIComponent(door.door_id)}`)));
+    return counts.reduce((sum, count) => sum + count, 0);
 }
 
 function refreshDoorFilters(doors) {
@@ -504,13 +592,12 @@ function renderDoorCards(doors) {
 
     const canManageDevices = (window.APP_CONFIG?.permissions || []).includes('device.manage');
     const html = doors.map(door => {
-        const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
         const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-        const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+        const isOnline = healthStatus === 'online';
         const unlockDisabled = !isOnline;
         const isMaintenance = Boolean(door.is_manual_override);
-        const badgeClass = isMaintenance ? 'status-warning' : (isPrimaryDeploymentDoor && isOnline ? 'status-online' : 'status-offline');
-        const statusLabel = isMaintenance ? 'MAINTENANCE' : (isPrimaryDeploymentDoor ? (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE')) : 'PLANNED / NOT ACTIVE');
+        const badgeClass = isMaintenance ? 'status-warning' : (isOnline ? 'status-online' : 'status-offline');
+        const statusLabel = isMaintenance ? 'MAINTENANCE' : (healthStatus === 'auth_error' ? 'AUTH ERROR' : (isOnline ? 'ONLINE' : 'OFFLINE'));
         const safeDoorId = escapeHtml(door.door_id);
         const safeDoorName = escapeHtml(door.door_name || door.name || 'Tanpa nama');
         const safeLocation = escapeHtml(door.building_name || door.location || '-');
@@ -530,7 +617,6 @@ function renderDoorCards(doors) {
                     <span class="status-badge ${badgeClass}"><span class="status-dot"></span> ${statusLabel}</span>
                 </div>
                 <div class="card-value door-name-title">${safeDoorName}</div>
-                ${!isPrimaryDeploymentDoor ? '<div class="maintenance-note">Gedung B deployment target hanya. Terminal ini planned / not active.</div>' : ''}
                 ${isMaintenance ? '<div class="maintenance-note">⚠ Maintenance override aktif — status koneksi tetap berasal dari terminal.</div>' : ''}
                 <div class="door-specs">
                     <div class="spec-item"><span class="spec-label">IP Terminal</span><code class="spec-code">${safeDeviceIp}</code></div>
@@ -541,8 +627,8 @@ function renderDoorCards(doors) {
                 </div>
                 <div class="door-actions">
                     ${canManageDevices ? `<button class="btn-action" onclick="openFacilityModal('${safeDoorId}')">✎ Edit</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance}, this)">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
-                    ${canManageDevices ? `<button class="btn-action btn-unlock" onclick="openRemoteUnlockModal('${safeDoorId}')" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action" onclick="toggleDoorStatus('${safeDoorId}', ${!isMaintenance})">⚡ ${isMaintenance ? 'End Maintenance' : 'Maintenance'}</button>` : ''}
+                    ${canManageDevices ? `<button class="btn-action btn-unlock" data-action="remote-unlock" data-door-id="${safeDoorId}" ${unlockDisabled ? 'disabled aria-disabled="true" title="Terminal belum terhubung"' : 'title="Buka relay pintu melalui konfirmasi"'}>🔓 Remote Unlock</button>` : ''}
                     ${canManageDevices ? `<button class="btn-action btn-ping" onclick="pingSingleDoor('${safeDoorId}', this)" title="Pemeriksaan ISAPI eksplisit">📡 Diagnose</button>` : ''}
                     <button class="btn-action" onclick="openDoorLogs('${safeDoorId}')">View Logs</button>
                     <button class="btn-action" onclick="openDoorUsers('${safeDoorId}')">Sync Users</button>
@@ -553,18 +639,7 @@ function renderDoorCards(doors) {
     renderTargets.forEach(target => target.innerHTML = html);
 }
 
-const pendingMaintenanceToggles = new Set();
-
-async function toggleDoorStatus(doorId, enabled, btn) {
-    if (pendingMaintenanceToggles.has(doorId)) return;
-    pendingMaintenanceToggles.add(doorId);
-
-    const originalHtml = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `⏳ Menyimpan...`;
-    }
-
+async function toggleDoorStatus(doorId, enabled) {
     try {
         const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/status`, {
             method: 'PATCH',
@@ -579,15 +654,9 @@ async function toggleDoorStatus(doorId, enabled, btn) {
         }
     } catch (err) {
         showToast(err.message || 'Perubahan maintenance tidak dapat disimpan.', 'error');
-    } finally {
-        pendingMaintenanceToggles.delete(doorId);
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
     }
 }
-window.toggleDoorStatus = toggleDoorStatus;
+
 function openDoorLogs(doorId) {
     ['logDoorFilter', 'logDoorFilterTab'].forEach(id => {
         const filter = document.getElementById(id);
@@ -623,9 +692,8 @@ function onRemoteUnlockDoorChange(doorId) {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (titleEl) titleEl.textContent = door.door_name || door.name || door.door_id;
     if (codeEl) codeEl.textContent = door.door_id;
@@ -645,9 +713,8 @@ function openRemoteUnlockModal(doorId) {
     const select = document.getElementById('remoteUnlockDoorSelect');
     if (select) {
         select.innerHTML = doors.map(d => {
-            const isPrimary = d.door_id === 'DOOR-B';
             const health = d.health_status || (d.connection_status === 'online' ? 'online' : 'offline');
-            const online = isPrimary && health === 'online';
+            const online = health === 'online';
             return `<option value="${escapeHtml(d.door_id)}" ${d.door_id === doorId ? 'selected' : ''}>${escapeHtml(d.door_id)} - ${escapeHtml(d.door_name || d.name || 'Terminal')} (${online ? 'ONLINE' : 'OFFLINE'})</option>`;
         }).join('');
         if (doorId) select.value = doorId;
@@ -683,9 +750,8 @@ async function confirmRemoteUnlock() {
         return;
     }
 
-    const isPrimaryDeploymentDoor = door.door_id === 'DOOR-B';
     const healthStatus = door.health_status || (door.connection_status === 'online' ? 'online' : 'offline');
-    const isOnline = isPrimaryDeploymentDoor && healthStatus === 'online';
+    const isOnline = healthStatus === 'online';
 
     if (!isOnline) {
         showToast(`Remote unlock diblokir: Terminal ${door.door_id} belum online.`, 'warning');
@@ -695,8 +761,16 @@ async function confirmRemoteUnlock() {
     button.disabled = true;
     button.textContent = '⏳ Mengirim perintah...';
     try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`, {
-            method: 'POST',
+        const idempotencyKey =
+            typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+                ? crypto.randomUUID()
+                : `remote-unlock-${door.door_id}-${Date.now()}`;
+
+        const res = await apiFetch(`/admin/doors/${encodeURIComponent(door.door_id)}/open`,            {
+                method: 'POST',
+                headers: {
+                    'X-Idempotency-Key': idempotencyKey
+                },
             isBackground: false,
             body: JSON.stringify({ reason })
         });
@@ -729,15 +803,10 @@ async function pingSingleDoor(doorId, btn) {
             method: 'POST',
         });
 
-        const time = res.data?.last_checked_at
-            ? new Date(res.data.last_checked_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-            : new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
         if (res.status === 'success' || res.is_online) {
-            showToast(`✓ Terminal ${doorId} online & responsif via ISAPI (${time})`, 'success');
+            showToast(`✓ Terminal ${doorId} online & responsif via ISAPI!`, 'success');
         } else {
-            const reason = res.diagnosis_reason || res.message || 'offline';
-            showToast(`⚠ Terminal ${doorId} offline: ${reason} (${time})`, 'warning');
+            showToast(`⚠ Terminal ${doorId} offline: ${res.message}`, 'warning');
         }
 
         await loadDoors();
@@ -764,9 +833,7 @@ async function checkAllDoors(btn) {
         });
 
         if (res.status === 'success') {
-            const auditComplete = res.online_count === res.total_audited;
-            const reasons = (res.data || []).filter(item => !item.is_online).map(item => `${item.door_id}: ${item.diagnosis_reason || 'device_error'}`).join('; ');
-            showToast(`Audit ISAPI ${auditComplete ? 'Selesai' : 'Selesai dengan kegagalan'}: ${res.online_count}/${res.total_audited} terminal online.${reasons ? ` Alasan: ${reasons}` : ''}`, auditComplete ? 'success' : 'warning');
+            showToast(`Audit ISAPI Selesai: ${res.online_count}/${res.total_audited} terminal online.`, 'success');
             await loadDoors();
         }
     } catch (err) {
@@ -778,134 +845,360 @@ async function checkAllDoors(btn) {
         }
     }
 }
-window.checkAllDoors = checkAllDoors;
-
-async function triggerBatchDoorSync(doorId = '', btn = null) {
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `⏳ Menyinkronkan...`;
-    }
-
-    try {
-        const payload = doorId ? { door_id: doorId } : {};
-        const res = await apiFetch('/admin/door-assignments/sync', {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            isBackground: false
-        });
-
-        if (res.status === 'success') {
-            const count = Number(res.dispatched_count ?? 0);
-            showToast(`Batch sync di-queue untuk ${count} hak akses (dispatched_count: ${count}). Status queued bukan konfirmasi perangkat.`, 'info');
-            await loadEmployees();
-            await loadDoors();
-        } else {
-            showToast(res.message || 'Gagal memicu sinkronisasi masal.', 'error');
-        }
-    } catch (err) {
-        showToast(`Gagal sinkronisasi: ${err.message}`, 'error');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    }
-}
-window.triggerBatchDoorSync = triggerBatchDoorSync;
-
-async function syncSingleEmployeeDoor(doorId, employeeId, btn = null) {
-    const originalText = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = `⏳ Sync...`;
-    }
-
-    try {
-        const res = await apiFetch(`/admin/doors/${encodeURIComponent(doorId)}/sync-employee/${encodeURIComponent(employeeId)}`, {
-            method: 'POST',
-            isBackground: false
-        });
-
-        if (res.status === 'success') {
-            showToast(res.message || `Profil biometrik berhasil disinkronkan ke terminal ${doorId}.`, 'success');
-            await loadEmployees();
-            await loadDoors();
-        } else {
-            showToast(res.message || 'Gagal melakukan sinkronisasi profil biometrik.', 'error');
-        }
-    } catch (err) {
-        showToast(err.message || 'Gagal sinkronisasi ke terminal.', 'error');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
-    }
-}
-window.syncSingleEmployeeDoor = syncSingleEmployeeDoor;
 
 // ==========================================
 // Section 2: User & Privilege Management
 // ==========================================
-async function loadOrganizationLookup() {
-    try {
-        const res = await apiFetch('/user-management/organization/lookup');
-        if (res.status !== 'success') { state.organizationLookupError = 'Data organisasi belum tersedia. Nilai relasi karyawan tetap dipertahankan.'; return; }
-        state.organizationLookupError = '';
-        state.organization = res.data;
-        for (const [field, values] of [['empBuilding', res.data.buildings], ['empDivision', res.data.divisions], ['empPosition', res.data.positions]]) {
-            const el = document.getElementById(field); if (!el) continue;
-            const currentValue = el.value;
-            el.innerHTML = '<option value="">Pilih</option>' + values.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
-            if (currentValue && Array.from(el.options).some(option => option.value === currentValue)) el.value = currentValue;
-        }
-    } catch (err) { state.organizationLookupError = 'Data organisasi gagal dimuat. Nilai relasi karyawan tetap dipertahankan.'; console.warn('Organization lookup unavailable', err); }
+// Gedung / Divisi / Posisi options for the employee form, from the master tables only
+// (buildings, divisions, positions). The lookup is shared with the dashboard/attendance
+// building filters and loaded at boot; the employee form re-reads it when it is older than
+// ORGANIZATION_LOOKUP_FRESH_MS, so masters created in another tab or by another admin show
+// up without a page reload. A failed lookup is retried on the next open.
+const ORGANIZATION_LOOKUP_FRESH_MS = 30000;
+// Choosing a Gedung/Divisi re-reads the masters when the cache is older than this, so a
+// division or position created after the modal opened (another tab or admin) appears instead
+// of the child staying on "Belum ada data ...". In-flight lookups are shared: at most one
+// request per window however often the user switches.
+const ORGANIZATION_CHANGE_FRESH_MS = 5000;
+let organizationLookupPromise = null;
+let organizationLookupLoadedAt = 0;
+
+function ensureOrganizationLookup({ maxAgeMs = Infinity } = {}) {
+    // loadedAt is 0 while a request is in flight, so an in-flight lookup is always reused.
+    if (organizationLookupPromise && organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt > maxAgeMs) {
+        organizationLookupPromise = null;
+    }
+    if (!organizationLookupPromise) {
+        organizationLookupLoadedAt = 0;
+        organizationLookupPromise = apiFetch('/user-management/organization/lookup')
+            .then(res => {
+                if (res.status !== 'success') throw new Error(res.message || 'Lookup organisasi gagal');
+                state.organization = res.data;
+                organizationLookupLoadedAt = Date.now();
+                return res.data;
+            })
+            .catch(err => {
+                organizationLookupPromise = null;
+                throw err;
+            });
+    }
+    return organizationLookupPromise;
 }
 
-async function loadEmployees(page = state.employeePage) {
+const ORGANIZATION_LEGACY_TEXT = {
+    building: 'Data gedung lama tidak ditemukan',
+    division: 'Data divisi lama tidak ditemukan',
+    position: 'Data posisi lama tidak ditemukan',
+};
+
+// legacy: the employee's stored entry when it is not in the lookup (inactive, deleted or
+// outside the admin's scope). It stays selected and visible instead of silently becoming
+// empty, and saveEmployee() leaves it untouched.
+function fillOrganizationSelect(select, items, placeholder, emptyText, selected, blockedText = '', legacy = null) {
+    if (!select) return;
+    if (blockedText) { // the parent level is not chosen yet
+        select.innerHTML = `<option value="">${blockedText}</option>`;
+        select.disabled = true;
+        return;
+    }
+    const known = items.some(x => String(x.id) === String(selected));
+    const legacyOption = !known && legacy && selected && String(legacy.id) === String(selected)
+        ? `<option value="${escapeHtml(String(legacy.id))}" data-legacy="1">${escapeHtml(legacy.text)}${legacy.name ? ` (${escapeHtml(legacy.name)})` : ''}</option>`
+        : '';
+    const options = items.map(x => `<option value="${x.id}">${escapeHtml(x.name)}</option>`).join('');
+    select.innerHTML = items.length || legacyOption
+        ? `<option value="">${items.length ? placeholder : emptyText}</option>` + legacyOption + options
+        : `<option value="">${emptyText}</option>`;
+    select.disabled = !items.length && !legacyOption;
+    select.value = known || legacyOption ? String(selected) : '';
+}
+
+function setEmployeeOrganizationState(value) {
+    const building = document.getElementById('empBuilding');
+    if (building) building.dataset.orgState = value; // loading | ready | error
+}
+
+function renderEmployeeOrganizationLoading(text = 'Memuat data organisasi...') {
+    ['empBuilding', 'empDivision', 'empPosition'].forEach(id => {
+        const select = document.getElementById(id);
+        if (!select) return;
+        select.innerHTML = `<option value="">${text}</option>`;
+        select.disabled = true;
+    });
+}
+
+// Gedung -> Divisi -> Posisi: a level is enabled only once its parent is chosen and lists
+// only that parent's entries. Empty master tables are shown as such, never padded.
+function renderEmployeeOrganizationOptions({ building = '', division = '', position = '' } = {}, legacy = employeeOrganizationForm.legacy) {
+    const org = state.organization || { buildings: [], divisions: [], positions: [] };
+    const allDivisions = org.divisions || [];
+    const allPositions = org.positions || [];
+    fillOrganizationSelect(document.getElementById('empBuilding'), org.buildings || [], 'Pilih Gedung', 'Belum ada data gedung', building, '', legacy.building);
+    const buildingId = document.getElementById('empBuilding')?.value || '';
+    const divisions = allDivisions.filter(d => String(d.building_id) === buildingId);
+    fillOrganizationSelect(document.getElementById('empDivision'), divisions, 'Pilih Divisi',
+        allDivisions.length ? 'Belum ada divisi untuk gedung ini' : 'Belum ada data divisi',
+        division, buildingId ? '' : 'Pilih gedung terlebih dahulu', legacy.division);
+    const divisionId = document.getElementById('empDivision')?.value || '';
+    const positions = allPositions.filter(p => String(p.division_id) === divisionId);
+    fillOrganizationSelect(document.getElementById('empPosition'), positions, 'Pilih Posisi',
+        allPositions.length ? 'Belum ada posisi untuk divisi ini' : 'Belum ada data posisi',
+        position, divisionId ? '' : 'Pilih divisi terlebih dahulu', legacy.position);
+}
+
+// What the form should show: the employee's stored values on open, then whatever the user
+// picks. An asynchronous lookup refresh renders this, so it never resets a user's choice
+// and a response for an earlier open (seq) is ignored.
+const employeeOrganizationForm = { seq: 0, selection: {}, legacy: {}, touched: false, recordPending: false };
+
+function readEmployeeOrganizationSelection() {
+    return {
+        building: document.getElementById('empBuilding')?.value || '',
+        division: document.getElementById('empDivision')?.value || '',
+        position: document.getElementById('empPosition')?.value || '',
+    };
+}
+
+// After a Divisi/Posisi change the cached lookup is stale: drop it and, if the employee
+// form is open, rebuild its dropdowns from the fresh lookup without a page reload.
+function invalidateOrganizationLookup() {
+    organizationLookupPromise = null;
+    if (document.getElementById('employeeModal')?.classList.contains('active')) {
+        loadEmployeeOrganizationOptions({
+            ...employeeOrganizationForm.selection,
+        }, employeeOrganizationForm.legacy, { keepTouched: true });
+    }
+}
+
+function onEmployeeOrganizationChange() {
+    // A stored entry that is not in the lookup only survives while its parent is unchanged.
+    const previous = employeeOrganizationForm.selection;
+    const legacy = { ...employeeOrganizationForm.legacy };
+    if ((document.getElementById('empBuilding')?.value || '') !== String(previous.building || '')) {
+        legacy.division = null;
+        legacy.position = null;
+    } else if ((document.getElementById('empDivision')?.value || '') !== String(previous.division || '')) {
+        legacy.position = null;
+    }
+    employeeOrganizationForm.legacy = legacy;
+    employeeOrganizationForm.touched = true;
+    renderEmployeeOrganizationOptions({
+        building: document.getElementById('empBuilding')?.value,
+        division: document.getElementById('empDivision')?.value,
+        position: document.getElementById('empPosition')?.value,
+    });
+    // Children that no longer belong to the chosen parent were reset by the render.
+    employeeOrganizationForm.selection = readEmployeeOrganizationSelection();
+    refreshEmployeeOrganizationAfterChange();
+}
+
+function refreshEmployeeOrganizationAfterChange() {
+    const { building, division } = employeeOrganizationForm.selection;
+    if (!building) return; // nothing below Gedung can be chosen yet
+    if (organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt <= ORGANIZATION_CHANGE_FRESH_MS) return;
+
+    const seq = ++employeeOrganizationForm.seq; // supersedes any older open/refresh render
+    // Loading is shown on the level that depends on the change; Gedung stays usable and the
+    // form still saves the chosen values ("refreshing" does not hold back the payload).
+    const child = document.getElementById(division ? 'empPosition' : 'empDivision');
+    if (child) {
+        child.innerHTML = `<option value="">${division ? 'Memuat data posisi...' : 'Memuat data divisi...'}</option>`;
+        child.disabled = true;
+    }
+    setEmployeeOrganizationState('refreshing');
+
+    return ensureOrganizationLookup({ maxAgeMs: ORGANIZATION_CHANGE_FRESH_MS })
+        .catch(err => showToast(`Data divisi/posisi gagal dimuat ulang: ${err.message}`, 'warning'))
+        .then(() => {
+            if (seq !== employeeOrganizationForm.seq) return; // a newer change/open owns the form
+            renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, employeeOrganizationForm.legacy);
+            employeeOrganizationForm.selection = readEmployeeOrganizationSelection();
+            setEmployeeOrganizationState('ready');
+        });
+}
+
+function loadEmployeeOrganizationOptions(selected = {}, legacy = {}, { keepTouched = false } = {}) {
+    const seq = ++employeeOrganizationForm.seq;
+    if (!keepTouched) employeeOrganizationForm.touched = false;
+    employeeOrganizationForm.selection = { building: selected.building || '', division: selected.division || '', position: selected.position || '' };
+    employeeOrganizationForm.legacy = legacy;
+
+    if (organizationLookupLoadedAt && Date.now() - organizationLookupLoadedAt <= ORGANIZATION_LOOKUP_FRESH_MS) {
+        // fresh cache: show it right away (no request below)
+        renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, legacy);
+        setEmployeeOrganizationState('ready');
+    } else {
+        renderEmployeeOrganizationLoading();
+        setEmployeeOrganizationState('loading');
+    }
+
+    return ensureOrganizationLookup({ maxAgeMs: ORGANIZATION_LOOKUP_FRESH_MS })
+        .then(() => {
+            if (seq !== employeeOrganizationForm.seq) return; // a newer open/refresh owns the form
+            renderEmployeeOrganizationOptions(employeeOrganizationForm.selection, employeeOrganizationForm.legacy);
+            setEmployeeOrganizationState('ready');
+        })
+        .catch(err => {
+            if (seq !== employeeOrganizationForm.seq) return;
+            if (!organizationLookupLoadedAt && !state.organization?.buildings?.length) {
+                renderEmployeeOrganizationLoading('Data organisasi gagal dimuat');
+                setEmployeeOrganizationState('error');
+            }
+            showToast(`Data gedung/divisi/posisi gagal dimuat: ${err.message}`, 'warning');
+        });
+}
+
+// Organization fields to send: a level still on its stored legacy entry, or a form whose
+// options never loaded, is left out so the stored value is kept rather than cleared.
+function employeeOrganizationPayload() {
+    const orgState = document.getElementById('empBuilding')?.dataset.orgState;
+    if (orgState === 'loading' || orgState === 'error') return {};
+    if (employeeOrganizationForm.recordPending && !employeeOrganizationForm.touched) return {};
+    const payload = {};
+    [['empBuilding', 'building_id'], ['empDivision', 'division_id'], ['empPosition', 'position_id']].forEach(([id, key]) => {
+        const select = document.getElementById(id);
+        if (!select || select.selectedOptions[0]?.dataset.legacy) return;
+        payload[key] = select.value || null;
+    });
+    return payload;
+}
+
+let employeeRequestController = null;
+let employeeRequestSequence = 0;
+
+async function loadEmployees(page = state.employeePage, event = null, control = null) {
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
+    }
+
+    if (control && (
+        control.disabled ||
+        control.getAttribute('aria-disabled') === 'true'
+    )) {
+        return;
+    }
+
+    noteRefreshed('employees');
+    const previousScrollY = window.scrollY;
+
     const tbody = document.getElementById('employeesTableBody');
     const fullTbody = document.getElementById('fullEmployeesTableBody');
     const countBadge = document.getElementById('employeeCountText');
     const searchVal = document.getElementById('employeeSearch')?.value.trim() || '';
     const doorFilter = document.getElementById('employeeDoorFilter')?.value || '';
-    state.employeePage = Math.max(1, Number(page) || 1);
-    const requestVersion = ++employeesRequestVersion;
 
-    const loadingHtml = `<tr><td colspan="7" class="loading-td"><div class="spinner"></div> Memuat data karyawan &amp; hak akses...</td></tr>`;
-    if (tbody) tbody.innerHTML = loadingHtml;
-    if (fullTbody) fullTbody.innerHTML = loadingHtml;
+    state.employeePage = Math.max(1, Number(page) || 1);
+
+    if (employeeRequestController) {
+        employeeRequestController.abort();
+    }
+
+    employeeRequestController = new AbortController();
+    const requestSequence = ++employeeRequestSequence;
+
+    const targets = [tbody, fullTbody].filter(Boolean);
+    targets.forEach(target => target.classList.add('employee-table-loading'));
+
+    const params = new URLSearchParams();
+    params.set('per_page', '20');
+    params.set('page', String(state.employeePage));
+
+    if (state.buildingFilter) {
+        params.set('building_id', state.buildingFilter);
+    }
+
+    if (searchVal) {
+        params.set('search', searchVal);
+    }
+
+    if (doorFilter) {
+        params.set('door_id', doorFilter);
+    }
+
+    const url = `/user-management/employees?${params.toString()}`;
 
     try {
-        let url = `/user-management/employees?per_page=20&page=${state.employeePage}`;
-        if (state.buildingFilter) url += `&building_id=${encodeURIComponent(state.buildingFilter)}`;
-        if (searchVal) url += `&search=${encodeURIComponent(searchVal)}`;
-        if (doorFilter) url += `&door_id=${encodeURIComponent(doorFilter)}`;
+        const res = await apiFetch(url, {
+            signal: employeeRequestController.signal
+        });
 
-        const res = await apiFetch(url);
-        if (requestVersion !== employeesRequestVersion) return;
+        if (requestSequence !== employeeRequestSequence) {
+            return;
+        }
+
         if (res.status === 'success') {
             state.employees = res.data;
             state.employeePagination = res.pagination || null;
-            state.metrics.totalUsers = res.pagination?.total_records ?? state.employees.length;
+            state.metrics.totalUsers =
+                res.pagination?.total_records ?? state.employees.length;
+
             scheduleMetricCardsUpdate();
 
             if (countBadge) {
-                countBadge.innerText = `Total: ${state.metrics.totalUsers} Karyawan`;
+                countBadge.innerText =
+                    `Total: ${state.metrics.totalUsers} Karyawan`;
             }
 
-            renderEmployeesTable(state.employees);
+            const totalSummary =
+                document.getElementById('employeeTotalSummary');
+
+            if (totalSummary) {
+                // total_records is the result of this exact query (building, search, door
+                // filters). total_all ignores them and must not be shown as a scoped total.
+                const scopedCount = res.pagination?.total_records ?? state.employees.length;
+                const scopeLabel = state.buildingFilter ? dashboardBuildingLabel() : '';
+                totalSummary.innerHTML = scopeLabel
+                    ? `Total Pengguna di ${escapeHtml(scopeLabel)}: <strong>${scopedCount}</strong>`
+                    : `Total Pengguna: <strong>${scopedCount}</strong>`;
+            }
+
+            renderEmployeesTable(state.employees, {
+                // Nothing at all mapped to this building (not just no search match).
+                unmappedBuilding: Boolean(state.buildingFilter) && !searchVal && !doorFilter && state.employees.length === 0,
+            });
             renderEmployeePagination();
+
+            requestAnimationFrame(() => {
+                window.scrollTo(0, previousScrollY);
+            });
+
+            const browserUrl = new URL(window.location.href);
+            browserUrl.searchParams.set(
+                'employee_page',
+                String(state.employeePage)
+            );
+
+            window.history.replaceState(
+                null,
+                '',
+                `${browserUrl.pathname}${browserUrl.search}${browserUrl.hash}`
+            );
         }
     } catch (err) {
-        if (requestVersion !== employeesRequestVersion) return;
-        const errorHtml = `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${err.message}</td></tr>`;
+        if (err?.name === 'AbortError') {
+            return;
+        }
+
+        if (requestSequence !== employeeRequestSequence) {
+            return;
+        }
+
+        const errorHtml =
+            `<tr><td colspan="7" class="error-td">Gagal memuat data karyawan: ${escapeHtml(err.message)}</td></tr>`;
+
         if (tbody) tbody.innerHTML = errorHtml;
         if (fullTbody) fullTbody.innerHTML = errorHtml;
+    } finally {
+        if (requestSequence === employeeRequestSequence) {
+            targets.forEach(target =>
+                target.classList.remove('employee-table-loading')
+            );
+        }
     }
 }
 
-function renderEmployeesTable(employees) {
+function renderEmployeesTable(employees, { unmappedBuilding = false } = {}) {
     const targets = [
         document.getElementById('employeesTableBody'),
         document.getElementById('fullEmployeesTableBody')
@@ -914,43 +1207,38 @@ function renderEmployeesTable(employees) {
     if (targets.length === 0) return;
 
     if (employees.length === 0) {
+        // Organization mapping is employees.building_id only; door assignments are physical
+        // access and are deliberately not used to place employees in a building.
+        const message = unmappedBuilding
+            ? 'Belum ada karyawan yang dipetakan ke gedung ini.'
+            : 'Tidak ada data karyawan ditemukan.';
         targets.forEach(t => {
-            t.innerHTML = `<tr><td colspan="7" class="empty-td">Tidak ada data karyawan ditemukan.</td></tr>`;
+            t.innerHTML = `<tr><td colspan="7" class="empty-td">${message}</td></tr>`;
         });
         return;
     }
 
     const html = employees.map(emp => {
-        // Biometric Badges
-        const hasFp = emp.biometric_status?.fingerprint_enrolled;
-        const hasCard = emp.biometric_status?.card_enrolled || emp.card_registered === 'YES';
-        const fpBadge = hasFp
-            ? `<span class="badge badge-success" title="Sidik jari aktif"><span class="badge-dot"></span> FP</span>`
-            : `<span class="badge badge-dim" title="Status sidik jari tidak diketahui">FP Unknown</span>`;
-        const cardBadge = hasCard
-            ? `<span class="badge badge-info" title="Kartu terdaftar"><span class="badge-dot"></span> Kartu</span>`
-            : `<span class="badge badge-dim" title="Status kartu tidak diketahui">Card Unknown</span>`;
+        // Credential badges: device truth from reconciliation, app-recorded flags labelled as such.
+        const { fpBadge, cardBadge, syncBadge, appBadge } = employeeCredentialBadges(emp);
 
-        // Door Assignment Badges
+        // Hak Akses Pintu: app assignment + device sync state, never marked active before the device confirms.
         let doorBadges = '<span class="badge badge-dim">Belum Diberi Akses</span>';
         if (emp.door_assign && emp.door_assign.length > 0) {
             doorBadges = emp.door_assign.map(d => {
-                let badgeCls = 'badge-pending';
-                let icon = '⏳';
-                let tooltip = `Status: ${d.sync_status}`;
-
-                if (d.sync_status === 'synced') {
-                    badgeCls = 'badge-synced';
-                    icon = '✓';
-                } else if (d.sync_status === 'failed') {
-                    badgeCls = 'badge-failed';
-                    icon = '✕';
-                    tooltip = d.last_sync_error ? `Error: ${d.last_sync_error}` : 'Sinkronisasi gagal ke hardware';
-                }
+                const [badgeCls, icon, label] = doorAccessSyncLabel(d.sync_status);
+                const tooltip = [
+                    `${d.door_id}: ${label}`,
+                    d.last_synced_at
+                        ? `Terakhir sinkron: ${formatDateTime(d.last_synced_at)}`
+                        // 51b4162: read-only reconciliation can confirm an assignment from exact device evidence without a provisioning write.
+                        : (d.sync_status === 'synced' ? 'Dikonfirmasi dari rekonsiliasi perangkat (read-only)' : 'Belum pernah tersinkron'),
+                    d.sync_status === 'failed' && d.last_sync_error ? `Error: ${d.last_sync_error}` : '',
+                ].filter(Boolean).join(' · ');
 
                 return `
-                    <span class="badge ${badgeCls} sync-pill" title="${tooltip}">
-                        ${icon} ${d.door_id}: ${d.sync_status}
+                    <span class="badge ${badgeCls} sync-pill" title="${escapeHtml(tooltip)}">
+                        ${icon} ${escapeHtml(d.door_id)}: ${label}
                     </span>
                 `;
             }).join(' ');
@@ -990,9 +1278,15 @@ function renderEmployeesTable(employees) {
                     </div>
                 </td>
                 <td>
-                    <div class="bio-pill-group">
-                        ${fpBadge}
-                        ${cardBadge}
+                    <div class="cred-groups" style="display:flex;flex-direction:column;gap:.35rem;">
+                        <div class="cred-group" data-group="device">
+                            <small style="display:block;color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.03em;">Status Perangkat</small>
+                            <div class="bio-pill-group">${fpBadge}${cardBadge}${syncBadge}</div>
+                        </div>
+                        <div class="cred-group" data-group="app">
+                            <small style="display:block;color:var(--text-muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.03em;">Catatan Aplikasi</small>
+                            <div class="bio-pill-group">${appBadge || '<span class="badge badge-dim">—</span>'}</div>
+                        </div>
                     </div>
                 </td>
                 <td>
@@ -1002,8 +1296,8 @@ function renderEmployeesTable(employees) {
                 </td>
                 <td style="text-align: right;">
                     <div class="action-btns" style="justify-content: flex-end;">
-                        <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Atur Akses Pintu Fisik">
-                            🚪 Akses
+                        <button class="btn-sm btn-assign" onclick="openDoorAssignmentModal(${empId})" title="Kelola akses pintu & lihat status sinkronisasi perangkat">
+                            🚪 Kelola Akses
                         </button>
                         <button class="btn-sm btn-edit" onclick="openEditEmployeeModal(${empId})" title="Edit Profil & Biometrik">
                             ✏️ Edit
@@ -1020,6 +1314,99 @@ function renderEmployeesTable(employees) {
     targets.forEach(t => t.innerHTML = html);
 }
 
+// Device-verified states come only from read-only device reconciliation
+// (employee.device_verification). The form checkboxes are app records and never count as
+// "enrolled on device"; UNKNOWN stays UNKNOWN until a device has been read.
+const DEVICE_CARD_BADGES = {
+    MATCHED: ['badge-success', 'Kartu ✓ perangkat', 'Kartu terverifikasi di perangkat dan cocok dengan aplikasi'],
+    DEVICE_FOUND: ['badge-info', 'Kartu di perangkat', 'Perangkat menyimpan kartu; aplikasi belum punya nomor kartu untuk dibandingkan'],
+    MISMATCH: ['badge-danger', 'Kartu beda', 'Kartu di perangkat berbeda dengan kartu di aplikasi'],
+    APP_RECORDED: ['badge-warning', 'Kartu tidak ada di perangkat', 'Aplikasi mencatat kartu, perangkat yang terverifikasi tidak menyimpannya'],
+    NONE: ['badge-dim', 'Tanpa kartu', 'Tidak ada kartu di aplikasi maupun di perangkat'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Kartu: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
+    UNKNOWN: ['badge-dim', 'Kartu belum diverifikasi', 'Belum ada data perangkat untuk kartu ini'],
+};
+const DEVICE_FP_BADGES = {
+    ENROLLED_ON_DEVICE: ['badge-success', 'FP ✓ perangkat', 'Sidik jari terverifikasi di perangkat'],
+    NOT_ENROLLED: ['badge-dim', 'FP belum di perangkat', 'Perangkat terjangkau dan tidak menyimpan sidik jari'],
+    CONFLICT: ['badge-danger', 'FP konflik', 'Aplikasi mencatat sidik jari, perangkat tidak menyimpannya'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'FP: perangkat offline', 'Perangkat tidak terjangkau saat verifikasi terakhir'],
+    // null fingerprint count = the device did not report it: unknown, never "not enrolled".
+    UNKNOWN: ['badge-dim', 'FP tidak diketahui', 'Perangkat belum diverifikasi atau tidak melaporkan jumlah sidik jari'],
+};
+const SYNC_STATUS_BADGES = {
+    SYNCED: ['badge-success', 'Tersinkron'],
+    PARTIAL: ['badge-warning', 'Partial'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CONFLICT: ['badge-danger', 'Konflik'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Perangkat offline'],
+    UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
+};
+
+// Door access = app assignment + device sync. Only the device confirming the write (synced)
+// counts as "Aktif di perangkat"; saving an employee or an assignment never sets it.
+const DOOR_ACCESS_SYNC_LABELS = {
+    pending: ['badge-pending', '⏳', 'Menunggu sinkronisasi'],
+    synced: ['badge-synced', '✓', 'Aktif di perangkat'],
+    failed: ['badge-failed', '✕', 'Sinkronisasi gagal'],
+};
+
+function doorAccessSyncLabel(status) {
+    return DOOR_ACCESS_SYNC_LABELS[status] || ['badge-pending', '⏳', escapeHtml(status || 'Menunggu sinkronisasi')];
+}
+
+function credentialBadge([cls, label, title]) {
+    return `<span class="badge ${cls}" title="${escapeHtml(title || label)}">${escapeHtml(label)}</span>`;
+}
+
+function employeeCredentialBadges(emp) {
+    const verification = emp.device_verification || null;
+    const appCard = Boolean(verification?.app_recorded?.card ?? (emp.card_registered === true || emp.biometric_status?.card_enrolled));
+    const appFp = Boolean(verification?.app_recorded?.fingerprint ?? emp.biometric_status?.fingerprint_enrolled);
+
+    // Device badges move away from UNKNOWN only with device evidence (a reconciliation result
+    // for this employee). App-recorded flags get their own marker and never count as device truth.
+    const verified = Boolean(verification?.last_verified_at);
+    const cardStatus = verified && DEVICE_CARD_BADGES[verification.card_status] ? verification.card_status : 'UNKNOWN';
+    const fpStatus = verified && DEVICE_FP_BADGES[verification.fingerprint_status] ? verification.fingerprint_status : 'UNKNOWN';
+
+    const recorded = [appFp && 'FP', appCard && 'Kartu'].filter(Boolean);
+    const appBadge = recorded.length
+        ? credentialBadge(['badge-dim', `Tercatat di aplikasi: ${recorded.join(', ')}`, 'Catatan aplikasi (form Pengguna), belum bukti dari perangkat'])
+        : '';
+
+    const sync = verification?.sync_status;
+    const syncBadge = sync && sync !== 'UNVERIFIED' && SYNC_STATUS_BADGES[sync]
+        ? credentialBadge([SYNC_STATUS_BADGES[sync][0], SYNC_STATUS_BADGES[sync][1], `Status sinkron perangkat: ${SYNC_STATUS_BADGES[sync][1]}`])
+        : '';
+
+    return {
+        fpBadge: credentialBadge(DEVICE_FP_BADGES[fpStatus]),
+        cardBadge: credentialBadge(DEVICE_CARD_BADGES[cardStatus]),
+        syncBadge,
+        appBadge,
+    };
+}
+
+// Employee or door-access changes make the Credential Center comparison out of date; the next
+// open of that tab reloads it instead of reusing the 30 s window. No request is sent here.
+function markAccessViewsStale() {
+    reconState.loadedAt = 0;
+}
+
+// Replace one employee in the current page with the saved record so the row reflects the
+// update immediately; the follow-up loadEmployees() re-applies filters and pagination.
+function patchEmployeeRow(updated) {
+    if (!updated || updated.id == null) return false;
+    const index = state.employees.findIndex(e => Number(e.id) === Number(updated.id));
+    if (index === -1) return false;
+    state.employees[index] = updated;
+    renderEmployeesTable(state.employees);
+    return true;
+}
+
 function handleDeleteEmployeeBtn(id, btn) {
     const name = btn ? btn.getAttribute('data-name') : 'karyawan ini';
     deleteEmployee(id, name || 'karyawan ini');
@@ -1034,18 +1421,44 @@ function handleEmployeeSearch() {
 
 function renderEmployeePagination() {
     const pagination = state.employeePagination;
+
     document.querySelectorAll('.employee-pagination').forEach(container => {
         if (!pagination || Number(pagination.total_pages || 1) <= 1) {
             container.innerHTML = '';
             return;
         }
+
         const current = Number(pagination.current_page || 1);
         const total = Number(pagination.total_pages || 1);
+        const previousPage = Math.max(1, current - 1);
+        const nextPage = Math.min(total, current + 1);
+
         container.innerHTML = `
             <div style="display:flex;justify-content:flex-end;align-items:center;gap:.75rem;padding:1rem;">
-                <button class="btn-secondary" ${current <= 1 ? 'disabled' : ''} onclick="loadEmployees(${current - 1})">← Sebelumnya</button>
-                <span style="color:var(--text-muted);font-size:.82rem;">Halaman ${current} dari ${total}</span>
-                <button class="btn-secondary" ${current >= total ? 'disabled' : ''} onclick="loadEmployees(${current + 1})">Berikutnya →</button>
+                <button
+                    class="btn-secondary"
+                    ${current <= 1 ? 'disabled' : ''}
+                    aria-disabled="${current <= 1 ? 'true' : 'false'}"
+                    onclick="loadEmployees(${previousPage}, event, this)"
+                >
+                    ← Sebelumnya
+                </button>
+
+                <span
+                    aria-current="page"
+                    style="color:var(--text-muted);font-size:.82rem;"
+                >
+                    Halaman ${current} dari ${total}
+                </span>
+
+                <button
+                    class="btn-secondary"
+                    ${current >= total ? 'disabled' : ''}
+                    aria-disabled="${current >= total ? 'true' : 'false'}"
+                    onclick="loadEmployees(${nextPage}, event, this)"
+                >
+                    Berikutnya →
+                </button>
             </div>`;
     });
 }
@@ -1085,6 +1498,7 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
 
     // Get currently assigned door IDs / codes
     const assignedDoorIds = (employee.door_assign || []).map(d => d.door_id);
+    const deviceDoors = employee.device_verification?.doors || [];
 
     container.innerHTML = doors.map(door => {
         const isChecked = assignedDoorIds.includes(door.door_id) || assignedDoorIds.includes(door.id);
@@ -1094,7 +1508,7 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
         const operationalDoor = state.doors.find(item => String(item.door_id) === String(door.door_id));
         const isOnline = operationalDoor && (operationalDoor.connection_status === 'online' || operationalDoor.status === 'online');
         const assignment = (employee.door_assign || []).find(item => String(item.door_id) === String(door.door_id));
-        const syncLabel = assignment ? escapeHtml(assignment.sync_status || 'pending') : 'not assigned';
+        const reconciled = deviceDoors.find(item => Number(item.door_id) === Number(door.id));
 
         return `
             <label class="door-checkbox-card ${isChecked ? 'selected' : ''}">
@@ -1102,12 +1516,42 @@ function renderDoorAssignmentCheckboxes(doors, employee) {
                 <div class="checkbox-door-info">
                     <div class="checkbox-door-code">${safeDoorId}</div>
                     <div class="checkbox-door-name">${safeDoorName}</div>
-                    <div class="checkbox-door-loc">${safeDoorLoc}</div>
-                    <div class="checkbox-door-loc">${isOnline ? '🟢 Online' : '🔴 Offline'} · Sync: ${syncLabel}</div>
+                    <div class="checkbox-door-loc">${safeDoorLoc} · ${isOnline ? '🟢 Online' : '🔴 Offline'}</div>
+                    ${doorAccessDetail(assignment, reconciled)}
                 </div>
             </label>
         `;
     }).join('');
+}
+
+// Per door: what the app has assigned, what the sync queue reports, and what the last read-only
+// device reconciliation saw. Three separate facts; none is derived from another.
+function doorAccessDetail(assignment, reconciled) {
+    const row = (label, value) => `<div class="checkbox-door-loc door-access-detail"><span style="color:var(--text-muted);">${label}:</span> ${value}</div>`;
+    const [, icon, syncLabel] = assignment ? doorAccessSyncLabel(assignment.sync_status) : [null, '', ''];
+    // Reconciliation reads people/cards, not access schedules: say "orang ada di perangkat",
+    // not "Granted", so it never reads as if the pending assignment were already active.
+    const presence = {
+        GRANTED: 'orang ada di perangkat',
+        NOT_GRANTED: 'orang tidak ada di perangkat',
+        FAILED: 'sinkronisasi gagal',
+        UNKNOWN: 'belum diketahui',
+        DEVICE_UNREACHABLE: 'perangkat tidak terjangkau',
+    };
+    const reconLabel = reconciled
+        ? `${escapeHtml((RECON_ROW_STATUS[reconciled.status] || [null, reconciled.status])[1] || '-')} · ${escapeHtml(presence[reconciled.access_status] || reconciled.access_status || '-')}`
+        : 'Belum diverifikasi';
+
+    return [
+        row('Assignment aplikasi', assignment ? 'Ditetapkan' : 'Belum ditetapkan'),
+        row('Status sinkron', assignment ? `${icon} ${syncLabel}` : '—'),
+        assignment?.sync_status === 'failed' && assignment.last_sync_error ? row('Error', escapeHtml(assignment.last_sync_error)) : '',
+        row('Rekonsiliasi perangkat', reconLabel),
+        row('Terakhir sinkron', assignment?.last_synced_at
+            ? escapeHtml(formatDateTime(assignment.last_synced_at))
+            : (assignment?.sync_status === 'synced' ? '— (dikonfirmasi dari rekonsiliasi perangkat)' : '—')),
+        row('Terakhir diverifikasi', reconciled?.verified_at ? escapeHtml(formatDateTime(reconciled.verified_at)) : '—'),
+    ].join('');
 }
 
 async function submitDoorAssignment(e) {
@@ -1133,8 +1577,9 @@ async function submitDoorAssignment(e) {
         });
 
         if (res.status === 'success') {
-            showToast(`Akses pintu berhasil diperbarui untuk ${state.selectedEmployeeForAssign.name}.`, 'success');
+            showToast(`Akses pintu ${state.selectedEmployeeForAssign.name} disimpan. Sinkronisasi ke perangkat dijadwalkan; status menjadi Aktif di perangkat setelah perangkat mengonfirmasi.`, 'success');
             closeModal('doorAssignModal');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1164,6 +1609,7 @@ async function revokeAllEmployeeDoors() {
         if (res.status === 'success') {
             showToast(`Seluruh izin pintu untuk ${state.selectedEmployeeForAssign.name} berhasil dicabut.`, 'success');
             closeModal('doorAssignModal');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1188,6 +1634,7 @@ async function revokeSingleDoor(empId, doorId) {
 
         if (res.status === 'success') {
             showToast(`Izin akses pintu ${doorId} berhasil dicabut.`, 'success');
+            markAccessViewsStale();
             await loadEmployees();
             await loadDoors();
         }
@@ -1207,11 +1654,16 @@ function openAddEmployeeModal() {
     document.getElementById('empName').value = '';
     document.getElementById('empCardNo').value = 'CARD-' + Math.floor(100000 + Math.random() * 900000);
     document.getElementById('empRole').value = 'Staff';
-    ['empEmail','empPhone','empBuilding','empDivision','empPosition','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    setSelectValuePreserving(document.getElementById('empDept'), '');
+    employeeEditSeq++; // a pending re-read of an edited employee no longer applies
+    employeeOrganizationForm.recordPending = false;
+    ['empEmail','empPhone','empEmploymentType','empHireDate'].forEach(id => document.getElementById(id).value = '');
+    loadEmployeeOrganizationOptions();
     document.getElementById('empEmploymentStatus').value = 'ACTIVE';
-    document.getElementById('empFp').checked = true;
-    document.getElementById('empCard').checked = true;
-    openModal('employeeModal');
+    // New employees have nothing recorded yet; enrollment is confirmed by the device, not by default.
+    document.getElementById('empFp').checked = false;
+    document.getElementById('empCard').checked = false;
+    document.getElementById('employeeModal').classList.add('active');
 }
 
 function openEditEmployeeModal(empId) {
@@ -1224,25 +1676,62 @@ function openEditEmployeeModal(empId) {
     document.getElementById('empNik').value = emp.nik;
     document.getElementById('empName').value = emp.name;
     document.getElementById('empCardNo').value = '';
-    document.getElementById('empCardNo').placeholder = emp.card_registered === 'YES' ? 'Kartu terdaftar; isi hanya untuk mengganti' : 'Nomor kartu baru';
-    document.getElementById('empDept').value = emp.department;
+    document.getElementById('empCardNo').placeholder = emp.card_registered === true ? 'Kartu tercatat; isi hanya untuk mengganti' : 'Nomor kartu baru';
+    // Imported employees carry departments outside the fixed list ("Belum Ditentukan", "IT", ...).
+    // Without an option the select posts "" and the update fails validation.
+    setSelectValuePreserving(document.getElementById('empDept'), emp.department);
     document.getElementById('empRole').value = emp.role || emp.role_jabatan || 'Staff';
     document.getElementById('empEmail').value = emp.email || ''; document.getElementById('empPhone').value = emp.phone || '';
-    const relationFields = [['empBuilding', emp.building], ['empDivision', emp.division], ['empPosition', emp.position]];
-    relationFields.forEach(([field, relation]) => {
-        const select = document.getElementById(field);
-        const value = relation?.id ? String(relation.id) : '';
-        if (value && !Array.from(select.options).some(option => option.value === value)) {
-            select.add(new Option(relation.name || value, value));
-        }
-        select.value = value;
-    });
-    const lookupNotice = document.getElementById('employeeLookupNotice');
-    if (lookupNotice) { lookupNotice.textContent = state.organizationLookupError; lookupNotice.hidden = !state.organizationLookupError; }
+    loadEmployeeOrganizationOptions({ building: emp.building?.id || '', division: emp.division?.id || '', position: emp.position?.id || '' }, organizationLegacyFor(emp));
     document.getElementById('empEmploymentType').value = emp.employment_type || ''; document.getElementById('empEmploymentStatus').value = emp.employment_status || 'ACTIVE'; document.getElementById('empHireDate').value = emp.hire_date || '';
     document.getElementById('empFp').checked = Boolean(emp.biometric_status?.fingerprint_enrolled);
     document.getElementById('empCard').checked = Boolean(emp.biometric_status?.card_enrolled);
-    openModal('employeeModal');
+    document.getElementById('employeeModal').classList.add('active');
+    refreshEditedEmployee(emp.id);
+}
+
+function organizationLegacyFor(emp) {
+    return {
+        building: emp.building?.id ? { id: emp.building.id, name: emp.building.name, text: ORGANIZATION_LEGACY_TEXT.building } : null,
+        division: emp.division?.id ? { id: emp.division.id, name: emp.division.name, text: ORGANIZATION_LEGACY_TEXT.division } : null,
+        position: emp.position?.id ? { id: emp.position.id, name: emp.position.name, text: ORGANIZATION_LEGACY_TEXT.position } : null,
+    };
+}
+
+// The table row can be older than the record (another admin, another tab). The modal opens
+// from the row at once, then re-reads this one employee: the row is patched and, unless the
+// user already changed them, Gedung/Divisi/Posisi are restored from the fresh record. Until
+// then an untouched organization is not sent, so a stale row cannot clear stored values.
+let employeeEditSeq = 0;
+
+function refreshEditedEmployee(id) {
+    const seq = ++employeeEditSeq;
+    employeeOrganizationForm.recordPending = true;
+    return apiFetch(`/user-management/employees/${Number(id)}`)
+        .then(res => {
+            const modalOpen = document.getElementById('employeeModal')?.classList.contains('active');
+            if (seq !== employeeEditSeq || !modalOpen || String(document.getElementById('empDbId').value) !== String(id) || !res?.data) return;
+            patchEmployeeRow(res.data);
+            if (!employeeOrganizationForm.touched) {
+                const fresh = res.data;
+                loadEmployeeOrganizationOptions({ building: fresh.building?.id || '', division: fresh.division?.id || '', position: fresh.position?.id || '' }, organizationLegacyFor(fresh));
+            }
+        })
+        .catch(() => { /* the row data stays usable; a failed re-read is not fatal */ })
+        .finally(() => {
+            if (seq === employeeEditSeq) employeeOrganizationForm.recordPending = false;
+        });
+}
+
+function setSelectValuePreserving(select, value) {
+    if (!select) return;
+    select.querySelectorAll('option[data-preserved]').forEach(o => o.remove());
+    if (value && ![...select.options].some(o => o.value === value)) {
+        const option = new Option(`${value} (data saat ini)`, value);
+        option.dataset.preserved = '1';
+        select.add(option, 0);
+    }
+    select.value = value || select.options[0]?.value || '';
 }
 
 async function saveEmployee(e) {
@@ -1254,7 +1743,7 @@ async function saveEmployee(e) {
         nik: document.getElementById('empNik').value,
         name: document.getElementById('empName').value,
         email: document.getElementById('empEmail').value, phone: document.getElementById('empPhone').value,
-        building_id: document.getElementById('empBuilding').value || null, division_id: document.getElementById('empDivision').value || null, position_id: document.getElementById('empPosition').value || null,
+        ...employeeOrganizationPayload(),
         employment_type: document.getElementById('empEmploymentType').value || null, employment_status: document.getElementById('empEmploymentStatus').value, hire_date: document.getElementById('empHireDate').value || null,
         department: document.getElementById('empDept').value,
         role_jabatan: document.getElementById('empRole').value,
@@ -1266,19 +1755,29 @@ async function saveEmployee(e) {
         payload.card_no = rawCardInput;
     }
 
+    // An untouched legacy department is left as stored instead of being rewritten.
+    if (id && document.getElementById('empDept').selectedOptions[0]?.dataset.preserved) {
+        delete payload.department;
+    }
+
     const method = id ? 'PUT' : 'POST';
     const endpoint = id ? `/user-management/employees/${id}` : '/user-management/employees';
 
     try {
         const res = await apiFetch(endpoint, { method, body: JSON.stringify(payload) });
         if (res.status === 'success') {
-            showToast(id ? 'Data karyawan berhasil diperbarui!' : 'Karyawan baru berhasil ditambahkan!', 'success');
+            showToast(id
+                ? 'Data karyawan disimpan (data aplikasi). Status perangkat dan akses pintu tidak berubah; kelola lewat Kelola Akses.'
+                : 'Karyawan baru berhasil ditambahkan!', 'success');
             closeModal('employeeModal');
+            if (id) patchEmployeeRow(res.data);
+            markAccessViewsStale();
+            // Deactivation revokes door access on the server: door cards must not keep old counts.
+            if (payload.employment_status === 'INACTIVE') scheduleBackgroundRefresh('doors', loadDoors, 0);
             await loadEmployees();
         }
     } catch (err) {
-        const fieldErrors = err.details ? Object.values(err.details).flat().join(' ') : '';
-        showToast(`Gagal menyimpan data karyawan: ${fieldErrors || err.message}`, 'error');
+        showToast(`Gagal menyimpan data karyawan: ${err.message}`, 'error');
     }
 }
 
@@ -1334,6 +1833,7 @@ function onLogSearchInput(sourceEl) {
 }
 
 async function loadAccessLogs() {
+    noteRefreshed('accessLogs');
     const tbody = document.getElementById('logsTableBody');
     const recentTbody = document.getElementById('overviewLogsTableBody');
     const doorFilter = document.getElementById('logDoorFilter')?.value || document.getElementById('logDoorFilterTab')?.value || '';
@@ -1538,21 +2038,22 @@ function renderAccessLogsTable(logs) {
 
     if (renderTargets.length === 0) return;
 
-    if (logs.length === 0) {
-        renderTargets.forEach(target => {
-            target.innerHTML = `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
-        });
-        return;
-    }
-
-    const html = logs.map(log => {
+    const renderRows = (items) => items.map(log => {
         const rawStatus = log.access_status || log.status || 'Granted';
         const eventType = log.event_type || 'STANDARD_TAP';
 
         let statusBadge = '';
-        if (rawStatus === 'Alarm' || eventType === 'DOOR_FORCED_OPEN' || eventType === 'TAMPER_ALARM') {
+
+        if (
+            rawStatus === 'Alarm' ||
+            eventType === 'DOOR_FORCED_OPEN' ||
+            eventType === 'TAMPER_ALARM'
+        ) {
             statusBadge = `<span class="badge badge-alarm">🚨 ALARM / INTRUSION</span>`;
-        } else if (rawStatus === 'Duress' || eventType === 'DURESS_FINGERPRINT') {
+        } else if (
+            rawStatus === 'Duress' ||
+            eventType === 'DURESS_FINGERPRINT'
+        ) {
             statusBadge = `<span class="badge badge-duress">⚠️ DURESS ALERT</span>`;
         } else if (rawStatus === 'Granted') {
             statusBadge = `<span class="badge badge-granted">✓ GRANTED</span>`;
@@ -1560,40 +2061,42 @@ function renderAccessLogsTable(logs) {
             statusBadge = `<span class="badge badge-denied">✕ DENIED</span>`;
         }
 
-        let userHtml = '';
-
-        if (eventType === 'DOOR_FORCED_OPEN') {
-            userHtml = `<strong style="color: #f87171;">🚨 Pintu Dibobol Paksa</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor intrusi terbuka tanpa autentikasi')}</small>`;
-        } else if (eventType === 'TAMPER_ALARM') {
-            userHtml = `<strong style="color: #f87171;">🔧 Sabotase Terminal</strong><br><small class="text-muted">${escapeHtml(log.reason || 'Sensor anti-tamper casing terpicu')}</small>`;
-        } else if (eventType === 'DURESS_FINGERPRINT') {
-            const empName = log.user?.name || log.nik || 'Karyawan';
-            userHtml = `<strong>${escapeHtml(empName)}</strong> <span class="badge badge-duress" style="font-size: 0.65rem; padding: 1px 5px;">DURESS</span><br><small class="text-muted">${escapeHtml(log.user?.nik || log.nik || '')} • <em>${escapeHtml(log.reason || 'Akses dibuka di bawah ancaman')}</em></small>`;
-        } else if (log.user && (log.user.name || log.user.nik)) {
-            userHtml = `<strong>${escapeHtml(log.user.name || 'User')}</strong><br><small class="text-muted">${escapeHtml(log.user.nik || '')} ${log.user.department ? `• ${escapeHtml(log.user.department)}` : ''}</small>`;
-        } else {
-            userHtml = `<span class="unknown-user">❓ ${escapeHtml(log.reason || 'Unknown Card / Unregistered User')}</span>`;
-        }
-
         let methodBadge = '';
+
         if (eventType === 'DOOR_FORCED_OPEN') {
             methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">⚡ Forced Entry</span>`;
         } else if (eventType === 'TAMPER_ALARM') {
             methodBadge = `<span class="method-chip" style="background: rgba(239,68,68,0.18); color: #f87171; border: 1px solid rgba(239,68,68,0.35);">🔧 Tamper Sensor</span>`;
-        } else if (eventType === 'DURESS_FINGERPRINT' || log.verify_method === 'Duress_Fingerprint') {
+        } else if (
+            eventType === 'DURESS_FINGERPRINT' ||
+            log.verify_method === 'Duress_Fingerprint'
+        ) {
             methodBadge = `<span class="method-chip" style="background: rgba(245,158,11,0.18); color: #fbbf24; border: 1px solid rgba(245,158,11,0.35);">⚠️ Duress FP</span>`;
-        } else if (log.verify_method === 'Card' || log.auth_method === 'Card') {
+        } else if (
+            log.verify_method === 'Card' ||
+            log.auth_method === 'Card'
+        ) {
             methodBadge = `<span class="method-chip method-card">💳 Card</span>`;
         } else {
             methodBadge = `<span class="method-chip method-fp">👆 Fingerprint</span>`;
         }
 
         const timestampStr = log.timestamp
-            ? new Date(log.timestamp).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'medium' })
+            ? new Date(log.timestamp).toLocaleString(
+                'id-ID',
+                {
+                    dateStyle: 'medium',
+                    timeStyle: 'medium'
+                }
+            )
             : '-';
 
         const safeTime = escapeHtml(timestampStr);
-        const attendanceStatus = log.attendance?.result || 'NOT_DERIVED';
+
+        const attendanceStatus =
+            log.attendance?.result ||
+            'NOT_DERIVED';
+
         const attendanceClasses = {
             PRESENT: 'badge-success',
             LATE: 'badge-pending',
@@ -1602,15 +2105,44 @@ function renderAccessLogsTable(logs) {
             LEAVE: 'badge-info',
             NOT_DERIVED: 'badge-neutral',
         };
-        const attendanceLabel = attendanceStatus === 'NOT_DERIVED'
-            ? (rawStatus === 'Denied' ? 'Ditolak' : 'Belum diproses')
-            : attendanceStatus;
+
+        const attendanceLabel =
+            attendanceStatus === 'NOT_DERIVED'
+                ? (
+                    rawStatus === 'Denied'
+                        ? 'Ditolak'
+                        : 'Belum diproses'
+                )
+                : attendanceStatus;
+
         const attendanceResult =
-            `<span class="badge ${attendanceClasses[attendanceStatus] || 'badge-info'}">${escapeHtml(attendanceLabel)}</span>` +
-            `${log.attendance?.direction ? ` <small class="text-muted">${escapeHtml(log.attendance.direction)}</small>` : ''}`;
-        const safeNik = escapeHtml(log.user?.nik || log.nik || 'Employee belum terpetakan');
-        const safeName = escapeHtml(log.user?.name || 'Employee belum terpetakan');
-        const safeDoor = escapeHtml(log.door_id || '-');
+            `<span class="badge ${
+                attendanceClasses[attendanceStatus] ||
+                'badge-info'
+            }">${escapeHtml(attendanceLabel)}</span>` +
+            `${
+                log.attendance?.direction
+                    ? ` <small class="text-muted">${escapeHtml(
+                        log.attendance.direction
+                    )}</small>`
+                    : ''
+            }`;
+
+        const safeNik = escapeHtml(
+            log.user?.nik ||
+            log.nik ||
+            'Employee belum terpetakan'
+        );
+
+        const safeName = escapeHtml(
+            log.user?.name ||
+            'Employee belum terpetakan'
+        );
+
+        const safeDoor = escapeHtml(
+            log.door_id ||
+            '-'
+        );
 
         return `
             <tr>
@@ -1626,7 +2158,32 @@ function renderAccessLogsTable(logs) {
         `;
     }).join('');
 
-    renderTargets.forEach(target => target.innerHTML = html);
+    const emptyHtml =
+        `<tr><td colspan="8" class="empty-td">Tidak ada data log yang sesuai dengan filter.</td></tr>`;
+
+    const fullHtml = logs.length
+        ? renderRows(logs)
+        : emptyHtml;
+
+    const overviewLogs = logs.slice(0, 5);
+
+    const overviewHtml = overviewLogs.length
+        ? renderRows(overviewLogs)
+        : emptyHtml;
+
+    const tbody =
+        document.getElementById('logsTableBody');
+
+    const overviewTbody =
+        document.getElementById('overviewLogsTableBody');
+
+    if (tbody) {
+        tbody.innerHTML = fullHtml;
+    }
+
+    if (overviewTbody) {
+        overviewTbody.innerHTML = overviewHtml;
+    }
 }
 
 function resetLogFilters() {
@@ -1821,9 +2378,9 @@ function switchTab(tabId, btn) {
         toggleSidebar(false);
     }
 
-    if (tabId === 'doorsTab' || tabId === 'overviewTab') loadDoors();
-    if (tabId === 'employeesTab' || tabId === 'overviewTab') loadEmployees();
-    if (tabId === 'logsTab' || tabId === 'overviewTab') loadAccessLogs();
+    if (tabId === 'doorsTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('doors', loadDoors, NAVIGATION_FRESH_MS);
+    if (tabId === 'employeesTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('employees', () => loadEmployees(), NAVIGATION_FRESH_MS);
+    if (tabId === 'logsTab' || tabId === 'overviewTab') scheduleBackgroundRefresh('accessLogs', loadAccessLogs, NAVIGATION_FRESH_MS);
     if (tabId === 'auditLogTab') loadActivityLogs();
     if (tabId === 'systemAccountsTab') loadSystemAccounts();
     if (tabId === 'recruitmentTab') loadRecruitmentData();
@@ -1839,8 +2396,12 @@ function switchTab(tabId, btn) {
     if (tabId === 'overtimeRequestsTab') loadOvertimeRequestsData();
     if (tabId === 'buildingSetupTab') loadBuildingHierarchy();
     if (tabId === 'systemStatusTab') loadSystemHealth();
-    if (tabId === 'cardAccessTab') window.CardAccess?.load('cardAccessRoot');
+    if (tabId === 'cardAccessTab' && window.CardAccess) {
+        window.CardAccess.load('cardAccessRoot');
+    }
 }
+
+window.switchTab = switchTab;
 
 // ==========================================
 // Floating Logo & Sidebar Controller
@@ -1920,33 +2481,11 @@ function initSidebar() {
         }
     });
 
-    // 5. Keyboard Shortcuts: Esc to close, Tab to trap focus in modal, Ctrl+B / Cmd+B to toggle
+    // 5. Keyboard Shortcuts: Esc to close, Ctrl+B / Cmd+B to toggle
     document.addEventListener('keydown', (e) => {
-        const activeModals = [...document.querySelectorAll('.modal-overlay.active')];
-        const activeModal = activeModals[activeModals.length - 1];
-
         if (e.key === 'Escape') {
-            if (activeModal) {
-                e.preventDefault();
-                e.stopPropagation();
-                closeModal(activeModal);
-                return;
-            }
             if (document.body.classList.contains('sidebar-open')) {
                 toggleSidebar(false);
-            }
-        } else if (e.key === 'Tab' && activeModal) {
-            const focusables = modalFocusable(activeModal);
-            if (focusables.length > 0) {
-                const first = focusables[0];
-                const last = focusables[focusables.length - 1];
-                if (e.shiftKey && document.activeElement === first) {
-                    e.preventDefault();
-                    last.focus();
-                } else if (!e.shiftKey && document.activeElement === last) {
-                    e.preventDefault();
-                    first.focus();
-                }
             }
         } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
             e.preventDefault();
@@ -1981,6 +2520,18 @@ function toggleSidebar(forceState) {
 // Expose globally
 window.toggleSidebar = toggleSidebar;
 window.pingSingleDoor = pingSingleDoor;
+// No __secureGateInitialized check here: the flag is already true by the time
+// 'load' fires, and the guard around this whole file already prevents a second
+// registration. Checking it again silently disabled every Remote Unlock button.
+window.addEventListener('load', () => {
+    document.addEventListener('click', (event) => {
+        const trigger = event.target.closest('[data-action="remote-unlock"]');
+        if (!trigger) return;
+        const doorId = trigger.dataset.doorId;
+        if (!doorId) return;
+        openRemoteUnlockModal(doorId);
+    });
+});
 window.openRemoteUnlockModal = openRemoteUnlockModal;
 window.cancelRemoteUnlock = cancelRemoteUnlock;
 window.confirmRemoteUnlock = confirmRemoteUnlock;
@@ -1993,12 +2544,6 @@ window.revokeAllEmployeeDoors = revokeAllEmployeeDoors;
 window.revokeSingleDoor = revokeSingleDoor;
 window.openDoorAssignmentModal = openDoorAssignmentModal;
 window.submitDoorAssignment = submitDoorAssignment;
-window.loadEmployees = loadEmployees;
-window.handleEmployeeSearch = handleEmployeeSearch;
-window.openAddEmployeeModal = openAddEmployeeModal;
-window.openEditEmployeeModal = openEditEmployeeModal;
-window.handleDeleteEmployeeBtn = handleDeleteEmployeeBtn;
-window.saveEmployee = saveEmployee;
 window.handleSimEventTypeChange = handleSimEventTypeChange;
 window.runEventSimulation = runEventSimulation;
 window.loadTasks = loadTasks;
@@ -2035,10 +2580,10 @@ function closeLiveAccessStream() {
 
 function reconcileLiveData() {
     if (document.hidden || isRedirectingToLogin) return;
-    loadDoors();
-    loadAccessLogs();
-    updateMetricCards();
-    if (state.activeTab === 'attendanceTab') loadAttendanceData();
+    scheduleBackgroundRefresh('doors', loadDoors, LIVE_DOORS_COOLDOWN_MS, { trailing: true });
+    scheduleBackgroundRefresh('accessLogs', loadAccessLogs, LIVE_ACCESS_LOGS_COOLDOWN_MS, { trailing: true });
+    scheduleMetricCardsUpdate();
+    if (state.activeTab === 'attendanceTab') scheduleAttendanceRefresh();
     if (state.activeTab === 'logsTab' && hasCapability('audit.view')) loadActivityLogs();
 }
 
@@ -2131,15 +2676,11 @@ function stopRealtime() {
 // ==========================================
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Collapsible Sidebar Controller
-    const employeeForm = document.getElementById('employeeForm');
-    if (employeeForm) employeeForm.addEventListener('submit', saveEmployee);
-
     initSidebar();
 
     // Initial data loading. Doors load first so a remembered building can scope the access log.
     restoreBuildingFilter();
     loadDashboardBuildings();
-    loadOrganizationLookup();
     loadDoors().finally(loadAccessLogs);
     loadEmployees();
     if (hasCapability('audit.view')) {
@@ -4428,6 +4969,391 @@ function switchAccessSubTab(subTab, btn) {
 
     const activeEl = document.getElementById(subs[subTab]);
     if (activeEl) activeEl.style.display = 'block';
+
+    // Loaded only when the Credential Center is opened, never on dashboard boot.
+    if (subTab === 'credentials' && canUseDeviceReconciliation()) {
+        const section = document.getElementById('deviceReconciliationSection');
+        if (section) section.style.display = 'block';
+        loadDeviceReconciliation();
+    }
+}
+
+// ==========================================
+// Reconciliation Center (device ↔ app, read-only towards devices)
+// ==========================================
+const RECON_FRESH_MS = 30000;
+const reconState = { tab: 'all', page: 1, loadedAt: 0, seq: 0, searchTimer: null, rows: [] };
+
+function canUseDeviceReconciliation() {
+    return window.APP_CONFIG?.admin?.role === 'super_admin'; // mirrors DeviceReconciliationController
+}
+
+const RECON_ROW_STATUS = {
+    SYNCED: ['badge-success', 'Tersinkron'],
+    PARTIAL: ['badge-warning', 'Partial'],
+    CONFLICT: ['badge-danger', 'Konflik'],
+    MATCHED: ['badge-success', 'Cocok'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CARD_MISMATCH: ['badge-danger', 'Kartu beda'],
+    BIOMETRIC_MISMATCH: ['badge-danger', 'FP beda'],
+    IDENTITY_CONFLICT: ['badge-danger', 'Konflik identitas'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    DEVICE_UNREACHABLE: ['badge-warning', 'Offline'],
+    UNVERIFIED: ['badge-dim', 'Belum diverifikasi'],
+};
+// Device link (identifier evidence) and identity (HR verification) are separate answers.
+const RECON_LINK_BADGES = {
+    MATCHED: ['badge-success', 'Terhubung'],
+    APP_ONLY: ['badge-warning', 'Hanya aplikasi'],
+    DEVICE_ONLY: ['badge-warning', 'Hanya perangkat'],
+    CONFLICT: ['badge-danger', 'Konflik pengenal'],
+    UNKNOWN: ['badge-dim', 'Belum diketahui'],
+};
+const RECON_IDENTITY_BADGES = {
+    VERIFIED: ['badge-success', 'Terverifikasi'],
+    UNVERIFIED: ['badge-dim', 'NIK belum terverifikasi'],
+    REVIEW: ['badge-warning', 'Perlu verifikasi'],
+    CONFLICT: ['badge-danger', 'Konflik'],
+};
+
+function reconPairBadge(map, status) {
+    if (!status) return '<span class="badge badge-dim" title="Jalankan Refresh dari Perangkat untuk memperbarui">—</span>';
+    const [cls, label] = map[status] || ['badge-dim', status];
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+const RECON_ACCESS_LABELS = {
+    GRANTED: 'Granted', NOT_GRANTED: 'Not Granted', FAILED: 'Failed', UNKNOWN: 'Unknown', DEVICE_UNREACHABLE: 'Device Unreachable',
+};
+const RECON_REASON_LABELS = {
+    device_name_missing: 'Nama di perangkat kosong / "-"',
+    name_mismatch: 'Nama di perangkat berbeda dengan aplikasi',
+    nik_unverified: 'NIK di aplikasi belum terverifikasi',
+    matched_by_card_only: 'Hanya cocok berdasarkan kartu',
+    name_only_candidate: 'Kandidat hanya berdasarkan nama (bukan bukti identitas)',
+    ambiguous_name: 'Nama cocok dengan lebih dari satu pengguna',
+    identifiers_point_to_different_employees: 'Pengenal menunjuk ke pengguna berbeda',
+    card_shared_by_multiple_employees: 'Kartu tercatat pada lebih dari satu pengguna',
+    link_disagrees_with_identifier: 'Tautan manual berbeda dengan pengenal perangkat',
+    marked_for_review: 'Ditandai perlu verifikasi oleh admin',
+    card_mismatch: 'Kartu di perangkat tidak sesuai catatan aplikasi',
+    normalized_identifier_candidate: 'Kandidat dari pengenal yang dinormalisasi (mis. 00001 = 1), perlu dicek admin',
+    ambiguous_normalized_identifier: 'Pengenal yang dinormalisasi cocok dengan lebih dari satu pengguna',
+    duplicate_exact_raw_identifier: 'Pengenal yang sama persis dipakai lebih dari satu pengguna',
+    cards_point_to_different_employees: 'Kartu di perangkat milik pengguna berbeda',
+    fingerprint_conflict: 'Aplikasi mencatat sidik jari, perangkat melaporkan 0',
+    ignored_by_admin: 'Diabaikan oleh admin',
+};
+
+function reconStatusBadge(status) {
+    const [cls, label] = RECON_ROW_STATUS[status] || SYNC_STATUS_BADGES[status] || ['badge-dim', status || '-'];
+    return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+}
+
+function reconCardBadge(status) {
+    return credentialBadge(DEVICE_CARD_BADGES[status] || DEVICE_CARD_BADGES.UNKNOWN);
+}
+
+function reconFpBadge(status) {
+    return credentialBadge(DEVICE_FP_BADGES[status] || DEVICE_FP_BADGES.UNKNOWN);
+}
+
+function reconReasons(reasons) {
+    const list = Array.isArray(reasons) ? reasons : Object.values(reasons || {}).filter(r => typeof r === 'string');
+    return list.map(r => RECON_REASON_LABELS[r] || r).join('; ');
+}
+
+async function loadDeviceReconciliation(force = false) {
+    if (!canUseDeviceReconciliation()) return;
+    if (!force && Date.now() - reconState.loadedAt < RECON_FRESH_MS) return;
+    reconState.loadedAt = Date.now();
+    const seq = ++reconState.seq;
+    const tbody = document.getElementById('reconTableBody');
+
+    const params = new URLSearchParams({ tab: reconState.tab, page: String(reconState.page), per_page: '20' });
+    const search = document.getElementById('reconSearch')?.value.trim() || '';
+    if (search) params.set('search', search);
+
+    try {
+        const [res, buildingsRes, doorsRes] = await Promise.all([
+            apiFetch(`/access/reconciliation?${params.toString()}`),
+            apiFetch('/admin/buildings'),
+            apiFetch('/admin/doors'),
+        ]);
+        if (seq !== reconState.seq || !res?.success) return;
+        renderDeviceReconciliation(Object.assign({}, res.data, { buildings: buildingsRes?.data || [], doors: doorsRes?.data || [] }));
+    } catch (err) {
+        if (seq !== reconState.seq) return;
+        reconState.loadedAt = 0;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="11" class="error-td">Gagal memuat rekonsiliasi: ${escapeHtml(err.message)}</td></tr>`;
+    }
+}
+
+function renderDeviceReconciliation(data) {
+    const lastRun = document.getElementById('reconLastRun');
+    if (lastRun) {
+        lastRun.textContent = data.last_run
+            ? `Pembacaan terakhir #${data.last_run.id} (${data.last_run.status}) · ${formatDateTime(data.last_run.finished_at || data.last_run.started_at)} · read-only`
+            : 'Belum pernah membaca perangkat. Klik "Refresh dari Perangkat".';
+    }
+
+    const summary = document.getElementById('reconDeviceSummary');
+    if (summary) {
+        summary.innerHTML = (data.devices || []).map(d => {
+            const offline = d.status === 'DEVICE_UNREACHABLE';
+            const unverified = d.status === 'UNVERIFIED';
+            const val = v => (v === null || v === undefined ? '—' : escapeHtml(String(v)));
+            return `
+                <div class="recon-device-card" style="border:1px solid var(--border-color);border-radius:0.75rem;padding:0.75rem;">
+                    <div style="display:flex;justify-content:space-between;gap:0.5rem;align-items:center;">
+                        <strong style="color:#fff;">${escapeHtml(d.door_code || '-')}</strong>
+                        ${offline ? '<span class="badge badge-warning">Device Unreachable</span>' : (unverified ? '<span class="badge badge-dim">Belum diverifikasi</span>' : '<span class="badge badge-success">Online</span>')}
+                    </div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);margin:0.25rem 0 0.5rem;">${escapeHtml(d.name || '')}</div>
+                    <div style="font-size:0.78rem;display:grid;grid-template-columns:1fr auto;gap:0.15rem 0.5rem;">
+                        <span>Pengguna di perangkat</span><b>${val(d.users_on_device)}</b>
+                        <span>Kartu / FP di perangkat</span><b>${val(d.cards_on_device)} / ${val(d.fingerprints_on_device)}</b>
+                        <span>Device matched</span><b>${val(d.device_matched)}</b>
+                        <span>Identity verified</span><b>${val(d.identity_verified)}</b>
+                        <span>Identity unverified</span><b>${val(d.identity_unverified)}</b>
+                        <span>Identity perlu verifikasi</span><b>${val(d.identity_review)}</b>
+                        <span>Tersinkron / Partial</span><b>${val(d.synced)} / ${val(d.partial)}</b>
+                        <span>Hanya perangkat</span><b>${val(d.device_only)}</b>
+                        <span>Hanya aplikasi</span><b>${val(d.app_only)}</b>
+                        <span>Konflik</span><b>${val(d.conflicts)}</b>
+                        <span>Perlu verifikasi (match)</span><b>${val(d.review)}</b>
+                        <span>Biometrik tidak diketahui</span><b>${val(d.fingerprint_unknown)}</b>
+                    </div>
+                    <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.4rem;">${d.last_verified_at ? 'Terakhir: ' + escapeHtml(formatDateTime(d.last_verified_at)) : 'Belum pernah dibaca'}</div>
+                    ${d.error ? `<div style="font-size:0.72rem;color:#fbbf24;margin-top:0.25rem;">${escapeHtml(d.error)}</div>` : ''}
+                    <button type="button" class="btn-secondary" style="margin-top:0.5rem;padding:0.3rem 0.6rem;font-size:0.72rem;" onclick="runDeviceReconciliation(${Number(d.door_id)}, this)">Refresh dari Perangkat</button>
+                </div>`;
+        }).join('');
+    }
+
+    const configuredCodes = new Set((data.devices || []).map(d => String(d.door_code)));
+    const configuredBuildingIds = new Set((data.doors || []).filter(d => configuredCodes.has(String(d.door_id))).map(d => String(d.building_id)));
+    const activeBuildings = (data.buildings || []).filter(b => {
+        const active = b.is_active;
+        return active === undefined || active === null || active === true || active === 1 || active === '1';
+    });
+    const reconSummary = document.getElementById('reconDeviceSummary');
+    if (reconSummary && activeBuildings.length) {
+        reconSummary.insertAdjacentHTML('beforeend', activeBuildings.filter(b => !configuredBuildingIds.has(String(b.id))).map(b => '<div class="recon-device-card recon-device-card--not-configured" style="border:1px solid var(--border-color);border-radius:0.75rem;padding:0.75rem;"><strong style="color:#fff;">' + escapeHtml(b.name || '-') + '</strong><span class="badge badge-dim">Belum Ada Perangkat</span><div class="recon-not-configured-metrics">Pengguna di perangkat —<br>Kartu / FP di perangkat — / —<br>Device matched —<br>Identity verified —<br>Identity unverified —<br>Identity perlu verifikasi —<br>Tersinkron / Partial — / —<br>Hanya perangkat —<br>Hanya aplikasi —<br>Konflik —<br>Perlu verifikasi (match) —<br>Biometrik tidak diketahui —</div><small>Perangkat belum dikonfigurasi untuk gedung ini.</small></div>').join(''));
+    }
+
+    const counts = data.counts || {};
+    document.querySelectorAll('#reconTabs [data-recon-tab]').forEach(btn => {
+        const tab = btn.dataset.reconTab;
+        btn.classList.toggle('active', tab === reconState.tab);
+        const base = btn.textContent.replace(/\s*\(\d+\)$/, '');
+        btn.textContent = counts[tab] !== undefined ? `${base} (${counts[tab]})` : base;
+    });
+
+    const unlinked = document.getElementById('reconUnlinkedBody');
+    if (unlinked) {
+        const rows = data.unlinked || [];
+        unlinked.innerHTML = rows.length === 0
+            ? '<tr><td colspan="9" class="empty-td">Tidak ada data perangkat yang belum terhubung.</td></tr>'
+            : rows.map(r => `
+                <tr>
+                    <td><strong>${escapeHtml(r.person_number || '-')}</strong></td>
+                    <td>${escapeHtml(r.name || '-')}</td>
+                    <td>${reconCardBadge(r.card_status)}${r.card_count != null ? ` <small>(${Number(r.card_count)})</small>` : ''}</td>
+                    <td>${r.fingerprint_count != null ? Number(r.fingerprint_count) : '—'}</td>
+                    <td>${escapeHtml((r.devices || []).map(d => d.door_code).join(', '))}</td>
+                    <td>${r.candidate ? `${escapeHtml(r.candidate.name)} <small>(${escapeHtml(r.candidate.employee_id || '-')})</small>` : '—'}</td>
+                    <td>${escapeHtml(r.confidence || 'none')}</td>
+                    <td>${reconStatusBadge(r.devices?.[0]?.status)}</td>
+                    <td style="text-align:right;"><button type="button" class="btn-sm btn-edit" onclick="openReconDevicePersonDetail(${Number(r.state_id)})">Detail Perbandingan</button></td>
+                </tr>`).join('');
+    }
+
+    reconState.rows = data.rows || [];
+    const tbody = document.getElementById('reconTableBody');
+    if (tbody) {
+        tbody.innerHTML = reconState.rows.length === 0
+            ? '<tr><td colspan="11" class="empty-td">Tidak ada data untuk filter ini.</td></tr>'
+            : reconState.rows.map(r => {
+                const devices = (r.devices || []).map(d => `<span class="badge badge-dim" title="${escapeHtml(RECON_ACCESS_LABELS[d.access_status] || d.access_status || '')}">${escapeHtml(d.door_code || '-')}: ${escapeHtml((RECON_ROW_STATUS[d.status] || [null, d.status])[1])}</span>`).join(' ') || '—';
+                const action = r.kind === 'employee'
+                    ? `<button type="button" class="btn-sm btn-edit" onclick="openReconEmployeeDetail(${Number(r.employee_id)})">Detail Perbandingan</button>`
+                    : `<button type="button" class="btn-sm btn-edit" onclick="openReconDevicePersonDetail(${Number(r.state_id)})">Detail / Hubungkan</button>`;
+                return `
+                    <tr data-recon-key="${escapeHtml(r.key)}">
+                        <td><strong>${escapeHtml(r.name || '-')}</strong><br><small>${escapeHtml(r.user_id || (r.kind === 'device' ? 'Data perangkat' : '-'))}</small></td>
+                        <td>${escapeHtml(r.nik || '-')}<br><small>${escapeHtml(r.person_number || '-')}</small></td>
+                        <td>${escapeHtml(r.credential || '-')}</td>
+                        <td>${reconCardBadge(r.card_status)}</td>
+                        <td>${reconFpBadge(r.fingerprint_status)}</td>
+                        <td>${devices}</td>
+                        <td>${reconPairBadge(RECON_IDENTITY_BADGES, r.identity_status)}<br><small>${escapeHtml(r.app_status || '-')}</small></td>
+                        <td>${reconPairBadge(RECON_LINK_BADGES, r.device_link_status)}<br><small>${escapeHtml(r.device_status || '-')}</small></td>
+                        <td>${reconStatusBadge(r.sync_status)}</td>
+                        <td>${r.last_verified_at ? escapeHtml(formatDateTime(r.last_verified_at)) : '—'}</td>
+                        <td style="text-align:right;">${action}</td>
+                    </tr>`;
+            }).join('');
+    }
+
+    const pager = document.getElementById('reconPagination');
+    if (pager) {
+        const p = data.pagination || { current_page: 1, last_page: 1, total_records: 0 };
+        pager.innerHTML = `
+            <small style="color:var(--text-muted);">Halaman ${p.current_page} / ${p.last_page} · ${p.total_records} baris</small>
+            <button type="button" class="btn-secondary" ${p.current_page <= 1 ? 'disabled' : ''} onclick="goReconciliationPage(${p.current_page - 1})">‹</button>
+            <button type="button" class="btn-secondary" ${p.current_page >= p.last_page ? 'disabled' : ''} onclick="goReconciliationPage(${p.current_page + 1})">›</button>`;
+    }
+}
+
+function setReconciliationTab(tab) {
+    reconState.tab = tab;
+    reconState.page = 1;
+    loadDeviceReconciliation(true);
+}
+
+function goReconciliationPage(page) {
+    reconState.page = Math.max(1, Number(page) || 1);
+    loadDeviceReconciliation(true);
+}
+
+function debounceReconciliationSearch() {
+    clearTimeout(reconState.searchTimer);
+    reconState.searchTimer = setTimeout(() => { reconState.page = 1; loadDeviceReconciliation(true); }, 400);
+}
+
+async function runDeviceReconciliation(doorId, button) {
+    if (!canUseDeviceReconciliation() || button?.disabled) return;
+    const original = button?.innerHTML || '';
+    if (button) { button.disabled = true; button.innerHTML = '⏳ Membaca perangkat...'; }
+    try {
+        const res = await apiFetch('/access/reconciliation/run', {
+            method: 'POST',
+            body: JSON.stringify(doorId ? { door_id: doorId } : {}),
+        });
+        showToast(res?.message || 'Data perangkat dibaca ulang.', res?.data?.run?.status === 'completed' ? 'success' : 'warning');
+        await loadDeviceReconciliation(true);
+    } catch (err) {
+        showToast(`Gagal membaca perangkat: ${err.message}`, 'error');
+    } finally {
+        if (button) { button.disabled = false; button.innerHTML = original; }
+    }
+}
+
+function reconDetailTable(rows) {
+    return `<table style="margin-top:0.5rem;"><tbody>${rows.map(([k, v]) => `<tr><th style="width:38%;">${escapeHtml(k)}</th><td>${v}</td></tr>`).join('')}</tbody></table>`;
+}
+
+async function openReconEmployeeDetail(employeeId) {
+    const body = document.getElementById('reconDetailBody');
+    document.getElementById('reconDecisionPanel').style.display = 'none';
+    if (body) body.innerHTML = 'Memuat...';
+    openModal('modalReconDetail');
+    try {
+        const res = await apiFetch(`/access/reconciliation/employees/${Number(employeeId)}`);
+        const { app, verification, device_states: states } = res.data;
+        const doors = (verification.doors || []).map(d => {
+            const st = (states || []).find(s => s.door_id === d.door_id);
+            return `<tr>
+                <td>${escapeHtml(st?.door_code || String(d.door_id))}</td>
+                <td>${d.assigned_in_app ? 'Ya' : 'Tidak'}</td>
+                <td>${reconStatusBadge(d.status)}</td>
+                <td>${escapeHtml(RECON_ACCESS_LABELS[d.access_status] || d.access_status)}</td>
+                <td>${escapeHtml(st?.device_employee_no || '-')} / ${escapeHtml(st?.device_name || '-')}</td>
+                <td>${reconCardBadge(d.card_status)} ${escapeHtml((st?.card_masks || []).join(', '))}</td>
+                <td>${reconFpBadge(d.fingerprint_status)}${st?.fingerprint_count != null ? ` (${Number(st.fingerprint_count)})` : ''}</td>
+                <td>${escapeHtml(reconReasons(st?.reasons))}</td>
+            </tr>`;
+        }).join('');
+        body.innerHTML = `
+            <strong style="color:#fff;">Aplikasi (identitas, NIK, otorisasi)</strong>
+            ${reconDetailTable([
+                ['Nama', escapeHtml(app.name || '-')],
+                ['User ID / NIK', `${escapeHtml(app.employee_id || '-')} / ${escapeHtml(app.nik || '-')}`],
+                ['Person Number', escapeHtml(app.person_number || '-')],
+                ['Kartu tercatat', escapeHtml((app.card_masks || []).join(', ') || (verification.app_recorded?.card ? 'Ya (tanpa nomor)' : 'Tidak'))],
+                ['Fingerprint tercatat di aplikasi', verification.app_recorded?.fingerprint ? 'Ya' : 'Tidak'],
+                ['Device link', reconPairBadge(RECON_LINK_BADGES, verification.device_link_status)],
+                ['Identity', reconPairBadge(RECON_IDENTITY_BADGES, verification.identity_status)],
+                ['Status sinkron', reconStatusBadge(verification.sync_status)],
+            ])}
+            <strong style="color:#fff;display:block;margin-top:0.75rem;">Perangkat (orang, kartu, sidik jari)</strong>
+            <table style="margin-top:0.5rem;"><thead><tr><th>Pintu</th><th>Assignment</th><th>Status</th><th>Akses</th><th>Person / Nama</th><th>Kartu</th><th>FP</th><th>Catatan</th></tr></thead>
+            <tbody>${doors || '<tr><td colspan="8" class="empty-td">Belum ada akses pintu atau data perangkat.</td></tr>'}</tbody></table>`;
+    } catch (err) {
+        if (body) body.innerHTML = `<span class="error-td">Gagal memuat detail: ${escapeHtml(err.message)}</span>`;
+    }
+}
+
+async function openReconDevicePersonDetail(stateId) {
+    const body = document.getElementById('reconDetailBody');
+    const panel = document.getElementById('reconDecisionPanel');
+    panel.style.display = 'none';
+    if (body) body.innerHTML = 'Memuat...';
+    openModal('modalReconDetail');
+    try {
+        const res = await apiFetch(`/access/reconciliation/device-persons/${Number(stateId)}`);
+        const { state: st, employee, candidate, conflicting_employees: conflicts, decision } = res.data;
+        body.innerHTML = `
+            <strong style="color:#fff;">Perangkat ${escapeHtml(st.door_code || '')}</strong>
+            ${reconDetailTable([
+                ['Person Number', escapeHtml(st.device_employee_no)],
+                ['Nama di perangkat', escapeHtml(st.device_name || '-')],
+                ['Kartu', `${reconCardBadge(st.card_status)} ${st.card_count != null ? Number(st.card_count) : '—'} ${escapeHtml((st.card_masks || []).join(', '))}`],
+                ['Sidik jari', `${reconFpBadge(st.fingerprint_status)} ${st.fingerprint_count != null ? Number(st.fingerprint_count) : '—'}`],
+                ['Device link', reconPairBadge(RECON_LINK_BADGES, st.device_link_status)],
+                ['Identity', reconPairBadge(RECON_IDENTITY_BADGES, st.identity_status)],
+                ['Status sinkron', reconStatusBadge(st.status)],
+                ['Dasar kecocokan / keyakinan', `${escapeHtml(st.match_basis || '-')} / ${escapeHtml(st.confidence || 'none')}`],
+                ['Terhubung ke', employee ? `${escapeHtml(employee.name)} (${escapeHtml(employee.employee_id || '-')})` : '—'],
+                ['Kandidat (nama saja)', candidate ? `${escapeHtml(candidate.name)} (${escapeHtml(candidate.employee_id || '-')})` : '—'],
+                ['Pengguna yang bertentangan', (conflicts || []).length
+                    ? (conflicts || []).map(c => `#${Number(c.id)} ${escapeHtml(c.name)} · User ID ${escapeHtml(c.employee_id || '-')} · NIK ${escapeHtml(c.nik || '-')} · Person No ${escapeHtml(c.source_person_number || c.hikvision_employee_no || '-')}`).join('<br>')
+                    : '—'],
+                ['Catatan', escapeHtml(reconReasons(st.reasons)) || '—'],
+                ['Keputusan terakhir', decision ? `${escapeHtml(decision.decision)} oleh ${escapeHtml(decision.decided_by || '-')}${decision.note ? ' · ' + escapeHtml(decision.note) : ''}` : '—'],
+            ])}`;
+
+        document.getElementById('reconDecisionStateId').value = st.id;
+        const select = document.getElementById('reconLinkEmployee');
+        const source = document.getElementById('crdEmployeeId');
+        if (select && source && source.options.length > 1) {
+            select.innerHTML = `<option value="">-- Pilih Karyawan --</option>` + Array.from(source.options).filter(o => o.value).map(o => o.outerHTML).join('');
+        }
+        // Only an existing link is preselected; a name or conflict candidate must be chosen by the admin.
+        if (select) select.value = String(employee?.id || '');
+        document.getElementById('reconDecisionNote').value = '';
+        panel.style.display = 'block';
+    } catch (err) {
+        if (body) body.innerHTML = `<span class="error-td">Gagal memuat detail: ${escapeHtml(err.message)}</span>`;
+    }
+}
+
+async function submitReconciliationDecision(decision, button) {
+    const stateId = document.getElementById('reconDecisionStateId').value;
+    const employeeId = document.getElementById('reconLinkEmployee').value;
+    if (!stateId || button?.disabled) return;
+    if (decision === 'LINKED' && !employeeId) {
+        showToast('Pilih pengguna yang akan dihubungkan.', 'warning');
+        return;
+    }
+    if (button) button.disabled = true;
+    try {
+        const payload = { decision, note: document.getElementById('reconDecisionNote').value || null };
+        if (decision === 'LINKED') payload.employee_id = Number(employeeId);
+        const res = await apiFetch(`/access/reconciliation/device-persons/${Number(stateId)}/decision`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+        });
+        showToast(res?.message || 'Keputusan disimpan.', 'success');
+        closeModal('modalReconDetail');
+        await loadDeviceReconciliation(true);
+    } catch (err) {
+        showToast(`Gagal menyimpan keputusan: ${err.message}`, 'error');
+    } finally {
+        if (button) button.disabled = false;
+    }
 }
 
 async function loadAccessMetrics() {
@@ -5899,20 +6825,121 @@ function formatAttendanceDate(value) {
     return new Intl.DateTimeFormat('id-ID', { ...options, timeZone: ATTENDANCE_TIMEZONE }).format(date);
 }
 
-async function loadAttendanceData() {
-    loadAttendanceMetrics();
-    loadAttendanceReport();
+// Monthly report and records per (month, building) query are reused for 30 s, so flipping
+// back and forth between filters does not refetch what was just loaded; an identical
+// request still in flight is shared. Refresh and live updates pass fresh = true.
+const ATTENDANCE_QUERY_TTL_MS = 30000;
+const attendanceQueryCache = new Map();
+
+function fetchAttendanceQuery(url, fresh = false) {
+    const hit = attendanceQueryCache.get(url);
+    if (hit?.promise) return hit.promise;
+    if (!fresh && hit && Date.now() - hit.at < ATTENDANCE_QUERY_TTL_MS) return Promise.resolve(hit.data);
+    const promise = apiFetch(url)
+        .then(data => {
+            attendanceQueryCache.set(url, { at: Date.now(), data });
+            return data;
+        })
+        .catch(error => {
+            attendanceQueryCache.delete(url);
+            throw error;
+        });
+    attendanceQueryCache.set(url, { at: 0, promise });
+    for (const [key, entry] of attendanceQueryCache) { // keep the cache small
+        if (!entry.promise && Date.now() - entry.at >= ATTENDANCE_QUERY_TTL_MS) attendanceQueryCache.delete(key);
+    }
+    return promise;
+}
+
+// A filter reload that still hits the shared rate limit waits out the cooldown and retries
+// once, but only if the selection has not changed meanwhile, so the table never stays on
+// an error for the filter the user is looking at.
+function retryAttendanceAfterRateLimit(error, tbody, colspan, stillCurrent, reload) {
+    if (error?.status !== 429) return false;
+    const waitMs = Math.max(1000, (error.retryAfter ? error.retryAfter * 1000 : 0), rateLimitCooldownUntil - Date.now());
+    tbody.innerHTML = `<tr><td colspan="${colspan}" class="loading-td">Server sedang sibuk, memuat ulang otomatis dalam ${Math.ceil(waitMs / 1000)} detik...</td></tr>`;
+    setTimeout(() => { if (stillCurrent()) reload(); }, waitMs);
+    return true;
+}
+
+let attendanceDataInflight = null;
+
+// Opening Rekap Kehadiran or pressing its Refresh button. A second call while one is
+// still loading (double click, tab re-entry) reuses it instead of firing again.
+// `force` (Refresh button only) bypasses the shared attendance metrics cache.
+async function loadAttendanceData(force = false) {
+    if (attendanceDataInflight) return attendanceDataInflight;
+    attendanceLiveRefresh.lastAt = Date.now();
+    attendanceDataInflight = Promise.allSettled([
+        loadAttendanceMetrics(force),
+        loadAttendanceReport(force), // sets the month input to the current month on first load
+        loadAttendanceRecords(force),
+    ]).finally(() => { attendanceDataInflight = null; });
+    return attendanceDataInflight;
+}
+
+// The selected report month/building drive both the monthly summary and the processed
+// records below it, so the two never describe different periods. Rapid changes
+// (scrolling through months, quick re-selects) collapse into one reload.
+let attendanceFilterTimer = null;
+
+function onAttendanceFilterChange() {
+    clearTimeout(attendanceFilterTimer);
+    attendanceFilterTimer = setTimeout(() => {
+        loadAttendanceReport();
+        loadAttendanceRecords();
+    }, 300);
+}
+
+// Live taps while Rekap Kehadiran is open. Metrics already refresh through
+// scheduleMetricCardsUpdate(); the heavy monthly report and records reload at most once
+// per cooldown, and only when the selected month is the current one (taps cannot change
+// a past month).
+const ATTENDANCE_LIVE_COOLDOWN_MS = 30000;
+const attendanceLiveRefresh = { lastAt: 0, timer: null };
+
+function scheduleAttendanceRefresh() {
+    if (attendanceLiveRefresh.timer) return; // one refresh already queued
+    const wait = Math.max(0, ATTENDANCE_LIVE_COOLDOWN_MS - (Date.now() - attendanceLiveRefresh.lastAt));
+    attendanceLiveRefresh.timer = setTimeout(() => {
+        attendanceLiveRefresh.timer = null;
+        if (document.hidden || state.activeTab !== 'attendanceTab') return;
+        const month = document.getElementById('attendanceReportMonth')?.value;
+        if (month && month !== currentMonthValue()) return;
+        attendanceLiveRefresh.lastAt = Date.now();
+        loadAttendanceReport(true);
+        loadAttendanceRecords(true);
+    }, wait);
+}
+
+let attendanceRecordsSeq = 0;
+
+async function loadAttendanceRecords(fresh = false) {
     const tbody = document.getElementById('attendanceTableBody');
     if (!tbody) return;
+    const month = document.getElementById('attendanceReportMonth');
+    if (month && !month.value) month.value = currentMonthValue();
+    const building = document.getElementById('attendanceReportBuilding');
+    const seq = ++attendanceRecordsSeq;
+
+    const query = new URLSearchParams({ per_page: '100' });
+    if (month?.value) {
+        const [year, mon] = month.value.split('-').map(Number);
+        query.set('from', `${month.value}-01`);
+        query.set('to', `${month.value}-${String(new Date(year, mon, 0).getDate()).padStart(2, '0')}`);
+    }
+    if (building?.value) query.set('building_id', building.value);
 
     tbody.innerHTML = '<tr><td colspan="10" class="loading-td"><div class="spinner"></div> Memuat data kehadiran...</td></tr>';
     try {
-        const res = await apiFetch('/attendance/records');
+        const res = await fetchAttendanceQuery(`/attendance/records?${query}`, fresh);
+        if (seq !== attendanceRecordsSeq) return; // a newer month/building selection superseded this request
         if (!res.success) throw new Error(res.message || 'Gagal memuat kehadiran');
 
         const records = res.data.data || res.data;
         if (!records.length) {
-            tbody.innerHTML = '<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses untuk scope Anda.</td></tr>';
+            const scope = [month?.value, attendanceReportBuildingLabel()].filter(Boolean).join(' · ');
+            tbody.innerHTML = `<tr><td colspan="10" class="empty-td" style="text-align:center; padding: 2rem; color: var(--text-muted);">Belum ada kehadiran yang diproses${scope ? ` untuk ${escapeHtml(scope)}` : ''}.</td></tr>`;
             return;
         }
 
@@ -5954,59 +6981,65 @@ async function loadAttendanceData() {
             `;
         }).join('');
     } catch (e) {
+        if (seq !== attendanceRecordsSeq) return;
+        if (retryAttendanceAfterRateLimit(e, tbody, 10, () => seq === attendanceRecordsSeq, () => loadAttendanceRecords(fresh))) return;
         tbody.innerHTML = `<tr><td colspan="10" class="error-td">Gagal memuat kehadiran. ${escapeHtml(e.message)}</td></tr>`;
     }
 }
 
-async function loadAttendanceMetrics() {
-    const container = document.getElementById('attendanceMetricsContainer');
-    if (!container) return;
-
+async function loadAttendanceMetrics(force = false) {
+    if (!document.getElementById('attendanceMetricsContainer')) return;
     try {
-        const res = await apiFetch('/attendance/metrics');
-        if (!res.success) return;
-
-        const m = res.data;
-        const t = m.today;
-        const live = m.live || {};
-        const total = t.present + t.late + t.absent + t.off + t.leave;
-        const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
-
-        container.innerHTML = `
-            <div class="stat-card">
-                <div class="stat-title">Tingkat Kehadiran Harian</div>
-                <div class="stat-value" style="color: #10b981;">${presentRate}%</div>
-                <div class="stat-desc">Hari Ini: ${escapeHtml(t.date)}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Hadir & Terlambat</div>
-                <div class="stat-value" style="color: #f59e0b;">${t.present + t.late} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
-                <div class="stat-desc">(${t.late} terlambat)</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Mangkir (Tanpa Keterangan)</div>
-                <div class="stat-value" style="color: #ef4444;">${t.absent} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
-                <div class="stat-desc">Potensi pelanggaran</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Kalender Kerja Aktif</div>
-                <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
-                <div class="stat-desc">Dikelola oleh sistem</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Live Office Attendance</div>
-                <div class="stat-value" style="font-size:1.15rem;color:#10b981;">${live.latest_event_at ? new Date(live.latest_event_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'}) : '-'}</div>
-                <div class="stat-desc">${escapeHtml(live.latest_door || 'Belum ada event hari ini')}</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Event Belum Terpetakan</div>
-                <div class="stat-value" style="color:#f59e0b;">${Number(live.unmatched_events || 0)}</div>
-                <div class="stat-desc">Hanya terlihat oleh pengguna berwenang</div>
-            </div>
-        `;
+        renderAttendanceMetricsPanel(await fetchAttendanceMetrics({ force }));
     } catch (e) {
-        console.error('Failed to load attendance metrics', e);
+        if (!e.suppressed) console.error('Failed to load attendance metrics', e);
     }
+}
+
+function renderAttendanceMetricsPanel(res) {
+    const container = document.getElementById('attendanceMetricsContainer');
+    if (!container || !res?.success) return;
+
+    const m = res.data;
+    const t = m.today;
+    const live = m.live || {};
+    const total = t.present + t.late + t.absent + t.off + t.leave;
+    const presentRate = total > 0 ? Math.round(((t.present + t.late) / total) * 100) : 0;
+
+    container.innerHTML = `
+        <div class="stat-card">
+            <div class="stat-title">Tingkat Kehadiran Harian</div>
+            <div class="stat-value" style="color: #10b981;">${presentRate}%</div>
+            <div class="stat-desc">Hari Ini: ${escapeHtml(t.date)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Hadir & Terlambat</div>
+            <div class="stat-value" style="color: #f59e0b;">${t.present + t.late} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+            <div class="stat-desc">(${t.late} terlambat)</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Mangkir (Tanpa Keterangan)</div>
+            <div class="stat-value" style="color: #ef4444;">${t.absent} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">karyawan</span></div>
+            <div class="stat-desc">Potensi pelanggaran</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Kalender Kerja Aktif</div>
+            <div class="stat-value" style="color: #3b82f6;">${m.calendars_count}</div>
+            <div class="stat-desc">Dikelola oleh sistem</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Live Office Attendance</div>
+            <div class="stat-value" style="color:#10b981;">${Number(live.in_office_now || 0)} <span style="font-size:1rem;font-weight:400;color:var(--text-muted);">di kantor</span></div>
+            <div class="stat-desc">${Number(live.checked_in_today || 0)} sudah masuk hari ini${live.latest_event_at
+                ? ` · tap terakhir ${escapeHtml(new Date(live.latest_event_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }))} WIB${live.latest_door ? ` (${escapeHtml(live.latest_door)})` : ''}`
+                : ' · belum ada tap hari ini'}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-title">Event Belum Terpetakan</div>
+            <div class="stat-value" style="color:#f59e0b;">${Number(live.unmatched_events || 0)}</div>
+            <div class="stat-desc">Hanya terlihat oleh pengguna berwenang</div>
+        </div>
+    `;
 }
 
 let attendanceReportSeq = 0;
@@ -6029,9 +7062,9 @@ async function ensureAttendanceReportBuildings() {
     const building = document.getElementById('attendanceReportBuilding');
     if (!building || building.options.length > 1) return true;
     try {
-        const lookup = await apiFetch('/user-management/organization/lookup');
+        const lookup = await ensureOrganizationLookup(); // shared organization lookup cache
         const previous = building.value;
-        (lookup.data?.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
+        (lookup.buildings || []).forEach(item => building.add(new Option(item.name, String(item.id))));
         if (previous) building.value = previous;
         return true;
     } catch (error) {
@@ -6044,10 +7077,18 @@ async function ensureAttendanceReportBuildings() {
 }
 
 function renderAttendanceReportMetrics(totals) {
-    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
+    const recorded = Number(totals.employees_with_attendance ?? 0);
+    const derived = Number(totals.absent_derived ?? 0);
+    const withoutStart = Number(totals.employees_without_start_date ?? 0);
+    // Derived absences only count from each employee's known start date (hire date,
+    // effective contract, calendar assignment or first attendance).
+    const absentNote = totals.tracking_started_on
+        ? `${derived} hari kerja tanpa catatan${withoutStart ? ` · ${withoutStart} karyawan tanpa tanggal mulai tidak dihitung absen` : ''}`
+        : 'Belum ada catatan kehadiran di sistem';
+    document.getElementById('attendanceReportMetrics').innerHTML = `<div class="stat-card"><div class="stat-title">Employees</div><div class="stat-value">${totals.employees}</div><div class="stat-desc">${recorded} punya catatan kehadiran</div></div><div class="stat-card"><div class="stat-title">Present</div><div class="stat-value" style="color:#10b981">${totals.present}</div></div><div class="stat-card"><div class="stat-title">Late</div><div class="stat-value" style="color:#f59e0b">${totals.late}</div></div><div class="stat-card"><div class="stat-title">Absent</div><div class="stat-value" style="color:#ef4444">${totals.absent}</div><div class="stat-desc">${absentNote}</div></div><div class="stat-card"><div class="stat-title">Attendance Rate</div><div class="stat-value" style="color:#38bdf8">${totals.attendance_rate}%</div></div>`;
 }
 
-async function loadAttendanceReport() {
+async function loadAttendanceReport(fresh = false) {
     const tbody = document.getElementById('attendanceReportBody');
     if (!tbody) return;
     const month = document.getElementById('attendanceReportMonth');
@@ -6063,19 +7104,22 @@ async function loadAttendanceReport() {
     if (building.value) query.set('building_id', building.value);
     const buildingLabel = attendanceReportBuildingLabel();
     try {
-        const res = await apiFetch(`/attendance/reports/monthly?${query}`);
+        const res = await fetchAttendanceQuery(`/attendance/reports/monthly?${query}`, fresh);
         if (seq !== attendanceReportSeq) return;
         attendanceReportState.data = { month: month.value, totals: res.data.totals, rows: res.data.rows };
         attendanceReportState.buildingLabel = buildingLabel;
         renderAttendanceReportMetrics(res.data.totals);
-        const emptyMessage = buildingLabel
-            ? `Tidak ada data kehadiran untuk ${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}.`
-            : 'Tidak ada data kehadiran untuk periode ini.';
+        const population = Number(res.data.totals.employees || 0);
+        const scopeLabel = buildingLabel ? `${escapeHtml(buildingLabel)} pada periode ${escapeHtml(month.value)}` : `periode ${escapeHtml(month.value)}`;
+        const emptyMessage = population
+            ? `Belum ada catatan kehadiran untuk ${population} karyawan di ${scopeLabel}.`
+            : `Tidak ada karyawan aktif untuk ${scopeLabel}.`;
         tbody.innerHTML = res.data.rows.length
             ? res.data.rows.map(row => `<tr><td><strong>${escapeHtml(row.employee_name)}</strong><br><small>${escapeHtml(row.employee_code)}</small></td><td>${escapeHtml(row.building)}</td><td>${row.present}</td><td>${row.late}</td><td>${row.absent}</td><td>${row.attendance_rate}%</td><td>${row.late_minutes}</td></tr>`).join('')
             : `<tr><td colspan="7" class="empty-td">${emptyMessage}</td></tr>`;
     } catch (error) {
         if (seq !== attendanceReportSeq) return;
+        if (retryAttendanceAfterRateLimit(error, tbody, 7, () => seq === attendanceReportSeq, () => loadAttendanceReport(fresh))) return;
         attendanceReportState.data = null;
         document.getElementById('attendanceReportMetrics').innerHTML = '';
         tbody.innerHTML = `<tr><td colspan="7" class="error-td">Gagal memuat laporan: ${escapeHtml(error.message)}</td></tr>`;
@@ -6197,7 +7241,6 @@ async function openFacilityModal(doorId = null) {
         const gwEl = document.getElementById('facilityDoorGateway');
         const modelEl = document.getElementById('facilityDoorModel');
         const submitBtn = document.getElementById('facilityDoorSubmit');
-        const notice = document.getElementById('facilityDoorBuildingNotice');
 
         if (origIdEl) origIdEl.value = door?.door_id || '';
         if (idEl) idEl.value = door?.door_id || '';
@@ -6206,19 +7249,14 @@ async function openFacilityModal(doorId = null) {
         if (gwEl) gwEl.value = door?.gateway || '192.168.90.1';
         if (modelEl) modelEl.value = door?.device_model || door?.model || 'DS-K1T804AMF';
         if (submitBtn) submitBtn.textContent = door ? 'Update Door' : 'Register Door';
-        if (notice) { notice.hidden = true; notice.textContent = ''; }
 
         if (select && door) {
-            select.required = Boolean(door.building_id);
             if (door.building_id) {
                 select.value = String(door.building_id);
-            } else if (door.building_inferred_name || door.location) {
-                if (notice) {
-                    notice.hidden = false;
-                    notice.textContent = door.building_inference_ambiguous
-                        ? 'Building legacy ambigu; pilih Building secara eksplisit sebelum menyimpan.'
-                        : `Building legacy terdeteksi dari location (${door.building_inferred_name || door.location}), bukan assignment canonical. Pilih Building untuk menyimpan.`;
-                }
+            } else if (door.building_name || door.location) {
+                const loc = door.building_name || door.location;
+                const matched = (response?.data || []).find(b => b.name === loc || loc.includes(b.name) || b.name.includes(loc));
+                if (matched) select.value = String(matched.id);
             }
         }
     } catch (err) {
@@ -6239,15 +7277,26 @@ async function submitBuildingConfig(event) {
 async function submitDoorConfig(event) {
     event.preventDefault();
     const original = document.getElementById('facilityOriginalDoorId').value;
-    const buildingValue = document.getElementById('facilityDoorBuilding').value;
+    const connMode = document.querySelector('input[name="connection_mode"]:checked')?.value || 'auto';
     const payload = {
         door_id: document.getElementById('facilityDoorId').value,
         name: document.getElementById('facilityDoorName').value,
-        ...(buildingValue ? { building_id: Number(buildingValue) } : {}),
+        building_id: Number(document.getElementById('facilityDoorBuilding').value),
         device_ip: document.getElementById('facilityDoorIp').value,
         gateway: document.getElementById('facilityDoorGateway').value || null,
-        device_model: document.getElementById('facilityDoorModel').value
+        device_model: document.getElementById('facilityDoorModel').value,
+        connection_mode: connMode
     };
+    if (connMode === 'manual') {
+        payload.connection_scheme = document.getElementById('connection_scheme')?.value || 'http';
+        payload.device_port = parseInt(document.getElementById('device_port')?.value || 8200);
+        payload.connect_timeout = parseInt(document.getElementById('connect_timeout')?.value || 10);
+        payload.read_timeout = parseInt(document.getElementById('read_timeout')?.value || 10);
+        payload.verify_tls = document.getElementById('verify_tls')?.checked ? true : false;
+        payload.isapi_username = document.getElementById('isapi_username')?.value || null;
+        const pwd = document.getElementById('isapi_password')?.value;
+        if (pwd) payload.isapi_password = pwd;
+    }
     try {
         const res = await apiFetch(original ? `/admin/doors/${encodeURIComponent(original)}` : '/admin/doors', {
             method: original ? 'PUT' : 'POST',
@@ -6261,6 +7310,62 @@ async function submitDoorConfig(event) {
         showToast(error.message, 'error');
     }
 }
+
+function toggleManualFields() {
+    const mode = document.querySelector('input[name="connection_mode"]:checked')?.value;
+    const container = document.getElementById('manualFieldsContainer');
+    if (container) container.style.display = mode === 'manual' ? 'block' : 'none';
+}
+
+async function testManualConnection() {
+    const doorId = document.getElementById('facilityOriginalDoorId').value || 'temp';
+    const payload = {
+        device_ip: document.getElementById('facilityDoorIp').value,
+        device_port: parseInt(document.getElementById('device_port')?.value || 8200),
+        connection_scheme: document.getElementById('connection_scheme')?.value || 'http',
+        connect_timeout: parseInt(document.getElementById('connect_timeout')?.value || 10),
+        read_timeout: parseInt(document.getElementById('read_timeout')?.value || 10),
+        verify_tls: document.getElementById('verify_tls')?.checked ? true : false,
+        isapi_username: document.getElementById('isapi_username')?.value || null,
+        isapi_password: document.getElementById('isapi_password')?.value || null
+    };
+    const btn = document.getElementById('testConnectionBtn');
+    const resultContainer = document.getElementById('testResultContainer');
+    if (btn) btn.disabled = true;
+    if (resultContainer) {
+        resultContainer.style.display = 'block';
+        resultContainer.className = 'loading';
+        document.getElementById('testResultIcon').textContent = '⏳';
+        document.getElementById('testResultText').textContent = 'Testing connection...';
+    }
+    try {
+        const response = await apiFetch(`/admin/doors/${doorId}/test-manual`, {method: 'POST', body: JSON.stringify(payload)});
+        if (response.status === 'success' || response.statusCode === 200) {
+            if (resultContainer) {
+                resultContainer.className = 'success';
+                document.getElementById('testResultIcon').textContent = '✓';
+                document.getElementById('testResultText').textContent = 'Connection successful!';
+            }
+        } else {
+            if (resultContainer) {
+                resultContainer.className = 'error';
+                document.getElementById('testResultIcon').textContent = '✕';
+                document.getElementById('testResultText').textContent = response.message || 'Connection failed';
+            }
+        }
+    } catch (error) {
+        if (resultContainer) {
+            resultContainer.className = 'error';
+            document.getElementById('testResultIcon').textContent = '✕';
+            document.getElementById('testResultText').textContent = error.message || 'Connection error';
+        }
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+window.toggleManualFields = toggleManualFields;
+window.testManualConnection = testManualConnection;
 
 // ==========================================
 // SPRINT 10: FIELD ATTENDANCE + GPS + PHOTO
@@ -7751,6 +8856,290 @@ async function submitAddZone(e) {
     }
 }
 
+// ==========================================
+// Setup Gedung: master Divisi & Posisi (Gedung -> Divisi -> Posisi)
+// ==========================================
+// Uses the existing OrganizationController endpoints only:
+//   GET  /user-management/organization/{divisions|positions}       (super admin, incl. inactive)
+//   POST /user-management/organization/{divisions|positions}       (super admin)
+//   PUT  /user-management/organization/{divisions|positions}/{id}  (super admin; is_active toggles)
+//   GET  /user-management/organization/lookup                      (everyone, active + scoped)
+// Other roles get a read-only view of the active entries from the lookup.
+const organizationMaster = { loaded: false, loading: null, readOnly: true, buildings: [], divisions: [], positions: [] };
+
+function canManageOrganizationMaster() {
+    return window.APP_CONFIG?.admin?.role === 'super_admin'; // mirrors OrganizationController::ensureSuperAdmin
+}
+
+function switchOrganizationSubTab(name, btn) {
+    document.querySelectorAll('#buildingSetupTab .subnav-btn').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('#buildingSetupTab .org-sub-content').forEach(el => el.classList.remove('active'));
+    if (btn) btn.classList.add('active');
+    const target = document.getElementById(`orgSub${name.charAt(0).toUpperCase()}${name.slice(1)}`);
+    if (target) target.classList.add('active');
+    if (name === 'divisions' || name === 'positions') loadOrganizationMaster();
+}
+
+// Loads once per page (switching between Divisi and Posisi reuses it); `force` after a change.
+function loadOrganizationMaster(force = false) {
+    if (organizationMaster.loading) return organizationMaster.loading;
+    if (organizationMaster.loaded && !force) {
+        renderOrganizationMaster();
+        return Promise.resolve();
+    }
+    const loadingRow = label => `<tr><td colspan="6" class="loading-td"><div class="spinner"></div> Memuat ${label}...</td></tr>`;
+    const divisionsBody = document.getElementById('divisionsTableBody');
+    const positionsBody = document.getElementById('positionsTableBody');
+    if (divisionsBody && !organizationMaster.loaded) divisionsBody.innerHTML = loadingRow('divisi');
+    if (positionsBody && !organizationMaster.loaded) positionsBody.innerHTML = loadingRow('posisi');
+
+    const manage = canManageOrganizationMaster();
+    const request = manage
+        ? Promise.all([
+            ensureOrganizationLookup(),
+            apiFetch('/user-management/organization/divisions'),
+            apiFetch('/user-management/organization/positions'),
+        ]).then(([lookup, divisions, positions]) => ({ buildings: lookup.buildings || [], divisions: divisions.data || [], positions: positions.data || [] }))
+        : ensureOrganizationLookup().then(lookup => ({
+            buildings: lookup.buildings || [],
+            divisions: (lookup.divisions || []).map(d => ({ ...d, is_active: true })),
+            positions: (lookup.positions || []).map(p => ({ ...p, is_active: true })),
+        }));
+
+    organizationMaster.loading = request
+        .then(data => {
+            Object.assign(organizationMaster, data, { loaded: true, readOnly: !manage });
+            renderOrganizationMaster();
+        })
+        .catch(err => {
+            const row = `<tr><td colspan="6" class="error-td">Gagal memuat master organisasi: ${escapeHtml(err.message)}</td></tr>`;
+            if (divisionsBody) divisionsBody.innerHTML = row;
+            if (positionsBody) positionsBody.innerHTML = row;
+        })
+        .finally(() => { organizationMaster.loading = null; });
+    return organizationMaster.loading;
+}
+
+// After a change only the affected list is refetched (one request). The shared lookup is
+// invalidated and refetched lazily by whoever needs it next (employee form, read-only view).
+async function refreshOrganizationMasterList(type) {
+    const res = await apiFetch(`/user-management/organization/${type}`);
+    organizationMaster[type] = res.data || [];
+    renderOrganizationMaster();
+}
+
+function organizationStatusBadge(active) {
+    return active ? '<span class="badge badge-granted">Aktif</span>' : '<span class="badge badge-dim">Nonaktif</span>';
+}
+
+function organizationRowActions(type, item) {
+    if (organizationMaster.readOnly) return '<span class="text-muted" style="font-size:.8rem;">Hanya lihat</span>';
+    return `<button class="btn-sm btn-edit" onclick="openOrganizationMasterModal('${type}', ${Number(item.id)})">✏️ Edit</button>
+        <button class="btn-sm ${item.is_active ? 'btn-delete' : 'btn-edit'}" onclick="toggleOrganizationMasterActive('${type}', ${Number(item.id)}, this)">${item.is_active ? 'Nonaktifkan' : 'Aktifkan'}</button>`;
+}
+
+function renderOrganizationMaster() {
+    const { buildings, divisions, positions, readOnly } = organizationMaster;
+    const buildingName = id => buildings.find(b => String(b.id) === String(id))?.name || (id ? `Gedung #${id}` : '-');
+    const divisionById = id => divisions.find(d => String(d.id) === String(id));
+
+    const buildingFilter = document.getElementById('divisionBuildingFilter');
+    if (buildingFilter) {
+        const current = buildingFilter.value;
+        buildingFilter.innerHTML = '<option value="">Semua Gedung</option>' + buildings.map(b => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+        buildingFilter.value = buildings.some(b => String(b.id) === current) ? current : '';
+    }
+    const divisionFilter = document.getElementById('positionDivisionFilter');
+    if (divisionFilter) {
+        const current = divisionFilter.value;
+        divisionFilter.innerHTML = '<option value="">Semua Divisi</option>' + divisions.map(d => `<option value="${d.id}">${escapeHtml(d.name)} — ${escapeHtml(buildingName(d.building_id))}</option>`).join('');
+        divisionFilter.value = divisions.some(d => String(d.id) === current) ? current : '';
+    }
+
+    const readOnlyNote = readOnly ? ' Hanya super admin yang dapat menambah atau mengubah.' : '';
+    const divisionsBody = document.getElementById('divisionsTableBody');
+    if (divisionsBody) {
+        const rows = divisions.filter(d => !buildingFilter?.value || String(d.building_id) === buildingFilter.value);
+        divisionsBody.innerHTML = rows.length
+            ? rows.map(d => `<tr>
+                <td><code>${escapeHtml(d.code)}</code></td>
+                <td><strong>${escapeHtml(d.name)}</strong></td>
+                <td>${escapeHtml(buildingName(d.building_id))}</td>
+                <td>${positions.filter(p => String(p.division_id) === String(d.id)).length}</td>
+                <td>${organizationStatusBadge(d.is_active)}</td>
+                <td style="text-align:right;white-space:nowrap;">${organizationRowActions('divisions', d)}</td>
+            </tr>`).join('')
+            : `<tr><td colspan="6" class="empty-td">Belum ada data divisi${buildingFilter?.value ? ' untuk gedung ini' : ''}.${readOnlyNote}</td></tr>`;
+    }
+
+    const positionsBody = document.getElementById('positionsTableBody');
+    if (positionsBody) {
+        const rows = positions.filter(p => !divisionFilter?.value || String(p.division_id) === divisionFilter.value);
+        positionsBody.innerHTML = rows.length
+            ? rows.map(p => {
+                const division = divisionById(p.division_id);
+                return `<tr>
+                    <td><code>${escapeHtml(p.code)}</code></td>
+                    <td><strong>${escapeHtml(p.name)}</strong></td>
+                    <td>${escapeHtml(division?.name || (p.division_id ? `Divisi #${p.division_id}` : '-'))}</td>
+                    <td>${escapeHtml(division ? buildingName(division.building_id) : '-')}</td>
+                    <td>${organizationStatusBadge(p.is_active)}</td>
+                    <td style="text-align:right;white-space:nowrap;">${organizationRowActions('positions', p)}</td>
+                </tr>`;
+            }).join('')
+            : `<tr><td colspan="6" class="empty-td">Belum ada data posisi${divisionFilter?.value ? ' untuk divisi ini' : ''}.${divisions.length ? '' : ' Tambahkan divisi terlebih dahulu.'}${readOnlyNote}</td></tr>`;
+    }
+}
+
+function showOrganizationMasterError(message) {
+    const box = document.getElementById('orgMasterError');
+    if (!box) return;
+    box.innerHTML = message;
+    box.hidden = !message;
+}
+
+let organizationMasterModalSeq = 0;
+
+// The parent dropdown is built from the master data. Opening the modal before that data has
+// arrived (production latency, a quick click right after opening the tab) used to snapshot an
+// empty Gedung/Divisi list, disable Simpan for good and never send the POST. The modal now
+// waits for the data, then fills the parents and enables Simpan.
+async function openOrganizationMasterModal(type, id = null) {
+    if (!canManageOrganizationMaster()) return;
+    const seq = ++organizationMasterModalSeq;
+    const isDivision = type === 'divisions';
+    const parent = document.getElementById('orgMasterParent');
+    const submit = document.getElementById('orgMasterSubmit');
+
+    document.getElementById('orgMasterType').value = type;
+    document.getElementById('orgMasterId').value = id || '';
+    document.getElementById('orgMasterModalTitle').textContent = `${id ? 'Edit' : 'Tambah'} ${isDivision ? 'Divisi' : 'Posisi'}`;
+    document.getElementById('orgMasterParentLabel').textContent = isDivision ? 'Gedung *' : 'Divisi *';
+    document.getElementById('orgMasterCode').value = '';
+    document.getElementById('orgMasterName').value = '';
+    showOrganizationMasterError('');
+
+    if (!organizationMaster.loaded) {
+        parent.innerHTML = `<option value="">Memuat data ${isDivision ? 'gedung' : 'divisi'}...</option>`;
+        parent.disabled = true;
+        submit.disabled = true;
+        openModal('orgMasterModal');
+        await loadOrganizationMaster();
+        if (seq !== organizationMasterModalSeq) return; // another open superseded this one
+        parent.disabled = false;
+        if (!organizationMaster.loaded) {
+            showOrganizationMasterError('Data gedung/divisi gagal dimuat. Tutup lalu coba lagi.');
+            return;
+        }
+    }
+    fillOrganizationMasterModal(type, id);
+}
+
+function fillOrganizationMasterModal(type, id) {
+    const isDivision = type === 'divisions';
+    const list = isDivision ? organizationMaster.divisions : organizationMaster.positions;
+    const item = id ? list.find(x => Number(x.id) === Number(id)) : null;
+    const buildingName = bid => organizationMaster.buildings.find(b => String(b.id) === String(bid))?.name || `Gedung #${bid}`;
+
+    document.getElementById('orgMasterType').value = type;
+    document.getElementById('orgMasterId').value = item ? item.id : '';
+    document.getElementById('orgMasterModalTitle').textContent = `${item ? 'Edit' : 'Tambah'} ${isDivision ? 'Divisi' : 'Posisi'}`;
+    document.getElementById('orgMasterParentLabel').textContent = isDivision ? 'Gedung *' : 'Divisi *';
+    if (item) { // create keeps whatever was typed while the data was loading
+        document.getElementById('orgMasterCode').value = item.code || '';
+        document.getElementById('orgMasterName').value = item.name || '';
+    }
+    document.getElementById('orgMasterCode').placeholder = isDivision ? 'DIV-IT' : 'POS-STAFF-IT';
+    document.getElementById('orgMasterName').placeholder = isDivision ? 'IT Support' : 'Staff IT';
+    document.getElementById('orgMasterActive').checked = item ? Boolean(item.is_active) : true;
+    document.getElementById('orgMasterActiveRow').hidden = !item;
+
+    // Parents: active ones, plus the current parent of the edited row even if inactive.
+    const parentId = item ? (isDivision ? item.building_id : item.division_id) : '';
+    const parents = isDivision
+        ? organizationMaster.buildings.map(b => ({ id: b.id, label: b.name }))
+        : organizationMaster.divisions
+            .filter(d => d.is_active || String(d.id) === String(parentId))
+            .map(d => ({ id: d.id, label: `${d.name} — ${buildingName(d.building_id)}` }));
+    const parent = document.getElementById('orgMasterParent');
+    parent.disabled = false;
+    parent.innerHTML = `<option value="">${isDivision ? 'Pilih Gedung...' : 'Pilih Divisi...'}</option>` + parents.map(x => `<option value="${x.id}">${escapeHtml(x.label)}</option>`).join('');
+    parent.value = parentId ? String(parentId) : '';
+
+    const submit = document.getElementById('orgMasterSubmit');
+    submit.disabled = parents.length === 0;
+    showOrganizationMasterError(parents.length ? '' : (isDivision ? 'Belum ada gedung aktif. Tambahkan gedung terlebih dahulu.' : 'Belum ada divisi aktif. Tambahkan divisi terlebih dahulu.'));
+    if (!document.getElementById('orgMasterModal').classList.contains('active')) openModal('orgMasterModal');
+}
+
+async function submitOrganizationMaster(event) {
+    event.preventDefault();
+    const type = document.getElementById('orgMasterType').value;
+    const id = document.getElementById('orgMasterId').value;
+    const parentId = document.getElementById('orgMasterParent').value;
+    const code = document.getElementById('orgMasterCode').value.trim();
+    const name = document.getElementById('orgMasterName').value.trim();
+    const isDivision = type === 'divisions';
+
+    const missing = [!parentId && (isDivision ? 'Gedung' : 'Divisi'), !code && 'Kode', !name && 'Nama'].filter(Boolean);
+    if (missing.length) {
+        showOrganizationMasterError(`Wajib diisi: ${missing.join(', ')}.`);
+        return;
+    }
+
+    const payload = { code, name, [isDivision ? 'building_id' : 'division_id']: Number(parentId) };
+    if (id) payload.is_active = document.getElementById('orgMasterActive').checked;
+
+    const submit = document.getElementById('orgMasterSubmit');
+    submit.disabled = true; // one request per click
+    showOrganizationMasterError('');
+    try {
+        await apiFetch(`/user-management/organization/${type}${id ? `/${Number(id)}` : ''}`, {
+            method: id ? 'PUT' : 'POST',
+            body: JSON.stringify(payload),
+            isBackground: false,
+        });
+        closeModal('orgMasterModal');
+        showToast(`${isDivision ? 'Divisi' : 'Posisi'} ${name} berhasil ${id ? 'diperbarui' : 'ditambahkan'}.`, 'success');
+        invalidateOrganizationLookup();
+        await refreshOrganizationMasterList(type);
+    } catch (err) {
+        const fieldMessages = err.errors ? Object.values(err.errors).flat() : [];
+        showOrganizationMasterError(escapeHtml(fieldMessages.length ? fieldMessages.join(' ') : err.message));
+    } finally {
+        submit.disabled = false;
+    }
+}
+
+async function toggleOrganizationMasterActive(type, id, button) {
+    if (!canManageOrganizationMaster()) return;
+    const list = type === 'divisions' ? organizationMaster.divisions : organizationMaster.positions;
+    const item = list.find(x => Number(x.id) === Number(id));
+    if (!item) return;
+    const activate = !item.is_active;
+    if (!activate && !confirm(`Nonaktifkan ${item.name}? Data tidak dihapus, hanya tidak muncul lagi di form Pengguna.`)) return;
+
+    const parentKey = type === 'divisions' ? 'building_id' : 'division_id';
+    if (button) button.disabled = true;
+    try {
+        await apiFetch(`/user-management/organization/${type}/${Number(id)}`, {
+            method: 'PUT',
+            body: JSON.stringify({ code: item.code, name: item.name, [parentKey]: item[parentKey], is_active: activate }),
+            isBackground: false,
+        });
+        showToast(`${item.name} ${activate ? 'diaktifkan' : 'dinonaktifkan'}.`, 'success');
+        invalidateOrganizationLookup();
+        await refreshOrganizationMasterList(type);
+    } catch (err) {
+        showToast(`Gagal mengubah status: ${err.message}`, 'error');
+        if (button) button.disabled = false;
+    }
+}
+
+window.openOrganizationMasterModal = openOrganizationMasterModal;
+window.submitOrganizationMaster = submitOrganizationMaster;
+window.toggleOrganizationMasterActive = toggleOrganizationMasterActive;
+
 window.loadBuildingHierarchy = loadBuildingHierarchy;
 window.openAddBuildingModal = openAddBuildingModal;
 window.submitAddBuilding = submitAddBuilding;
@@ -7826,9 +9215,96 @@ async function loadSystemHealth() {
 }
 
 window.loadSystemHealth = loadSystemHealth;
-window.openFacilityModal = openFacilityModal;
-window.submitBuildingConfig = submitBuildingConfig;
-window.submitDoorConfig = submitDoorConfig;
-window.apiFetch = apiFetch;
-window.exportAttendanceReport = exportAttendanceReport;
+
+// Everything above lives inside the init guard's `else { }` block. Plain function
+// declarations there still leak to window (Annex B), but `async function`
+// declarations stay block-scoped, so Blade's inline on* handlers cannot see them.
+// Expose exactly the async handlers that the Blade view and the HTML templates
+// in this file call inline (tests/Feature/DashboardInlineHandlerTest.php).
+Object.assign(window, {
+    downloadSecureDocument,
+    exportAttendanceReport,
+    loadAccessLogs,
+    loadAccessRequests,
+    loadActivityLogs,
+    loadAssetAssignments,
+    loadAssetIncidents,
+    loadAssetMaintenances,
+    loadAssetsInventory,
+    loadAtsApplications,
+    loadAtsVacancies,
+    loadAttendanceData,
+    loadAttendanceReport,
+    loadCredentials,
+    loadDashboardBuildings,
+    loadDeviceReconciliation,
+    openReconDevicePersonDetail,
+    openReconEmployeeDetail,
+    runDeviceReconciliation,
+    submitReconciliationDecision,
+    loadDeviceSyncs,
+    loadEmoneyCards,
+    loadEmployees,
+    loadFieldAttendanceData,
+    loadInternshipData,
+    loadInternships,
+    loadOnboardingCases,
+    loadOnboardingContracts,
+    loadOnboardingData,
+    loadOnboardingDocuments,
+    loadRecruitmentData,
+    onEmoneyStatusSelectChanged,
+    openApplyModal,
+    openConvertCandidateModal,
+    openEditAssetModal,
+    openFacilityModal,
+    refreshAccessData,
+    retryDeviceSyncItem,
+    saveApplication,
+    saveCandidate,
+    saveContract,
+    saveEmployee,
+    saveInternActivity,
+    saveInternEvaluation,
+    saveInternReport,
+    saveInternship,
+    saveInterviewFeedback,
+    saveInterviewSchedule,
+    saveOffer,
+    saveOnboardingCase,
+    saveVacancy,
+    showAssetDetail,
+    submitAccessProfile,
+    submitAccessRequest,
+    submitApproveAccessRequest,
+    submitAssetForm,
+    submitAssignAsset,
+    submitBuildingConfig,
+    submitCompleteCaseDirect,
+    submitCompleteInternship,
+    submitCompleteMaintenance,
+    submitConvertCandidateToIntern,
+    submitConvertToEmployee,
+    submitCredential,
+    submitDisposeAsset,
+    submitDoorConfig,
+    submitEmoneyCard,
+    submitFieldAttendance,
+    submitFieldOverride,
+    submitIncident,
+    submitMaintenance,
+    submitRejectAccessRequest,
+    submitResolveIncident,
+    submitReturnAsset,
+    submitReviewInternActivity,
+    submitReviewInternReport,
+    submitRevokeCredential,
+    submitTaskUpdate,
+    submitTransitionStage,
+    submitUploadDocument,
+    submitVerifyDocument,
+    toggleDoorStatus,
+    viewFieldPhoto,
+    viewOnboardingCaseDetail,
+});
 } // end of window.__secureGateInitialized guard
