@@ -29,7 +29,7 @@ class DatabaseSeeder extends Seeder
     {
         // Demo mode: seed Buildings A-D and 12 demo employees
         // Production: skip this, use ProductionEmployeesSeeder instead
-        $this->isDemoMode = app()->environment(['local', 'testing']);
+        $this->isDemoMode = app()->environment(['local', 'testing', 'uat']);
 
         if ($this->isDemoMode) {
             $this->seedDemoData();

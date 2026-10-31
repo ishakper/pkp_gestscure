@@ -91,7 +91,7 @@ class AttendanceReportController extends Controller
             'building_id' => ['nullable', 'integer', 'exists:buildings,id'],
             'employee_id' => ['nullable', 'integer', 'exists:employees,id'],
         ]);
-        $from = Carbon::createFromFormat('Y-m', $filters['month'] ?? now()->format('Y-m'))->startOfMonth();
+        $from = Carbon::createFromFormat('!Y-m', $filters['month'] ?? now()->format('Y-m'))->startOfMonth();
         return [$actor, $filters, $from, $from->copy()->endOfMonth()];
     }
 
@@ -188,7 +188,9 @@ class AttendanceReportController extends Controller
     {
         $byEmployee = $records->groupBy('employee_id');
         $employees = $population->keyBy('id');
-        $ids = collect($byEmployee->keys())->merge(array_keys($derivedAbsent))->unique();
+        $ids = $byEmployee->keys()
+            ->merge(array_keys($derivedAbsent))
+            ->unique();
 
         return $ids->map(function ($id) use ($byEmployee, $employees, $derivedAbsent, $eligibility): array {
             $items = $byEmployee->get($id, collect());

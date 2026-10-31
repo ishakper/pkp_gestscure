@@ -25,7 +25,11 @@ RUN apk add --no-cache \
     && echo "${TZ}" > /etc/timezone
 
 # 2. Install Required PHP Extensions
-RUN docker-php-ext-install \
+RUN apk add --no-cache --virtual .redis-build-deps $PHPIZE_DEPS \
+    && pecl install redis \
+    && docker-php-ext-enable redis \
+    && apk del .redis-build-deps \
+    && docker-php-ext-install \
     pdo \
     pdo_pgsql \
     bcmath \

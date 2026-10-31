@@ -362,8 +362,22 @@ Route::prefix('v1')->group(function () {
 |--------------------------------------------------------------------------
 | Mock ISAPI Routes (Hikvision DS-K1T804AMF Simulation & Integration)
 |--------------------------------------------------------------------------
+| Mock routes are strictly restricted:
+| 1. Never registered in production under any circumstance.
+| 2. Registered in testing environment for automated test suites.
+| 3. In local or uat environments, registered ONLY when mock mode is
+|    explicitly configured and enabled (`services.hikvision.use_mock === true`).
+|--------------------------------------------------------------------------
 */
-if (app()->environment(['local', 'testing'])) {
+$isMockExplicitlyEnabled = filter_var(config('services.hikvision.use_mock', false), FILTER_VALIDATE_BOOLEAN);
+$currentEnv = app()->environment();
+
+$canRegisterMockRoutes = !app()->environment('production') && (
+    $currentEnv === 'testing' ||
+    (in_array($currentEnv, ['local', 'uat'], true) && $isMockExplicitlyEnabled)
+);
+
+if ($canRegisterMockRoutes) {
     Route::prefix('mock/isapi')->group(function () {
         Route::get('/System/status', [HikvisionMockController::class, 'deviceStatus']);
         Route::get('/System/deviceInfo', [HikvisionMockController::class, 'deviceStatus']);

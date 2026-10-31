@@ -19,10 +19,11 @@ class HikvisionIsapiService
 
     /**
      * Check if system is running in mock mode.
+     * Evaluates boolean flag safely via filter_var to avoid string "false" false-positives.
      */
     public function isMockMode(): bool
     {
-        return (bool) config('services.hikvision.use_mock', true);
+        return filter_var(config('services.hikvision.use_mock', true), FILTER_VALIDATE_BOOLEAN);
     }
 
     /**
@@ -139,6 +140,13 @@ class HikvisionIsapiService
      */
     protected function buildHttpClient(?Door $door = null): PendingRequest
     {
+        // Fail-closed network safety invariant: UAT environment is forbidden from outbound physical calls
+        if (app()->environment('uat')) {
+            throw new \RuntimeException(
+                'FATAL NETWORK SAFETY VIOLATION: [uat] environment is strictly forbidden from initiating outbound TCP connections to physical Hikvision devices.'
+            );
+        }
+
         $connectTimeout = (int) config('services.hikvision.connect_timeout', 5);
         $requestTimeout = (int) config('services.hikvision.request_timeout', 10);
 

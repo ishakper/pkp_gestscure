@@ -26,14 +26,15 @@ echo "Setting storage & database permissions for www-data..."
 chown -R www-data:www-data /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
 chmod -R 775 /var/www/html/database /var/www/html/storage /var/www/html/bootstrap/cache
 
-# 4. Require a stable APP_KEY in production; generate only for non-production convenience
+# 4. Require stable APP_KEY in UAT and production. Never generate keys at startup.
+if [ -z "$APP_KEY" ] && { [ "$APP_ENV" = "production" ] || [ "$APP_ENV" = "uat" ]; }; then
+    echo "ERROR: APP_KEY must be set in $APP_ENV." >&2
+    exit 1
+fi
+
 if [ -z "$APP_KEY" ]; then
-    if [ "$APP_ENV" = "production" ]; then
-        echo "ERROR: APP_KEY must be set in production." >&2
-        exit 1
-    fi
-    echo "Warning: APP_KEY is not set. Generating a development application key..."
-    php artisan key:generate --force
+    echo "ERROR: APP_KEY must be set before startup." >&2
+    exit 1
 fi
 
 # 5. Clear Old Caches to prevent stale schema/routes
